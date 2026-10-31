@@ -1,0 +1,6 @@
+{
+  "name": "Shreem Mehal Jewellers",
+  "description": "Comprehensive jewellery store accounting, GST invoice billing, inventory management with stock alerts, live metal rates, and automated customer reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
