@@ -194,7 +194,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <Menu className="w-5 h-5" />
               </button>
             )}
-            <ShreemLogo size="md" showText={true} />
+            <ShreemLogo size="md" showText={true} customLogo={activeProfile.logoUrl || shopDetails.logoUrl} transparentBg={true} />
             <div className="hidden sm:block pl-2 border-l border-slate-800">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-300 font-medium flex items-center gap-1">

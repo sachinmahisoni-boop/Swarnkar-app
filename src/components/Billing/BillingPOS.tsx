@@ -45,6 +45,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
 
   // Inventory Item Selector / Barcode search
   const [itemSearch, setItemSearch] = useState('');
+  const [posCategoryFilter, setPosCategoryFilter] = useState<'All' | 'Gold' | 'Silver' | 'Gemstone' | 'Diamond'>('All');
 
   // Custom Item Manual Entry Drawer
   const [showCustomItemModal, setShowCustomItemModal] = useState(false);
@@ -140,6 +141,14 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
     const huidCharge = item.huid ? 45 : 0;
     const subtotal = metalCost + wastageCost + makingCharge + item.stoneValue + huidCharge;
 
+    const baseMetalCost = item.netWeight * (item.purchaseRatePerGram || (rate * 0.94));
+    const baseMakingCost = item.makingCostPerGram ? (item.netWeight * item.makingCostPerGram) : (makingCharge * 0.45);
+    const baseStoneCost = item.stoneCost || Math.round(item.stoneValue * 0.65);
+    const itemCostPrice = Math.round(item.costPrice || (baseMetalCost + baseMakingCost + baseStoneCost + (item.huid ? 45 : 0)));
+    const roundedSubtotal = Math.round(subtotal);
+    const profit = Math.round(roundedSubtotal - itemCostPrice);
+    const marginPct = roundedSubtotal > 0 ? Number(((profit / roundedSubtotal) * 100).toFixed(2)) : 0;
+
     const newItem: InvoiceItem = {
       itemId: item.id,
       tagNo: item.tagNo,
@@ -166,7 +175,10 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
       makingChargeRate: item.makingChargeRate,
       makingCharge: Math.round(makingCharge),
       huidCharge: huidCharge,
-      subtotal: Math.round(subtotal),
+      subtotal: roundedSubtotal,
+      costPrice: itemCostPrice,
+      unitProfit: profit,
+      profitMarginPercent: marginPct,
       hsnCode: item.hsnCode || '7113',
       quantity: 1
     };
@@ -187,6 +199,11 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
       : customMakingRate;
     const huidCharge = customEnableHuid ? 45 : 0;
     const subtotal = metalCost + wastageCost + makingCharge + customStoneVal + huidCharge;
+    const roundedSubtotal = Math.round(subtotal);
+
+    const customCostPrice = Math.round((netWeight * (rate * 0.94)) + (makingCharge * 0.45) + (customStoneVal * 0.65) + (customEnableHuid ? 45 : 0));
+    const profit = Math.round(roundedSubtotal - customCostPrice);
+    const marginPct = roundedSubtotal > 0 ? Number(((profit / roundedSubtotal) * 100).toFixed(2)) : 0;
 
     const newItem: InvoiceItem = {
       tagNo: `SMJ-MAN-${Math.floor(100 + Math.random() * 900)}`,
@@ -213,7 +230,10 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
       makingChargeRate: Number(customMakingRate),
       makingCharge: Math.round(makingCharge),
       huidCharge: huidCharge,
-      subtotal: Math.round(subtotal),
+      subtotal: roundedSubtotal,
+      costPrice: customCostPrice,
+      unitProfit: profit,
+      profitMarginPercent: marginPct,
       hsnCode: customMetal === 'Silver' ? '7106' : '7113',
       quantity: 1
     };
@@ -349,12 +369,29 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
     setEnableOldExchange(false);
   };
 
-  const filteredInventory = inventory.filter(i =>
-    i.name.toLowerCase().includes(itemSearch.toLowerCase()) ||
-    i.tagNo.toLowerCase().includes(itemSearch.toLowerCase()) ||
-    (i.huid && i.huid.toLowerCase().includes(itemSearch.toLowerCase())) ||
-    i.barcode.toLowerCase().includes(itemSearch.toLowerCase())
-  );
+  const filteredInventory = inventory.filter(i => {
+    const term = itemSearch.toLowerCase().trim();
+    const matchesSearch = !term ||
+      i.name.toLowerCase().includes(term) ||
+      i.tagNo.toLowerCase().includes(term) ||
+      (i.huid && i.huid.toLowerCase().includes(term)) ||
+      i.barcode.toLowerCase().includes(term) ||
+      (i.stoneType && i.stoneType.toLowerCase().includes(term));
+
+    const matchesCategory = 
+      posCategoryFilter === 'All' ? true :
+      posCategoryFilter === 'Gold' ? i.metal === 'Gold' :
+      posCategoryFilter === 'Silver' ? i.metal === 'Silver' :
+      posCategoryFilter === 'Gemstone' ? (
+        i.category.toLowerCase().includes('gem') || 
+        i.category.toLowerCase().includes('navratna') || 
+        !!i.stoneType || 
+        i.metal === 'Diamond'
+      ) :
+      (i.metal === 'Diamond' || i.name.toLowerCase().includes('diamond'));
+
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <div className="space-y-6">
@@ -481,11 +518,38 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
               </div>
             </div>
 
-            {/* Live Search Results Dropdown */}
-            {itemSearch.trim() && (
-              <div className="bg-slate-950 border border-slate-800 rounded-xl max-h-48 overflow-y-auto divide-y divide-slate-800/80">
+            {/* Quick Category Filter Pills */}
+            <div className="flex items-center gap-1.5 text-xs overflow-x-auto pb-1">
+              <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider shrink-0 mr-1">
+                Filter Stock:
+              </span>
+              {[
+                { id: 'All', label: 'All Items (सभी आइटम)' },
+                { id: 'Gold', label: 'Gold (सोना)' },
+                { id: 'Silver', label: 'Silver (चांदी)' },
+                { id: 'Gemstone', label: 'Gemstones & Navratna (रत्न)' },
+                { id: 'Diamond', label: 'Diamonds (हीरा)' },
+              ].map(cat => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setPosCategoryFilter(cat.id as any)}
+                  className={`px-2.5 py-1 rounded-lg font-bold text-[11px] shrink-0 transition cursor-pointer ${
+                    posCategoryFilter === cat.id
+                      ? 'bg-amber-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Live Search & Filter Results Dropdown */}
+            {(itemSearch.trim() || posCategoryFilter !== 'All') && (
+              <div className="bg-slate-950 border border-slate-800 rounded-xl max-h-56 overflow-y-auto divide-y divide-slate-800/80">
                 {filteredInventory.length === 0 ? (
-                  <p className="p-3 text-xs text-slate-500 text-center">No inventory matching "{itemSearch}"</p>
+                  <p className="p-3 text-xs text-slate-500 text-center">No inventory matching filter</p>
                 ) : (
                   filteredInventory.map(item => (
                     <div

@@ -7,6 +7,7 @@ interface GSTAccountingReportsProps {
   inventory: JewelleryItem[];
   rates: MetalRate[];
   girviLoans?: GirviLoan[];
+  onNavigateToProfit?: () => void;
 }
 
 export const GSTAccountingReports: React.FC<GSTAccountingReportsProps> = ({
@@ -14,6 +15,7 @@ export const GSTAccountingReports: React.FC<GSTAccountingReportsProps> = ({
   inventory,
   rates,
   girviLoans = [],
+  onNavigateToProfit,
 }) => {
   const [reportView, setReportView] = useState<'daily' | 'gst'>('daily');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -136,6 +138,17 @@ export const GSTAccountingReports: React.FC<GSTAccountingReportsProps> = ({
               <option value="2026-09">September 2026</option>
               <option value="2026-08">August 2026</option>
             </select>
+          )}
+
+          {onNavigateToProfit && (
+            <button
+              onClick={onNavigateToProfit}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-md shadow-amber-500/20 flex items-center gap-1.5 transition cursor-pointer"
+              title="Open Individual Item Profit Margins & Shop Performance Analysis"
+            >
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>Profit & Margins (मुनाफा)</span>
+            </button>
           )}
 
           <button

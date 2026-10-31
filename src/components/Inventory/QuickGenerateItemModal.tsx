@@ -166,6 +166,12 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
     e.preventDefault();
     if (!name.trim()) return;
 
+    const liveRate = rates.find(r => r.metal === metal && r.purity === purity)?.ratePerGram || (metal === 'Gold' ? 13085 : 176);
+    const purchaseRate = Math.round(liveRate * 0.94);
+    const makingCost = makingChargeType === 'per_gram' ? Math.round(netWeight * (makingChargeRate * 0.45)) : Math.round(makingChargeRate * 0.45);
+    const stoneCostVal = Math.round(stoneValue * 0.65);
+    const calculatedCostPrice = Math.round((netWeight * purchaseRate) + makingCost + stoneCostVal + (huid ? 45 : 0));
+
     const newItem: JewelleryItem = {
       id: `item-${Date.now()}`,
       tagNo,
@@ -181,6 +187,10 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
       wastagePercentage: Number(wastagePercentage),
       makingChargeType,
       makingChargeRate: Number(makingChargeRate),
+      costPrice: calculatedCostPrice,
+      purchaseRatePerGram: purchaseRate,
+      makingCostPerGram: makingChargeType === 'per_gram' ? Math.round(makingChargeRate * 0.45) : undefined,
+      stoneCost: stoneCostVal,
       hsnCode: metal === 'Silver' ? '7106' : '7113',
       quantity: Number(quantity) || 1,
       minStockAlert: 2,

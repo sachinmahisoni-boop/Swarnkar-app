@@ -399,6 +399,41 @@ export const ItemModal: React.FC<ItemModalProps> = ({
             </div>
           </div>
 
+          {/* Row 6: Unit Cost Price (लागत मूल्य) for Profit Reporting */}
+          <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-amber-400 mb-1 font-medium text-xs">
+                Unit Cost Price (लागत मूल्य ₹) - [Optional]
+              </label>
+              <input
+                type="number"
+                placeholder="Auto-calculated from metal + labor if empty"
+                value={formData.costPrice || ''}
+                onChange={e => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || undefined })}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-amber-500 placeholder-slate-500"
+              />
+              <span className="text-[10px] text-slate-500 mt-0.5 block">
+                Wholesale bullion ingot + Karigar wage + stone cost
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1 font-medium text-xs">
+                Low Stock Alert Threshold
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={formData.minStockAlert || 2}
+                onChange={e => setFormData({ ...formData, minStockAlert: parseInt(e.target.value) || 1 })}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-amber-500"
+              />
+              <span className="text-[10px] text-slate-500 mt-0.5 block">
+                Alert trigger when inventory falls below this count
+              </span>
+            </div>
+          </div>
+
           {/* Footer Actions */}
           <div className="pt-4 border-t border-slate-800 flex items-center justify-end space-x-3">
             <button

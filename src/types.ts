@@ -1,8 +1,9 @@
-export type MetalType = 'Gold' | 'Silver' | 'Platinum' | 'Diamond';
+export type MetalType = 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Gemstone';
 
 export type GoldPurity = '24K' | '22K' | '18K' | '14K' | '9K';
 export type SilverPurity = '999 Fine' | '925 Sterling';
 export type PlatinumPurity = '950 Platinum';
+export type GemstonePurity = 'Natural Certified' | 'Untreated Astrological' | 'Standard Gem' | 'Lab Certified';
 
 // Allow predefined and dynamic custom categories
 export type ItemCategory = string;
@@ -12,6 +13,44 @@ export interface MetalRate {
   purity: string;
   ratePerGram: number; // in INR ₹
   lastUpdated: string;
+}
+
+export interface GemstoneRate {
+  id: string;
+  name: string; // e.g. Panna (Zambian Emerald)
+  hindiName: string; // पन्ना (जाम्बियन)
+  gemType: string; // Emerald, Ruby, Yellow Sapphire, Blue Sapphire, Pearl, Coral, Hessonite, Cats Eye, Diamond, Opal
+  planet: string; // e.g. बुध (Mercury)
+  grade: 'Astrological (सर्वोत्तम)' | 'Fine Premium' | 'Commercial';
+  ratePerRatti: number;
+  ratePerCarat: number;
+  lastUpdated: string;
+}
+
+export interface CertifiedGemstone {
+  id: string;
+  tagNo: string;
+  name: string;
+  hindiName: string;
+  gemType: string;
+  planet: string;
+  carat: number;
+  ratti: number;
+  gramWeight: number; // carat * 0.2
+  color: string;
+  cutShape: string;
+  clarity: string;
+  origin: string;
+  treatment: string;
+  labName: string;
+  labCertNo: string;
+  ratePerRatti: number;
+  ratePerCarat: number;
+  sellingPrice: number;
+  costPrice: number;
+  stockStatus: 'In Stock' | 'Sold' | 'Reserved';
+  dateAdded: string;
+  description?: string;
 }
 
 export interface CityMetalRates {
@@ -30,6 +69,7 @@ export interface JewellerProfile {
   gstin: string;
   phone: string;
   isDefault?: boolean;
+  logoUrl?: string; // Custom profile / branch logo (Base64 dataUrl or file path)
 }
 
 export interface JewelleryItem {
@@ -45,13 +85,24 @@ export interface JewelleryItem {
   stoneWeight: number; // in grams or carats
   stoneValue: number; // ₹ value of stones/diamonds
   stoneType?: string; // Diamond, Ruby, Emerald, etc.
-  stoneCarat?: number; // Carat or Ratti
+  stoneCarat?: number; // Carat
+  ratti?: number; // Astrological Ratti weight
+  gemOrigin?: string; // e.g. Ceylon Sri Lanka, Burma, Zambia, Colombia
+  gemTreatment?: string; // e.g. Natural Untreated, Mild Heat
+  gemCut?: string; // e.g. Oval Mixed Cut, Cushion, Emerald Cut
+  gemColor?: string; // e.g. Vivid Green, Pigeon Blood Red, Royal Blue
+  gemLab?: string; // e.g. GTL Jaipur, IGI, GIA, IGL
   labCertNo?: string; // GIA, IGI, Govt Lab
   wastagePercentage: number; // % wastage/touch
   makingChargeType: 'per_gram' | 'flat';
   makingChargeRate: number; // ₹ per gram or flat ₹
   makingChargePerGram?: number;
   makingChargeFixed?: number;
+  // Cost Price & Profit Analytics
+  costPrice?: number; // Total unit acquisition cost price in ₹
+  purchaseRatePerGram?: number; // Raw metal wholesale cost rate per gram
+  makingCostPerGram?: number; // Karigar labor cost per gram paid by shop
+  stoneCost?: number; // Wholesale acquisition cost of stones
   hsnCode: string; // e.g. '7113' for jewellery, '7106' for silver, '7102' for diamonds
   quantity: number;
   minStockAlert: number;
@@ -88,7 +139,42 @@ export interface InvoiceItem {
   makingCharge: number; // total making charge
   huidCharge?: number; // Hallmarking charge (₹45 + tax)
   subtotal: number;
+  // Profit Tracking
+  costPrice?: number; // Unit Cost Price in ₹
+  unitProfit?: number; // subtotal - costPrice
+  profitMarginPercent?: number; // (profit / subtotal) * 100
   hsnCode: string;
+  quantity: number;
+}
+
+export interface ProfitCategorySummary {
+  category: string;
+  salesCount: number;
+  totalRevenue: number;
+  totalCOGS: number;
+  grossProfit: number;
+  marginPercent: number;
+  markupPercent: number;
+}
+
+export interface ProfitItemRecord {
+  tagNo: string;
+  huid?: string;
+  name: string;
+  category: string;
+  metal: MetalType;
+  purity: string;
+  netWeight: number;
+  grossWeight: number;
+  costPrice: number;
+  salePrice: number;
+  profitAmount: number;
+  marginPercent: number;
+  markupPercent: number;
+  date: string;
+  invoiceNo?: string;
+  customerName?: string;
+  isSold: boolean;
   quantity: number;
 }
 
@@ -357,4 +443,5 @@ export interface ShopDetails {
   accountNo: string;
   ifscCode: string;
   terms: string[];
+  logoUrl?: string; // Custom global shop logo
 }

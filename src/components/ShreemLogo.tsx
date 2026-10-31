@@ -5,6 +5,8 @@ interface ShreemLogoProps {
   showText?: boolean;
   className?: string;
   variant?: 'gold' | 'monochrome' | 'dark';
+  customLogo?: string;
+  transparentBg?: boolean;
 }
 
 export const ShreemLogo: React.FC<ShreemLogoProps> = ({
@@ -12,6 +14,8 @@ export const ShreemLogo: React.FC<ShreemLogoProps> = ({
   showText = true,
   className = '',
   variant = 'gold',
+  customLogo,
+  transparentBg = false,
 }) => {
   const [imgError, setImgError] = useState(false);
 
@@ -23,20 +27,24 @@ export const ShreemLogo: React.FC<ShreemLogoProps> = ({
   };
 
   const currentSize = sizeMap[size];
-  const logoSrc = '/assets/aistudio/Shreem_Mahal_LOGO_355a8e42.png';
+  const logoSrc = customLogo || '/assets/aistudio/Shreem_Mahal_LOGO_355a8e42.png';
 
   return (
     <div className={`inline-flex items-center gap-2.5 select-none ${className}`}>
-      {/* Official Temple Dome Kalash & Sri Yantra "श्रीः" Emblem */}
+      {/* Official Temple Dome Kalash & Sri Yantra "श्रीः" Emblem / Custom Profile Logo */}
       <div 
-        className="relative shrink-0 flex items-center justify-center rounded-xl p-1 shadow-md bg-gradient-to-b from-amber-950/50 via-slate-900/60 to-slate-950/80 border border-amber-500/40 overflow-hidden print:bg-transparent print:border-none print:shadow-none"
+        className={`relative shrink-0 flex items-center justify-center rounded-xl overflow-hidden transition-all duration-200 print:bg-transparent print:border-none print:shadow-none ${
+          transparentBg 
+            ? 'p-0.5 bg-transparent' 
+            : 'p-1 shadow-md bg-gradient-to-b from-amber-950/40 via-slate-900/50 to-slate-950/70 border border-amber-500/30'
+        }`}
       >
         {!imgError ? (
           <img
             src={logoSrc}
-            alt="श्रीः Shreem Mahal Jewellers Official Emblem"
+            alt="Shreem Mahal Jewellers Official Emblem"
             onError={() => setImgError(true)}
-            className={`${currentSize.img} object-contain drop-shadow-[0_2px_10px_rgba(245,158,11,0.5)] transition-transform duration-200`}
+            className={`${currentSize.img} object-contain drop-shadow-[0_2px_10px_rgba(245,158,11,0.55)] transition-transform duration-200`}
             loading="eager"
           />
         ) : (

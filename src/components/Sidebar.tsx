@@ -5,6 +5,7 @@ import {
   FileText, 
   Users, 
   BarChart3, 
+  TrendingUp,
   Barcode, 
   Hammer, 
   Landmark, 
@@ -18,6 +19,7 @@ import {
   Zap,
   FolderPlus,
   ArrowUpRight,
+  Gem,
   X
 } from 'lucide-react';
 import { TabType } from './Navigation';
@@ -40,6 +42,7 @@ interface SidebarProps {
   onOpenNewItem?: () => void;
   onOpenQuickGenerate?: () => void;
   onOpenCategoryModal?: () => void;
+  customLogo?: string;
 }
 
 interface NavItem {
@@ -76,6 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenNewItem,
   onOpenQuickGenerate,
   onOpenCategoryModal,
+  customLogo,
 }) => {
 
   const sections: NavSection[] = [
@@ -108,6 +112,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           badge: inventoryAlertCount > 0 ? inventoryAlertCount : null,
           badgeColor: 'bg-amber-500 text-slate-950 font-bold',
           badgeTitle: 'Low stock items'
+        },
+        {
+          id: 'gemstones',
+          label: 'Gemstones (रत्न)',
+          hindiLabel: 'रत्न व नवरत्न डेस्क',
+          shortKey: 'F10',
+          icon: Gem,
+          badge: null
         },
         {
           id: 'invoices',
@@ -189,6 +201,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           hindiLabel: 'खाता बही व रिपोर्ट्स',
           icon: BarChart3,
           badge: null
+        },
+        {
+          id: 'profit',
+          label: 'Profit & Margins',
+          hindiLabel: 'मुनाफा व मार्जिन रिपोर्ट',
+          shortKey: 'F11',
+          icon: TrendingUp,
+          badge: null
         }
       ]
     },
@@ -236,7 +256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Sidebar Header (Mobile & Brand info) */}
         <div className="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
           <div className={`flex items-center space-x-2.5 overflow-hidden transition-all duration-300 ${isCollapsed ? 'lg:justify-center w-full' : ''}`}>
-            <ShreemLogo size="sm" showText={false} />
+            <ShreemLogo size="sm" showText={false} customLogo={customLogo} transparentBg={true} />
             {!isCollapsed && (
               <div className="leading-tight">
                 <span className="text-sm font-black tracking-wide text-amber-400 block font-serif">

@@ -4,6 +4,7 @@ import { Sidebar } from './Sidebar';
 export type TabType = 
   | 'pos' 
   | 'inventory' 
+  | 'gemstones'
   | 'purchases' 
   | 'vendors' 
   | 'expenses' 
@@ -13,7 +14,8 @@ export type TabType =
   | 'girvi' 
   | 'invoices' 
   | 'customers' 
-  | 'reports';
+  | 'reports'
+  | 'profit';
 
 export { Sidebar as Navigation };
 export { Sidebar };

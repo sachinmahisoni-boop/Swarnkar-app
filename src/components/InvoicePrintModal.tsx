@@ -8,6 +8,7 @@ interface InvoicePrintModalProps {
   onClose: () => void;
   invoice: GSTInvoice | null;
   shopDetails: ShopDetails;
+  customLogo?: string;
 }
 
 export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
@@ -15,6 +16,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   onClose,
   invoice,
   shopDetails,
+  customLogo,
 }) => {
   if (!isOpen || !invoice) return null;
 
@@ -112,7 +114,7 @@ Mobile: +91 9202357851`;
                 
                 {/* Official Temple Dome Kalash & Sri Yantra Shree Logo */}
                 <div className="flex items-center gap-3">
-                  <ShreemLogo size="lg" showText={false} />
+                  <ShreemLogo size="lg" showText={false} customLogo={customLogo || shopDetails.logoUrl} transparentBg={true} />
                   <div>
                     <h1 className="text-2xl sm:text-3xl font-black text-amber-950 uppercase tracking-tight font-serif leading-none">
                       Shreem Mahal Jewellers ERP

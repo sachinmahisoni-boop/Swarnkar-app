@@ -12,7 +12,9 @@ import {
   Vendor,
   PurchaseInvoice,
   ShopExpense,
-  CashBankTransfer
+  CashBankTransfer,
+  CertifiedGemstone,
+  GemstoneRate
 } from './types';
 import { 
   initialShopDetails, 
@@ -31,6 +33,8 @@ import {
   initialCashInHand,
   initialBankBalance,
   initialTransfers,
+  initialGemstones,
+  initialGemstoneRates,
   defaultCity, 
   cityRatesPresets 
 } from './data/initialData';
@@ -44,6 +48,7 @@ import { ShopSettingsModal } from './components/ShopSettingsModal';
 import { InvoicePrintModal } from './components/InvoicePrintModal';
 import { BillingPOS } from './components/Billing/BillingPOS';
 import { InventoryList } from './components/Inventory/InventoryList';
+import { GemstoneManager } from './components/Gemstones/GemstoneManager';
 import { BarcodeTagManager } from './components/Barcode/BarcodeTagManager';
 import { KarigarLedger } from './components/Karigar/KarigarLedger';
 import { GirviLedger } from './components/Girvi/GirviLedger';
@@ -51,6 +56,7 @@ import { ItemModal } from './components/Inventory/ItemModal';
 import { InvoiceList } from './components/Invoices/InvoiceList';
 import { CustomerList } from './components/Customers/CustomerList';
 import { GSTAccountingReports } from './components/Reports/GSTAccountingReports';
+import { ProfitReport } from './components/Reports/ProfitReport';
 import { PurchaseManager } from './components/Purchases/PurchaseManager';
 import { VendorList } from './components/Vendors/VendorList';
 import { ExpenseManager } from './components/Expenses/ExpenseManager';
@@ -174,6 +180,17 @@ export default function App() {
     return saved ? JSON.parse(saved) : initialGirviLoans;
   });
 
+  // Certified Gemstones & Rates State
+  const [gemstones, setGemstones] = useState<CertifiedGemstone[]>(() => {
+    const saved = localStorage.getItem('jewel_gemstones_v1');
+    return saved ? JSON.parse(saved) : initialGemstones;
+  });
+
+  const [gemstoneRates, setGemstoneRates] = useState<GemstoneRate[]>(() => {
+    const saved = localStorage.getItem('jewel_gemstone_rates_v1');
+    return saved ? JSON.parse(saved) : initialGemstoneRates;
+  });
+
   // Navigation tab state
   const [activeTab, setActiveTab] = useState<TabType>('pos');
 
@@ -267,7 +284,15 @@ export default function App() {
     localStorage.setItem('jewel_girvi', JSON.stringify(girviLoans));
   }, [girviLoans]);
 
-  // Global Keyboard Shortcuts (F2-F10 + Girvi)
+  useEffect(() => {
+    localStorage.setItem('jewel_gemstones_v1', JSON.stringify(gemstones));
+  }, [gemstones]);
+
+  useEffect(() => {
+    localStorage.setItem('jewel_gemstone_rates_v1', JSON.stringify(gemstoneRates));
+  }, [gemstoneRates]);
+
+  // Global Keyboard Shortcuts (F2-F11 + Girvi)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F2') {
@@ -294,10 +319,16 @@ export default function App() {
       } else if (e.key === 'F9') {
         e.preventDefault();
         setActiveTab('karigar');
-      } else if (e.key === 'F11' || (e.altKey && e.key.toLowerCase() === 'g')) {
+      } else if (e.key === 'F10') {
+        e.preventDefault();
+        setActiveTab('gemstones');
+      } else if (e.key === 'F11') {
+        e.preventDefault();
+        setActiveTab('profit');
+      } else if (e.altKey && e.key.toLowerCase() === 'g') {
         e.preventDefault();
         setActiveTab('girvi');
-      } else if (e.key === 'F10') {
+      } else if (e.key === 'F12') {
         e.preventDefault();
         setIsSettingsModalOpen(true);
       }
@@ -367,6 +398,27 @@ export default function App() {
     setProfiles(prev => [...prev, newProfile]);
   };
 
+  const handleUpdateProfile = (updatedProfile: JewellerProfile) => {
+    setProfiles(prev => prev.map(p => p.id === updatedProfile.id ? updatedProfile : p));
+  };
+
+  // Gemstone Handlers
+  const handleAddGemstone = (newGem: CertifiedGemstone) => {
+    setGemstones(prev => [newGem, ...prev]);
+  };
+
+  const handleUpdateGemstone = (updatedGem: CertifiedGemstone) => {
+    setGemstones(prev => prev.map(g => g.id === updatedGem.id ? updatedGem : g));
+  };
+
+  const handleDeleteGemstone = (id: string) => {
+    setGemstones(prev => prev.filter(g => g.id !== id));
+  };
+
+  const handleUpdateGemstoneRates = (updatedRates: GemstoneRate[]) => {
+    setGemstoneRates(updatedRates);
+  };
+
   // Categories Handlers
   const handleAddCategory = (newCat: string) => {
     setCategories(prev => [...prev, newCat]);
@@ -410,6 +462,25 @@ export default function App() {
 
   const handleDeleteInvoice = (id: string) => {
     setInvoices(prev => prev.filter(i => i.id !== id));
+  };
+
+  const handleUpdateInvoiceStatus = (id: string, newTotalPaid: number) => {
+    setInvoices(prev => prev.map(inv => {
+      if (inv.id === id) {
+        const due = Math.max(0, inv.grandTotal - newTotalPaid);
+        const status = due === 0 ? 'Paid' : newTotalPaid > 0 ? 'Partial' : 'Unpaid';
+        return {
+          ...inv,
+          payment: {
+            ...inv.payment,
+            amountPaid: newTotalPaid,
+            dueAmount: due
+          },
+          status
+        };
+      }
+      return inv;
+    }));
   };
 
   // Inward Purchase Creation
@@ -596,6 +667,7 @@ export default function App() {
           }}
           onOpenQuickGenerate={() => setIsQuickGenerateOpen(true)}
           onOpenCategoryModal={() => setIsCategoryModalOpen(true)}
+          customLogo={activeProfile?.logoUrl || shopDetails.logoUrl}
         />
 
         {/* Right Main Screen Viewport */}
@@ -647,6 +719,32 @@ export default function App() {
             }}
             onOpenCategoryModal={() => setIsCategoryModalOpen(true)}
             onOpenQuickGenerate={() => setIsQuickGenerateOpen(true)}
+          />
+        )}
+
+        {/* TAB: Gemstones & Navratna Hub [F10] */}
+        {activeTab === 'gemstones' && (
+          <GemstoneManager
+            gemstones={gemstones}
+            gemstoneRates={gemstoneRates}
+            onAddGemstone={handleAddGemstone}
+            onUpdateGemstone={handleUpdateGemstone}
+            onDeleteGemstone={handleDeleteGemstone}
+            onUpdateGemstoneRates={handleUpdateGemstoneRates}
+            onSellInPOS={(gemItem) => {
+              setInventory(prev => {
+                if (prev.some(i => i.id === gemItem.id)) return prev;
+                return [gemItem, ...prev];
+              });
+              setActiveTab('pos');
+            }}
+            onPrintTag={(gemItem) => {
+              setInventory(prev => {
+                if (prev.some(i => i.id === gemItem.id)) return prev;
+                return [gemItem, ...prev];
+              });
+              setActiveTab('barcode');
+            }}
           />
         )}
 
@@ -723,7 +821,7 @@ export default function App() {
             invoices={invoices}
             onViewPrintInvoice={(inv) => setPrintingInvoice(inv)}
             onDeleteInvoice={handleDeleteInvoice}
-            onUpdateInvoiceStatus={() => {}}
+            onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
           />
         )}
 
@@ -746,6 +844,20 @@ export default function App() {
             inventory={inventory}
             rates={rates}
             girviLoans={girviLoans}
+            onNavigateToProfit={() => setActiveTab('profit')}
+          />
+        )}
+
+        {/* TAB 13: Profit & Margins Analytics (मुनाफा व मार्जिन रिपोर्ट) */}
+        {activeTab === 'profit' && (
+          <ProfitReport
+            invoices={invoices}
+            inventory={inventory}
+            rates={rates}
+            expenses={expenses}
+            purchases={purchases}
+            categories={categories}
+            shopDetails={shopDetails}
           />
         )}
 
@@ -781,6 +893,7 @@ export default function App() {
         activeProfileId={activeProfileId}
         onSelectProfile={setActiveProfileId}
         onAddProfile={handleAddProfile}
+        onUpdateProfile={handleUpdateProfile}
       />
 
       {/* Daily Metal Rate Configurator Modal */}
@@ -831,6 +944,7 @@ export default function App() {
         onClose={() => setPrintingInvoice(null)}
         invoice={printingInvoice}
         shopDetails={shopDetails}
+        customLogo={activeProfile?.logoUrl || shopDetails.logoUrl}
       />
 
     </div>
