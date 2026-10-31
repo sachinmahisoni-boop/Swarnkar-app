@@ -240,29 +240,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Mobile Backdrop */}
       {isMobileOpen && (
         <div 
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-40 lg:hidden"
+          className="fixed inset-0 bg-stone-950/50 backdrop-blur-xs z-40 lg:hidden"
           onClick={onCloseMobile}
         />
       )}
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 lg:static bg-slate-900 border-r border-slate-800 flex flex-col transition-all duration-300 ease-in-out shadow-2xl shrink-0 ${
+        className={`fixed top-0 bottom-0 left-0 z-40 lg:static bg-white border-r border-stone-200 flex flex-col transition-all duration-300 ease-in-out shadow-lg shrink-0 ${
           isMobileOpen ? 'translate-x-0 w-72' : '-translate-x-full lg:translate-x-0'
         } ${
           isCollapsed ? 'lg:w-20' : 'lg:w-64'
         }`}
       >
         {/* Sidebar Header (Mobile & Brand info) */}
-        <div className="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="p-3.5 border-b border-stone-100 flex items-center justify-between bg-stone-50">
           <div className={`flex items-center space-x-2.5 overflow-hidden transition-all duration-300 ${isCollapsed ? 'lg:justify-center w-full' : ''}`}>
             <ShreemLogo size="sm" showText={false} customLogo={customLogo} transparentBg={true} />
             {!isCollapsed && (
               <div className="leading-tight">
-                <span className="text-sm font-black tracking-wide text-amber-400 block font-serif">
+                <span className="text-sm font-black tracking-wide text-amber-600 block font-serif">
                   MAIN DESK
                 </span>
-                <span className="text-[10px] text-slate-400 font-medium block">
+                <span className="text-[10px] text-stone-500 font-medium block">
                   मुख्य मेन्यू व खाते
                 </span>
               </div>
@@ -272,7 +272,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Mobile close button */}
           <button
             onClick={onCloseMobile}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 lg:hidden cursor-pointer"
+            className="p-1.5 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-100 lg:hidden cursor-pointer"
             title="Close Menu"
           >
             <X className="w-5 h-5" />
@@ -281,7 +281,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Desktop collapse / expand button */}
           <button
             onClick={onToggleCollapse}
-            className="hidden lg:flex p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
+            className="hidden lg:flex p-1.5 text-stone-500 hover:text-amber-600 hover:bg-stone-100 rounded-lg transition cursor-pointer"
             title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
           >
             {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
@@ -289,88 +289,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation List - Scrollable */}
-        <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-4 scrollbar-thin scrollbar-thumb-slate-800">
+        <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-4 scrollbar-thin scrollbar-thumb-stone-200">
           {sections.map((section, idx) => (
             <div key={idx} className="space-y-1">
               {!isCollapsed ? (
                 <div className="px-2.5 pt-1 pb-1 flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 font-mono">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 font-mono">
                     {section.title}
                   </span>
-                  <span className="text-[9px] text-amber-400/60 font-medium">
+                  <span className="text-[9px] text-amber-600/60 font-medium">
                     {section.hindiTitle}
                   </span>
                 </div>
               ) : (
-                <div className="h-px bg-slate-800 my-2 mx-2" />
+                <div className="h-px bg-stone-100 my-2 mx-2" />
               )}
 
               <div className="space-y-0.5">
                 {section.items.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
-
+                  
                   return (
                     <button
                       key={item.id}
                       onClick={() => handleItemClick(item.id)}
-                      title={`${item.label} (${item.hindiLabel})${item.shortKey ? ` [${item.shortKey}]` : ''}`}
-                      className={`w-full group flex items-center rounded-xl transition-all duration-150 cursor-pointer ${
-                        isCollapsed ? 'justify-center p-3' : 'px-3 py-2.5'
-                      } ${
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group cursor-pointer ${
                         isActive
-                          ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold shadow-lg shadow-amber-500/20 ring-1 ring-amber-400'
-                          : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
-                      }`}
+                          ? 'bg-amber-100 text-amber-900 shadow-sm'
+                          : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+                      } ${isCollapsed ? 'justify-center' : ''}`}
+                      title={item.label}
                     >
-                      <div className="relative shrink-0 flex items-center justify-center">
-                        <Icon
-                          className={`w-4 h-4 transition-transform group-hover:scale-110 ${
-                            isActive ? 'text-slate-950' : 'text-amber-400 group-hover:text-amber-300'
-                          }`}
-                        />
-                        {/* Collapsed view badge indicator dot */}
-                        {isCollapsed && item.badge && (
-                          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-slate-900" />
-                        )}
-                      </div>
-
-                      {!isCollapsed && (
-                        <div className="ml-3 flex-1 flex items-center justify-between min-w-0">
-                          <div className="truncate text-left leading-tight">
-                            <span className="text-xs font-semibold block truncate">
-                              {item.label}
-                            </span>
-                            <span className={`text-[10px] block truncate ${isActive ? 'text-slate-900/80 font-medium' : 'text-slate-400'}`}>
-                              {item.hindiLabel}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center space-x-1.5 shrink-0 ml-1.5">
-                            {item.shortKey && (
-                              <span
-                                className={`text-[9px] font-mono px-1 py-0.5 rounded font-bold ${
-                                  isActive
-                                    ? 'bg-slate-950/20 text-slate-900'
-                                    : 'bg-slate-800 text-slate-400 group-hover:text-slate-300'
-                                }`}
-                              >
-                                {item.shortKey}
-                              </span>
-                            )}
-
-                            {item.badge && (
-                              <span
-                                title={item.badgeTitle}
-                                className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold shrink-0 ${
-                                  item.badgeColor || 'bg-amber-500 text-slate-950'
-                                }`}
-                              >
-                                {item.badge}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                      <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-amber-700' : 'text-stone-400 group-hover:text-stone-900'}`} />
+                      {!isCollapsed && <span className="text-xs font-bold truncate">{item.label}</span>}
+                      {item.badge && !isCollapsed && (
+                        <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${item.badgeColor || 'bg-stone-200 text-stone-700'}`}>
+                          {item.badge}
+                        </span>
                       )}
                     </button>
                   );
@@ -381,7 +337,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Bottom Section: Quick Shortcuts & Live Balances */}
-        <div className="p-3 border-t border-slate-800 bg-slate-950/70 space-y-2">
+        <div className="p-3 border-t border-stone-100 bg-stone-50 space-y-2">
           {!isCollapsed ? (
             <>
               {/* Quick Actions Bar */}
@@ -389,54 +345,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {onOpenNewItem && (
                   <button
                     onClick={onOpenNewItem}
-                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/40 text-[10px] text-slate-300 hover:text-amber-300 transition cursor-pointer"
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 border border-stone-200 text-[10px] text-stone-700 hover:text-amber-700 transition cursor-pointer"
                     title="Add New Jewellery Stock Item"
                   >
-                    <PlusCircle className="w-3.5 h-3.5 text-amber-400 mb-0.5" />
-                    <span className="font-medium">+ New Item</span>
+                    <PlusCircle className="w-3.5 h-3.5 text-amber-600 mb-0.5" />
+                    <span className="font-medium">+ Item</span>
                   </button>
                 )}
                 {onOpenQuickGenerate && (
                   <button
                     onClick={onOpenQuickGenerate}
-                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-[10px] text-amber-300 transition cursor-pointer"
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 border border-amber-200 text-[10px] text-amber-800 transition cursor-pointer"
                     title="1-Click Fast Stock Generator"
                   >
-                    <Zap className="w-3.5 h-3.5 text-amber-400 mb-0.5" />
-                    <span className="font-bold">⚡ Fast Auto</span>
+                    <Zap className="w-3.5 h-3.5 text-amber-600 mb-0.5" />
+                    <span className="font-bold">⚡ Fast</span>
                   </button>
                 )}
                 {onOpenCategoryModal && (
                   <button
                     onClick={onOpenCategoryModal}
-                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/40 text-[10px] text-slate-300 hover:text-amber-300 transition cursor-pointer"
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 border border-stone-200 text-[10px] text-stone-700 hover:text-amber-700 transition cursor-pointer"
                     title="Manage Custom Categories"
                   >
-                    <FolderPlus className="w-3.5 h-3.5 text-amber-400 mb-0.5" />
-                    <span className="font-medium">+ Category</span>
+                    <FolderPlus className="w-3.5 h-3.5 text-amber-600 mb-0.5" />
+                    <span className="font-medium">+ Cat</span>
                   </button>
                 )}
               </div>
 
               {/* Cash in Hand & Bank Mini Pill */}
               <div 
-                onClick={() => onSelectTab('cashbank')}
-                className="bg-slate-900/90 border border-slate-800 hover:border-amber-500/40 rounded-xl p-2.5 transition cursor-pointer group"
+                onClick={() => handleItemClick('cashbank')}
+                className="bg-white border border-stone-200 hover:border-amber-300 rounded-xl p-2.5 transition cursor-pointer group shadow-sm"
                 title="Click to view Cash & Bank Dashboard"
               >
                 <div className="flex items-center justify-between text-[11px] mb-1">
-                  <span className="text-slate-400 flex items-center gap-1 font-medium">
-                    <Wallet className="w-3 h-3 text-amber-400" /> Cash In Hand:
+                  <span className="text-stone-500 flex items-center gap-1 font-medium">
+                    <Wallet className="w-3 h-3 text-amber-600" /> Cash:
                   </span>
-                  <span className="font-mono font-bold text-amber-400 group-hover:text-amber-300">
+                  <span className="font-mono font-bold text-stone-900 group-hover:text-amber-700">
                     ₹{cashInHand.toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400 flex items-center gap-1 font-medium">
-                    <Landmark className="w-3 h-3 text-blue-400" /> Bank Deposit:
+                  <span className="text-stone-500 flex items-center gap-1 font-medium">
+                    <Landmark className="w-3 h-3 text-blue-600" /> Bank:
                   </span>
-                  <span className="font-mono font-bold text-blue-300 group-hover:text-blue-200">
+                  <span className="font-mono font-bold text-stone-900 group-hover:text-blue-700">
                     ₹{bankBalance.toLocaleString('en-IN')}
                   </span>
                 </div>
@@ -445,8 +401,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ) : (
             <div className="flex flex-col items-center space-y-2">
               <button
-                onClick={() => onSelectTab('cashbank')}
-                className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-amber-400 hover:text-amber-300 transition cursor-pointer"
+                onClick={() => handleItemClick('cashbank')}
+                className="p-2 rounded-xl bg-stone-100 border border-stone-200 hover:border-amber-300 text-stone-600 hover:text-amber-700 transition cursor-pointer"
                 title={`Cash: ₹${cashInHand.toLocaleString('en-IN')} | Bank: ₹${bankBalance.toLocaleString('en-IN')}`}
               >
                 <Wallet className="w-4 h-4" />

@@ -63,8 +63,10 @@ import { ExpenseManager } from './components/Expenses/ExpenseManager';
 import { CashBankDashboard } from './components/CashBank/CashBankDashboard';
 import { CategoryModal } from './components/Categories/CategoryModal';
 import { QuickGenerateItemModal } from './components/Inventory/QuickGenerateItemModal';
+import { Login } from './components/Auth/Login';
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [shopDetails, setShopDetails] = useState<ShopDetails>(() => {
     const saved = localStorage.getItem('jewel_shop_details_v2');
     if (saved) {
@@ -620,8 +622,10 @@ export default function App() {
     setGirviLoans(prev => prev.map(l => l.id === updatedLoan.id ? updatedLoan : l));
   };
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col selection:bg-amber-500 selection:text-slate-950">
+  return !isAuthenticated ? (
+    <Login onLogin={() => setIsAuthenticated(true)} />
+  ) : (
+    <div className="min-h-screen bg-stone-50 text-slate-900 font-sans flex flex-col selection:bg-amber-500 selection:text-white">
       
       {/* Top Header Bar with Live Bullion Ticker & Live Cash/Bank Indicators */}
       <Header
