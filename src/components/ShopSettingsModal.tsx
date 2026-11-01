@@ -194,13 +194,37 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">City, State, Pincode</label>
+                <label className="block text-xs font-bold text-stone-700 mb-1">City, State, Pincode *</label>
                 <input
                   type="text"
+                  list="cities"
                   value={formData.cityStatePincode}
                   onChange={e => handleChange('cityStatePincode', e.target.value)}
                   className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm text-stone-900 focus:outline-none focus:border-amber-500 focus:bg-white"
+                  placeholder="Type city or select from list..."
+                  required
                 />
+                <datalist id="cities">
+                  <option value="Bhopal, Madhya Pradesh" />
+                  <option value="Indore, Madhya Pradesh" />
+                  <option value="Mumbai, Maharashtra" />
+                  <option value="Delhi, Delhi" />
+                  <option value="Bangalore, Karnataka" />
+                  <option value="Jaipur, Rajasthan" />
+                  <option value="Ahmedabad, Gujarat" />
+                  <option value="Lucknow, Uttar Pradesh" />
+                  <option value="Patna, Bihar" />
+                  <option value="Chandigarh, Punjab/Haryana" />
+                  <option value="Hyderabad, Telangana" />
+                  <option value="Chennai, Tamil Nadu" />
+                  <option value="Kolkata, West Bengal" />
+                  <option value="Raipur, Chhattisgarh" />
+                  <option value="Ranchi, Jharkhand" />
+                  <option value="Dehradun, Uttarakhand" />
+                  <option value="Bhubaneswar, Odisha" />
+                  <option value="Thiruvananthapuram, Kerala" />
+                  <option value="Guwahati, Assam" />
+                </datalist>
               </div>
 
               <div>

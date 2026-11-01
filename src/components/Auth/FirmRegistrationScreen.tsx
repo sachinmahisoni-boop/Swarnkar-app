@@ -406,11 +406,33 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
                   </label>
                   <input
                     type="text"
+                    list="cities"
                     value={cityStatePincode}
                     onChange={(e) => setCityStatePincode(e.target.value)}
                     placeholder="Bhopal, Madhya Pradesh - 462042"
                     className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3.5 py-2.5 text-stone-900 text-sm focus:outline-none focus:border-amber-500 focus:bg-white transition"
                   />
+                  <datalist id="cities">
+                    <option value="Bhopal, Madhya Pradesh" />
+                    <option value="Indore, Madhya Pradesh" />
+                    <option value="Mumbai, Maharashtra" />
+                    <option value="Delhi, Delhi" />
+                    <option value="Bangalore, Karnataka" />
+                    <option value="Jaipur, Rajasthan" />
+                    <option value="Ahmedabad, Gujarat" />
+                    <option value="Lucknow, Uttar Pradesh" />
+                    <option value="Patna, Bihar" />
+                    <option value="Chandigarh, Punjab/Haryana" />
+                    <option value="Hyderabad, Telangana" />
+                    <option value="Chennai, Tamil Nadu" />
+                    <option value="Kolkata, West Bengal" />
+                    <option value="Raipur, Chhattisgarh" />
+                    <option value="Ranchi, Jharkhand" />
+                    <option value="Dehradun, Uttarakhand" />
+                    <option value="Bhubaneswar, Odisha" />
+                    <option value="Thiruvananthapuram, Kerala" />
+                    <option value="Guwahati, Assam" />
+                  </datalist>
                 </div>
               </div>
 
