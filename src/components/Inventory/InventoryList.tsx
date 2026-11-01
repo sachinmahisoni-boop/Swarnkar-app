@@ -197,7 +197,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
         </div>
       </div>
 
-      {/* MMI 4-KPI High-Contrast Summary Tiles */}
+      {/* Swarnkar 4-KPI High-Contrast Summary Tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         {/* Total Value */}
         <div className="bg-white border-l-4 border-l-amber-500 border border-slate-300 p-3 rounded-lg shadow-sm">
@@ -254,7 +254,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
         </div>
       </div>
 
-      {/* MMI 7-Mode Stock Maintenance Sub-Tabs */}
+      {/* Swarnkar 7-Mode Stock Maintenance Sub-Tabs */}
       <div className="bg-slate-200 p-1 rounded-xl border border-slate-300 flex items-center gap-1 overflow-x-auto text-xs font-bold">
         <button
           onClick={() => setMaintainMode('tag_wise')}

@@ -930,7 +930,7 @@ export default function App() {
         {/* Right Main Screen Viewport */}
         <main className="flex-1 min-w-0 overflow-y-auto px-3 sm:px-6 lg:px-8 py-5">
         
-        {/* TAB 0: MMI Softwares Executive Dashboard [F1] */}
+        {/* TAB 0: Swarnkar Executive Dashboard [F1] */}
         {activeTab === 'dashboard' && (
           <MMIDashboard
             invoices={invoices}
@@ -973,6 +973,8 @@ export default function App() {
             onAddPurchase={handleAddPurchase}
             onUpdateVendorBalance={handleUpdateVendorBalance}
             onAddVendor={handleAddVendor}
+            onUpdateVendor={handleUpdateVendor}
+            onDeleteVendor={handleDeleteVendor}
           />
         )}
 

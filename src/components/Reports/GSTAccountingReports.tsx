@@ -114,7 +114,7 @@ export const GSTAccountingReports: React.FC<GSTAccountingReportsProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `MMI_Jwelly_Report_${reportView}_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `Swarnkar_Jwelly_Report_${reportView}_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -131,7 +131,7 @@ export const GSTAccountingReports: React.FC<GSTAccountingReportsProps> = ({
             <span>Complete Financial Accounting & GST Master (लेखा बही व कर रिपोर्ट)</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            MMI Jwelly compliant Trial Balance, P&L A/c, Balance Sheet, GST Returns, TDS & Capital
+            Swarnkar Jwelly compliant Trial Balance, P&L A/c, Balance Sheet, GST Returns, TDS & Capital
           </p>
         </div>
 

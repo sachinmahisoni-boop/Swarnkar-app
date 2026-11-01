@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PurchaseInvoice, PurchaseItem, Vendor, MetalRate, JewelleryItem, MetalType } from '../../types';
 import { Truck, Plus, Search, Calendar, Scale, Coins, ShieldCheck, CheckCircle2, DollarSign, X, PackagePlus, Eye, Printer, Building2, ArrowDownRight, UserPlus } from 'lucide-react';
 import { AddVendorModal } from '../Vendors/AddVendorModal';
+import { VendorList } from '../Vendors/VendorList';
 
 interface PurchaseManagerProps {
   purchases: PurchaseInvoice[];
@@ -11,6 +12,8 @@ interface PurchaseManagerProps {
   onAddPurchase: (purchase: PurchaseInvoice, stockItemsToInsert: JewelleryItem[]) => void;
   onUpdateVendorBalance: (vendorId: string, cashDelta: number, goldDelta: number) => void;
   onAddVendor: (vendor: Vendor) => void;
+  onUpdateVendor: (vendor: Vendor) => void;
+  onDeleteVendor: (id: string) => void;
 }
 
 export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
@@ -21,8 +24,10 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
   onAddPurchase,
   onUpdateVendorBalance,
   onAddVendor,
+  onUpdateVendor,
+  onDeleteVendor,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'bills' | 'supplierReport'>('bills');
+  const [activeSubTab, setActiveSubTab] = useState<'bills' | 'supplierReport' | 'vendors'>('bills');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('all');
   
@@ -252,6 +257,12 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
             >
               Vendor Supply Summary (किससे कितना माल आया)
             </button>
+            <button
+              onClick={() => setActiveSubTab('vendors')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition ${activeSubTab === 'vendors' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              Manage Vendors (सप्लायर लिस्ट)
+            </button>
           </div>
 
           {activeSubTab === 'bills' && (
@@ -281,16 +292,25 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
           )}
         </div>
 
-        <button
-          onClick={() => {
-            setPurchaseBillNo(`PUR-2026-${String(purchases.length + 18).padStart(4, '0')}`);
-            setShowNewPurchaseModal(true);
-          }}
-          className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition cursor-pointer"
-        >
-          <PackagePlus className="w-4 h-4" />
-          + Record Inward Purchase (नई खरीद दर्ज करें)
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAddVendorModal(true)}
+            className="px-4 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-amber-400 font-bold text-xs rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" />
+            + Add New Vendor (सप्लायर जोड़ें)
+          </button>
+          <button
+            onClick={() => {
+              setPurchaseBillNo(`PUR-2026-${String(purchases.length + 18).padStart(4, '0')}`);
+              setShowNewPurchaseModal(true);
+            }}
+            className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition cursor-pointer"
+          >
+            <PackagePlus className="w-4 h-4" />
+            + Record Inward Purchase (नई खरीद दर्ज करें)
+          </button>
+        </div>
       </div>
 
       {/* Main Content: Bills Register OR Vendor Supply Report */}
@@ -383,7 +403,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
             </table>
           </div>
         </div>
-      ) : (
+      ) : activeSubTab === 'supplierReport' ? (
         /* Tab B: "Kitna Maal Kisse Aaya" Vendor Supply Report */
         <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl space-y-4 p-5">
           <div className="border-b border-slate-800 pb-3 flex justify-between items-center">
@@ -451,6 +471,21 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
               </tbody>
             </table>
           </div>
+        </div>
+      ) : (
+        /* Tab C: Manage Vendors */
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl p-5">
+           <VendorList 
+            vendors={vendors}
+            onAddVendor={onAddVendor}
+            onUpdateVendor={onUpdateVendor}
+            onDeleteVendor={onDeleteVendor}
+            onOpenNewPurchase={(vId) => {
+              setVendorId(vId);
+              setPurchaseBillNo(`PUR-2026-${String(purchases.length + 18).padStart(4, '0')}`);
+              setShowNewPurchaseModal(true);
+            }}
+          />
         </div>
       )}
 
