@@ -972,6 +972,7 @@ export default function App() {
             rates={rates}
             onAddPurchase={handleAddPurchase}
             onUpdateVendorBalance={handleUpdateVendorBalance}
+            onAddVendor={handleAddVendor}
           />
         )}
 

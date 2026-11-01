@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PurchaseInvoice, PurchaseItem, Vendor, MetalRate, JewelleryItem, MetalType } from '../../types';
-import { Truck, Plus, Search, Calendar, Scale, Coins, ShieldCheck, CheckCircle2, DollarSign, X, PackagePlus, Eye, Printer, Building2, ArrowDownRight } from 'lucide-react';
+import { Truck, Plus, Search, Calendar, Scale, Coins, ShieldCheck, CheckCircle2, DollarSign, X, PackagePlus, Eye, Printer, Building2, ArrowDownRight, UserPlus } from 'lucide-react';
+import { AddVendorModal } from '../Vendors/AddVendorModal';
 
 interface PurchaseManagerProps {
   purchases: PurchaseInvoice[];
@@ -9,6 +10,7 @@ interface PurchaseManagerProps {
   rates: MetalRate[];
   onAddPurchase: (purchase: PurchaseInvoice, stockItemsToInsert: JewelleryItem[]) => void;
   onUpdateVendorBalance: (vendorId: string, cashDelta: number, goldDelta: number) => void;
+  onAddVendor: (vendor: Vendor) => void;
 }
 
 export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
@@ -18,6 +20,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
   rates,
   onAddPurchase,
   onUpdateVendorBalance,
+  onAddVendor,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'bills' | 'supplierReport'>('bills');
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,6 +28,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
   
   // Modal State
   const [showNewPurchaseModal, setShowNewPurchaseModal] = useState(false);
+  const [showAddVendorModal, setShowAddVendorModal] = useState(false);
   const [selectedPurchaseDetails, setSelectedPurchaseDetails] = useState<PurchaseInvoice | null>(null);
 
   // New Purchase Form State
@@ -467,7 +471,16 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
             <form onSubmit={handleCreatePurchase} className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Select Vendor (थोक सप्लायर) *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-400 font-medium">Select Vendor (थोक सप्लायर) *</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddVendorModal(true)}
+                      className="text-[10px] text-amber-400 font-bold hover:text-amber-300 flex items-center gap-1"
+                    >
+                      <UserPlus className="w-3 h-3" /> Add New Vendor
+                    </button>
+                  </div>
                   <select
                     value={vendorId}
                     onChange={(e) => setVendorId(e.target.value)}
@@ -786,6 +799,12 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
           </div>
         </div>
       )}
+
+        <AddVendorModal
+          isOpen={showAddVendorModal}
+          onClose={() => setShowAddVendorModal(false)}
+          onAddVendor={onAddVendor}
+        />
 
     </div>
   );
