@@ -229,7 +229,7 @@ export const ItemModal: React.FC<ItemModalProps> = ({
                 {initialItem ? 'Edit Jewellery Item' : 'Add New Jewellery Stock Piece'}
               </h2>
               <p className="text-xs text-stone-500">
-                Swarnka Jewellery ERP • Dynamic Purity Master & Wholesale Silver Calculator
+                Swarnkar Jewellery ERP • Dynamic Purity Master & Wholesale Silver Calculator
               </p>
             </div>
           </div>

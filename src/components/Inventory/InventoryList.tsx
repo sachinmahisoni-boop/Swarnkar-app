@@ -53,7 +53,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
   inventory,
   rates,
   categories,
-  shopName = 'Swarnka Jewellery ERP',
+  shopName = 'Swarnkar Jewellery ERP',
   onAddItem,
   onEditItem,
   onDeleteItem,

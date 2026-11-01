@@ -93,7 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         {
           id: 'dashboard',
-          label: 'Swarnka ERP Dashboard',
+          label: 'Swarnkar ERP Dashboard',
           hindiLabel: 'व्यापार डैशबोर्ड',
           shortKey: 'F1',
           icon: BarChart3,

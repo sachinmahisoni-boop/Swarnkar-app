@@ -116,7 +116,7 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
           <div className="flex items-center gap-2">
             <span className="font-extrabold text-slate-900 text-sm tracking-tight flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block animate-pulse"></span>
-              Swarnka Jewellery ERP • Executive Business Dashboard
+              Swarnkar Jewellery ERP • Executive Business Dashboard
             </span>
           </div>
 
