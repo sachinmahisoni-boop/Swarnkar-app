@@ -15,10 +15,13 @@ import {
   Building2,
   Sparkles,
   QrCode,
-  ExternalLink
+  ExternalLink,
+  RectangleHorizontal,
+  RectangleVertical
 } from 'lucide-react';
 
 export type PaperSize = 'A4' | 'A5' | 'POS_80MM' | 'POS_58MM';
+export type PageOrientation = 'portrait' | 'landscape';
 export type MarginSize = 'compact' | 'normal' | 'wide';
 export type CopyCount = 1 | 2 | 3;
 export type FontScale = '90' | '100' | '110';
@@ -33,6 +36,7 @@ interface InvoicePrintModalProps {
 
 interface PrintPreferences {
   paperSize: PaperSize;
+  orientation: PageOrientation;
   marginSize: MarginSize;
   copyCount: CopyCount;
   fontScale: FontScale;
@@ -44,6 +48,7 @@ interface PrintPreferences {
 
 const DEFAULT_PREFERENCES: PrintPreferences = {
   paperSize: 'A4',
+  orientation: 'portrait',
   marginSize: 'normal',
   copyCount: 1, // Default 1 single copy
   fontScale: '100',
@@ -119,9 +124,9 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
                 @page {
                   size: ${
                     preferences.paperSize === 'A4'
-                      ? 'A4 portrait'
+                      ? `A4 ${preferences.orientation}`
                       : preferences.paperSize === 'A5'
-                      ? 'A5 portrait'
+                      ? `A5 ${preferences.orientation}`
                       : preferences.paperSize === 'POS_80MM'
                       ? '80mm auto'
                       : '58mm auto'
@@ -230,6 +235,14 @@ Mobile: ${shopDetails.phone}`;
     }
   };
 
+  // Calculate card width based on paper size & orientation
+  const getCardWidthClass = () => {
+    if (preferences.paperSize === 'POS_80MM') return 'max-w-md';
+    if (preferences.paperSize === 'POS_58MM') return 'max-w-sm';
+    if (preferences.orientation === 'landscape') return 'max-w-6xl';
+    return 'max-w-4xl';
+  };
+
   return (
     <div id="printable-invoice-modal-root" className="fixed inset-0 z-50 bg-stone-950/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto print:p-0 print:bg-white print:static print:inset-auto print:overflow-visible">
       
@@ -244,9 +257,9 @@ Mobile: ${shopDetails.phone}`;
           @page {
             size: ${
               preferences.paperSize === 'A4'
-                ? 'A4 portrait'
+                ? `A4 ${preferences.orientation}`
                 : preferences.paperSize === 'A5'
-                ? 'A5 portrait'
+                ? `A5 ${preferences.orientation}`
                 : preferences.paperSize === 'POS_80MM'
                 ? '80mm auto'
                 : '58mm auto'
@@ -304,13 +317,7 @@ Mobile: ${shopDetails.phone}`;
         }
       `}</style>
 
-      <div id="printable-invoice-card" className={`bg-white border border-stone-200 rounded-3xl w-full shadow-2xl overflow-hidden my-auto text-stone-900 flex flex-col max-h-[95vh] print:max-h-none print:border-none print:shadow-none print:rounded-none print:w-full ${
-        preferences.paperSize === 'POS_80MM'
-          ? 'max-w-md'
-          : preferences.paperSize === 'POS_58MM'
-          ? 'max-w-sm'
-          : 'max-w-4xl'
-      }`}>
+      <div id="printable-invoice-card" className={`bg-white border border-stone-200 rounded-3xl w-full shadow-2xl overflow-hidden my-auto text-stone-900 flex flex-col max-h-[95vh] print:max-h-none print:border-none print:shadow-none print:rounded-none print:w-full transition-all duration-300 ${getCardWidthClass()}`}>
         
         {/* TOP CONTROL TOOLBAR (Hidden during printing) */}
         <div className="p-3 sm:p-4 bg-stone-900 text-stone-100 flex flex-wrap items-center justify-between gap-3 print:hidden shrink-0 border-b border-stone-800">
@@ -324,7 +331,7 @@ Mobile: ${shopDetails.phone}`;
                 {isGST ? 'GST टैक्स इनवॉइस (Official Bill)' : 'कच्चा बिल / कोटेशन (Estimate Memo)'}
               </h3>
               <p className="text-[11px] text-stone-400">
-                प्रिंट फॉर्मेट, कॉपी संख्या व मार्जिन चुनें
+                प्रिंट फॉर्मेट, हॉरिजॉन्टल (Landscape) ओरिएंटेशन व मार्जिन चुनें
               </p>
             </div>
           </div>
@@ -341,7 +348,7 @@ Mobile: ${shopDetails.phone}`;
               }`}
             >
               <Settings2 className="w-3.5 h-3.5" />
-              <span>प्रिंटर सेटिंग्स ({preferences.paperSize})</span>
+              <span>प्रिंटर सेटिंग्स ({preferences.paperSize} • {preferences.orientation === 'landscape' ? 'Landscape' : 'Portrait'})</span>
             </button>
 
             {/* WhatsApp Share Button */}
@@ -378,14 +385,14 @@ Mobile: ${shopDetails.phone}`;
           <div className="bg-stone-800 text-stone-100 p-4 border-b border-stone-700 space-y-4 print:hidden animate-in fade-in duration-200">
             <div className="flex items-center justify-between pb-2 border-b border-stone-700">
               <span className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
-                <Sliders className="w-4 h-4" /> Custom Invoice Printer Configuration (प्रिंटर व पेज अनुकूलन)
+                <Sliders className="w-4 h-4" /> Custom Invoice Printer Configuration (प्रिंटर, ओरिएंटेशन व पेज अनुकूलन)
               </span>
               <span className="text-[11px] text-stone-400">
                 आपकी सेटिंग्स स्वतः सेव (Auto-Saved) होंगी
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 text-xs">
               
               {/* 1. Printer Paper Size / Format */}
               <div className="space-y-1.5">
@@ -440,10 +447,52 @@ Mobile: ${shopDetails.phone}`;
                 </div>
               </div>
 
-              {/* 2. Copy Count Selector */}
+              {/* 2. Page Orientation (Portrait vs Landscape Horizontal) */}
               <div className="space-y-1.5">
                 <label className="font-bold text-stone-300 block text-[11px]">
-                  2. प्रिंट कॉपियों की संख्या (No. of Copies):
+                  2. पेज दिशा (Orientation):
+                </label>
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => updatePref('orientation', 'portrait')}
+                    className={`p-2 rounded-xl border text-left transition font-bold text-xs flex items-center justify-between ${
+                      preferences.orientation === 'portrait'
+                        ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-sm'
+                        : 'bg-stone-900 border-stone-700 text-stone-300 hover:bg-stone-700'
+                    }`}
+                    title="Portrait (Vertical) - सीधा पन्ना"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <RectangleVertical className="w-3.5 h-3.5" />
+                      <span>Portrait (सीधा)</span>
+                    </span>
+                    {preferences.orientation === 'portrait' && <Check className="w-3.5 h-3.5" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => updatePref('orientation', 'landscape')}
+                    className={`p-2 rounded-xl border text-left transition font-bold text-xs flex items-center justify-between ${
+                      preferences.orientation === 'landscape'
+                        ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-sm'
+                        : 'bg-stone-900 border-stone-700 text-stone-300 hover:bg-stone-700'
+                    }`}
+                    title="Landscape (Horizontal) - चौड़ा हॉरिजॉन्टल पन्ना"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <RectangleHorizontal className="w-3.5 h-3.5" />
+                      <span>Landscape (चौड़ा)</span>
+                    </span>
+                    {preferences.orientation === 'landscape' && <Check className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. Copy Count Selector */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-stone-300 block text-[11px]">
+                  3. कॉपियों की संख्या (Copies):
                 </label>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -456,7 +505,7 @@ Mobile: ${shopDetails.phone}`;
                     }`}
                     title="Print 1 single copy only"
                   >
-                    1 Copy (Original)
+                    1 Copy
                   </button>
                   <button
                     type="button"
@@ -468,7 +517,7 @@ Mobile: ${shopDetails.phone}`;
                     }`}
                     title="Print 2 copies: Original + Office Copy"
                   >
-                    2 Copies (Dual)
+                    2 Copies
                   </button>
                   <button
                     type="button"
@@ -485,10 +534,10 @@ Mobile: ${shopDetails.phone}`;
                 </div>
               </div>
 
-              {/* 3. Page Margin Size */}
+              {/* 4. Page Margin Size */}
               <div className="space-y-1.5">
                 <label className="font-bold text-stone-300 block text-[11px]">
-                  3. पेज मार्जिन (Margins):
+                  4. पेज मार्जिन (Margins):
                 </label>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -527,10 +576,10 @@ Mobile: ${shopDetails.phone}`;
                 </div>
               </div>
 
-              {/* 4. Display Toggles */}
+              {/* 5. Display Toggles */}
               <div className="space-y-1.5">
                 <label className="font-bold text-stone-300 block text-[11px]">
-                  4. विवरण फ़िल्टर (Display Toggles):
+                  5. विवरण फ़िल्टर (Display):
                 </label>
                 <div className="flex flex-wrap gap-2 text-[11px]">
                   <label className="flex items-center gap-1.5 text-stone-300 cursor-pointer">
@@ -560,7 +609,7 @@ Mobile: ${shopDetails.phone}`;
                       onChange={(e) => updatePref('showHuidBadge', e.target.checked)}
                       className="rounded accent-amber-500"
                     />
-                    <span>HUID / Tag Info</span>
+                    <span>HUID Tag Info</span>
                   </label>
                 </div>
               </div>
@@ -733,10 +782,10 @@ Mobile: ${shopDetails.phone}`;
                 </div>
               ) : (
                 /* ============================================================ */
-                /* STANDARD LASER / INKJET LAYOUT (A4 Full & A5 Half Page) */
+                /* STANDARD LASER / INKJET LAYOUT (A4 & A5 Portrait / Landscape) */
                 /* ============================================================ */
                 <div className={`border border-slate-300 rounded-xl p-4 sm:p-6 shadow-xs print:border-none print:p-0 print:shadow-none space-y-4 bg-white ${
-                  preferences.paperSize === 'A5' ? 'max-w-2xl text-[92%]' : ''
+                  preferences.orientation === 'landscape' ? 'w-full' : ''
                 }`}>
                   
                   {/* Header: Logo & Shop Details */}
