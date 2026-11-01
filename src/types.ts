@@ -9,6 +9,7 @@ export type GemstonePurity = 'Natural Certified' | 'Untreated Astrological' | 'S
 export type ItemCategory = string;
 
 export interface MetalRate {
+  firmId?: string;
   metal: MetalType;
   purity: string;
   ratePerGram: number; // in INR ₹
@@ -61,6 +62,7 @@ export interface CityMetalRates {
 
 export interface JewellerProfile {
   id: string;
+  firmId?: string;
   code: string;
   name: string;
   counterName: string;
@@ -74,6 +76,7 @@ export interface JewellerProfile {
 
 export interface JewelleryItem {
   id: string;
+  firmId?: string;
   tagNo: string; // e.g., SMJ-2026-001
   huid?: string; // 6-digit alphanumeric BIS HUID e.g. SMJ789
   name: string;
@@ -194,6 +197,7 @@ export interface OldMetalExchange {
 
 export interface Customer {
   id: string;
+  firmId?: string;
   name: string;
   phone: string;
   email?: string;
@@ -221,6 +225,7 @@ export type InvoiceType = 'GST_INVOICE' | 'ESTIMATE_BILL';
 
 export interface GSTInvoice {
   id: string;
+  firmId?: string;
   invoiceNumber: string; // e.g., SMJ-INV-2026-0089 or SMJ-EST-2026-0042
   invoiceType: InvoiceType; // 'GST_INVOICE' = Pakka Bill, 'ESTIMATE_BILL' = Kachha / Estimate
   date: string;
@@ -260,9 +265,9 @@ export interface GSTInvoice {
   hallmarkCertified: boolean;
 }
 
-// Vendor / Supplier Register (थोक व्यापारी / सप्लायर)
 export interface Vendor {
   id: string;
+  firmId?: string;
   firmName: string; // e.g. Zaveri Bullion Mumbai
   contactPerson: string;
   phone: string;
@@ -302,6 +307,7 @@ export interface PurchaseItem {
 
 export interface PurchaseInvoice {
   id: string;
+  firmId?: string;
   purchaseBillNo: string; // e.g. PUR-2026-0018
   vendorId: string;
   vendorName: string;
@@ -336,6 +342,7 @@ export type ExpenseCategory =
 
 export interface ShopExpense {
   id: string;
+  firmId?: string;
   voucherNo: string; // e.g. EXP-2026-042
   date: string;
   category: ExpenseCategory;
@@ -348,6 +355,7 @@ export interface ShopExpense {
 // Cash & Bank Reconciliation
 export interface CashBankTransfer {
   id: string;
+  firmId?: string;
   date: string;
   type: 'DEPOSIT_TO_BANK' | 'WITHDRAW_FROM_BANK';
   amount: number;
@@ -357,6 +365,7 @@ export interface CashBankTransfer {
 // Karigar (Goldsmith) Job Card Ledger types
 export interface Karigar {
   id: string;
+  firmId?: string;
   name: string;
   phone: string;
   address: string;
@@ -369,6 +378,7 @@ export interface Karigar {
 
 export interface KarigarJobCard {
   id: string;
+  firmId?: string;
   jobNo: string; // e.g. KJB-2026-015
   karigarId: string;
   karigarName: string;
@@ -408,6 +418,7 @@ export interface PledgedItem {
 
 export interface GirviLoan {
   id: string;
+  firmId?: string;
   loanNo: string; // e.g. GRV-2026-042
   date: string;
   borrowerName: string;
@@ -430,6 +441,7 @@ export interface GirviLoan {
 }
 
 export interface ShopDetails {
+  firmId?: string;
   name: string;
   tagline: string;
   address: string;

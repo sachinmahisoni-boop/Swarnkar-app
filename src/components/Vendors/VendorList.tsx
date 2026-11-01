@@ -261,8 +261,12 @@ export const VendorList: React.FC<VendorListProps> = ({
                     <Edit3 className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => onDeleteVendor(vendor.id)}
-                    className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
+                    onClick={() => {
+                      if (window.confirm(`क्या आप वाकई वेंडर/सप्लायर "${vendor.firmName}" को डिलीट करना चाहते हैं?`)) {
+                        onDeleteVendor(vendor.id);
+                      }
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
                     title="Delete Vendor"
                   >
                     <Trash2 className="w-3.5 h-3.5" />

@@ -13,7 +13,8 @@ import {
   RotateCcw, 
   Edit3, 
   Sparkles,
-  Store
+  Store,
+  Trash2
 } from 'lucide-react';
 
 interface FirmManagerModalProps {
@@ -24,6 +25,7 @@ interface FirmManagerModalProps {
   onSelectFirm: (firmId: string) => void;
   onAddFirm: (firm: JewellerProfile) => void;
   onUpdateFirm?: (firm: JewellerProfile) => void;
+  onDeleteFirm?: (firmId: string) => void;
 }
 
 export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
@@ -34,6 +36,7 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
   onSelectFirm,
   onAddFirm,
   onUpdateFirm,
+  onDeleteFirm,
 }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingFirmId, setEditingFirmId] = useState<string | null>(null);
@@ -246,6 +249,21 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                           <Edit3 className="w-3.5 h-3.5 text-amber-600" />
                           <span>एडिट</span>
                         </button>
+
+                        {firms.length > 1 && onDeleteFirm && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`क्या आप वाकई फर्म "${f.name}" और इसके समस्त रिकॉर्ड्स को डिलीट करना चाहते हैं?`)) {
+                                onDeleteFirm(f.id);
+                              }
+                            }}
+                            className="p-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl transition cursor-pointer"
+                            title="फर्म डिलीट करें (Delete Firm)"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
 
                         <button
                           type="button"

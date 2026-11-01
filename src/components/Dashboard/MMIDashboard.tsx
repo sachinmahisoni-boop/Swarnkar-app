@@ -35,30 +35,48 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
   const [period, setPeriod] = useState<'Annual' | 'Monthly' | 'Day'>('Monthly');
   const [selectedReportModal, setSelectedReportModal] = useState<string | null>(null);
 
-  // Dynamic calculations based on invoices
-  const totalInvoicesCount = invoices.length || 145;
-  const totalSalesAmount = invoices.reduce((acc, i) => acc + (i.grandTotal || 0), 0) || 7691602;
+  // Dynamic calculations based strictly on firm invoices
+  const totalInvoicesCount = invoices.length;
+  const totalSalesAmount = invoices.reduce((acc, i) => acc + (i.grandTotal || 0), 0);
   const totalLabourAmount = invoices.reduce((acc, i) => {
-    const making = i.items.reduce((s, it) => s + (it.makingCharge || 0), 0);
+    const making = (i.items || []).reduce((s, it) => s + (it.makingCharge || 0), 0);
     return acc + making;
-  }, 0) || 607229;
-  const totalDiscountAmount = invoices.reduce((acc, i) => acc + (i.discountAmount || 0), 0) || 39842;
+  }, 0);
+  const totalDiscountAmount = invoices.reduce((acc, i) => acc + (i.discountAmount || 0), 0);
 
-  // Top salesmen
-  const salesmen = [
-    { name: 'BJ SHANTI BISHT', counter: 'Counter 1 (Bridal)', sales: 2056030, invoices: 38 },
-    { name: 'BJ BOBBY KUMARI', counter: 'Counter 2 (Chains & Bangles)', sales: 1394651, invoices: 29 },
-    { name: 'BJ VIMLA SAJWAN', counter: 'Counter 3 (Diamonds)', sales: 1203175, invoices: 22 },
-    { name: 'BJ POONAM JOSHI', counter: 'Counter 4 (Silver & Gems)', sales: 954559, invoices: 34 },
-  ];
+  // Dynamic Top Selling Categories from actual invoices
+  const categoryTotals: Record<string, number> = {};
+  invoices.forEach(inv => {
+    inv.items?.forEach(item => {
+      const cat = item.category || item.metal || 'General Jewellery';
+      categoryTotals[cat] = (categoryTotals[cat] || 0) + (item.subtotal || 0);
+    });
+  });
 
-  // Top selling categories
-  const topSellingCategories = [
-    { label: 'Sales of GOLD JEWELLERY 22K', amount: 9308820, bg: 'bg-rose-500', icon: 'gold' },
-    { label: 'Sales of BRANDED JEWELLERY', amount: 2535942, bg: 'bg-emerald-500', icon: 'branded' },
-    { label: 'Sales of DIAMOND JEWELLERY', amount: 1652145, bg: 'bg-blue-600', icon: 'diamond' },
-    { label: 'Sales of GOLD METAL / COINS', amount: 572547, bg: 'bg-amber-500', icon: 'metal' },
-  ];
+  const topSellingCategories = Object.entries(categoryTotals)
+    .map(([label, amount]) => ({
+      label: `Sales of ${label.toUpperCase()}`,
+      amount,
+      bg: label.toLowerCase().includes('gold') ? 'bg-amber-500' : label.toLowerCase().includes('silver') ? 'bg-slate-500' : 'bg-blue-600',
+      icon: 'gold'
+    }))
+    .slice(0, 4);
+
+  // Top salesmen / counter performance from actual invoices
+  const counterSales: Record<string, { sales: number; count: number }> = {};
+  invoices.forEach(inv => {
+    const counter = inv.counterName || 'Main Counter';
+    if (!counterSales[counter]) counterSales[counter] = { sales: 0, count: 0 };
+    counterSales[counter].sales += inv.grandTotal || 0;
+    counterSales[counter].count += 1;
+  });
+
+  const salesmen = Object.entries(counterSales).map(([counter, data]) => ({
+    name: counter,
+    counter: 'Showroom Desk',
+    sales: data.sales,
+    invoices: data.count
+  }));
 
   // MMI Right Sidebar 15 Action Buttons
   const rightSidebarButtons = [
@@ -79,21 +97,15 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
     { id: 'master', label: 'Master Desk', tab: 'pos' },
   ];
 
-  // Live Vouchers data
-  const vouchers = [
-    { type: 'VOUCHER', login: 'Admin', customer: 'S.P. BULLION TRADERS', billNo: 'V-21', amount: -400000.00, narr: 'Raw gold 24K purchase adjustment' },
-    { type: 'VOUCHER', login: 'Admin', customer: 'BHOPAL SARAFA CLEARING', billNo: 'V-22', amount: -157427.15, narr: 'RTGS Settlement for old bullion' },
-    { type: 'VOUCHER', login: 'Admin', customer: 'MAHALAXMI JEWELLERS HO', billNo: 'V-22', amount: -314854.30, narr: 'Jobwork payment to Karigar unit' },
-    { type: 'VOUCHER', login: 'Admin', customer: 'KOLAR VAULT VA-4', billNo: 'V-21', amount: -629708.60, narr: 'Contra cash deposit to SBI A/C' },
-    { type: 'SALE', login: 'User-1', customer: 'A.P. LOHANI', billNo: 'EST/101', amount: 13527.18, narr: 'S.NO.EST/101 22K Gold Ring' },
-    { type: 'SALE', login: 'User-2', customer: 'BANSAL JEWELLERS RUDRA', billNo: 'EST/100', amount: 8280.00, narr: 'S.NO.EST/100 Silver Payal 925' },
-    { type: 'ISSUE', login: 'Admin', customer: 'NEW BRANCH ARERA', billNo: 'BBS169', amount: 1884.00, narr: 'S.NO.BBS169 Stock Transfer' },
-    { type: 'SALE', login: 'User-1', customer: 'BANSAL JEWELLERS RUDRA', billNo: 'EST/99', amount: 3150.50, narr: 'S.NO.EST/99 Gemstone Panna' },
-    { type: 'SALE', login: 'User-3', customer: 'SAKIR AHMED', billNo: 'EST/94', amount: 500.00, narr: 'S.NO.EST/94 Repair & Laser Solder' },
-    { type: 'SALE', login: 'User-1', customer: 'SAKIR AHMED', billNo: 'EST/98', amount: 1250.00, narr: 'S.NO.EST/98 Polish & Gold Plating' },
-    { type: 'VOUCHER', login: 'Admin', customer: 'SHREEM MAHAL BULLION ABC', billNo: 'V-20', amount: 174000.00, narr: '100g 24K Bar Delivery Received' },
-    { type: 'VOUCHER', login: 'Admin', customer: 'SHREEM MAHAL BULLION ABC', billNo: 'V-20', amount: 348000.00, narr: '200g 999 Silver Bars Cash Received' },
-  ];
+  // Live Vouchers data from actual firm invoices
+  const vouchers = invoices.map((inv) => ({
+    type: inv.invoiceType === 'GST_INVOICE' ? 'SALE' : 'ESTIMATE',
+    login: inv.counterName || 'Admin',
+    customer: inv.customerName || 'Walk-in Customer',
+    billNo: inv.invoiceNumber,
+    amount: inv.grandTotal,
+    narr: `${inv.items?.map(it => it.name).join(', ') || 'Jewellery Items'}`
+  }));
 
   return (
     <div className="bg-[#f0f2f5] min-h-screen text-slate-800 font-sans p-2 sm:p-4 select-none">

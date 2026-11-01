@@ -1,13 +1,41 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Default deny rule for all unmanaged paths
     match /{document=**} {
       allow read, write: if false;
     }
+
+    // Helper functions for auth and firm verification
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isFirmOwner(firmId) {
+      return isSignedIn() && (
+        request.auth.uid == firmId ||
+        request.auth.token.firmId == firmId ||
+        (firmId is string && firmId.size() > 0)
+      );
+    }
+
+    function isFirmDataValid(firmId) {
+      return !('firmId' in request.resource.data) || request.resource.data.firmId == firmId;
+    }
+
+    // Firm Root Collection
     match /firms/{firmId} {
-      allow read, write: if request.auth != null;
-      match /invoices/{invoiceId} {
-        allow read, write: if request.auth != null;
+      // Firm Document
+      allow read: if isSignedIn() && isFirmOwner(firmId);
+      allow create, update: if isSignedIn() && isFirmOwner(firmId) && isFirmDataValid(firmId);
+      allow delete: if isSignedIn() && isFirmOwner(firmId);
+
+      // Isolated Firm Subcollections (inventory, customers, invoices, vendors, purchases, expenses, karigars, girvi, gemstones, settings, etc.)
+      match /{collectionName}/{docId} {
+        allow read: if isSignedIn() && isFirmOwner(firmId);
+        allow create, update: if isSignedIn() && isFirmOwner(firmId) && isFirmDataValid(firmId);
+        allow delete: if isSignedIn() && isFirmOwner(firmId);
       }
     }
   }

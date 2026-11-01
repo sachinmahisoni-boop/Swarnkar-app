@@ -14,7 +14,8 @@ import {
   ChevronLeft, 
   ChevronRight,
   Sparkles,
-  ArrowRightLeft
+  ArrowRightLeft,
+  LogOut
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -34,6 +35,7 @@ interface HeaderProps {
   onToggleMobileSidebar?: () => void;
   onToggleDesktopSidebar?: () => void;
   isDesktopSidebarCollapsed?: boolean;
+  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -53,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleMobileSidebar,
   onToggleDesktopSidebar,
   isDesktopSidebarCollapsed = false,
+  onLogout,
 }) => {
   const gold24k = rates.find(r => r.metal === 'Gold' && r.purity === '24K')?.ratePerGram || 0;
   const gold22k = rates.find(r => r.metal === 'Gold' && r.purity === '22K')?.ratePerGram || 0;
@@ -192,7 +195,8 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-stone-500 font-medium">
-                {shopDetails.address || 'Sarafa Bazar'}, {shopDetails.cityStatePincode || 'Bhopal'} | M: {activeProfile.phone || shopDetails.phone}
+                {[shopDetails.address, shopDetails.cityStatePincode].filter(Boolean).join(', ') || 'Showroom Address'}
+                {(activeProfile.phone || shopDetails.phone) ? ` | M: ${activeProfile.phone || shopDetails.phone}` : ''}
               </p>
             </div>
           </div>
@@ -252,6 +256,17 @@ export const Header: React.FC<HeaderProps> = ({
               <Settings className="w-4 h-4" />
               <span className="hidden sm:inline">Settings</span>
             </button>
+
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="p-2.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 hover:border-rose-300 transition cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-2xs"
+                title="Logout & Clear Session Cache"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            )}
           </div>
 
         </div>

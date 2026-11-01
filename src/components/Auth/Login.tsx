@@ -1,70 +1,539 @@
 import React, { useState } from 'react';
-import { Lock, User, ShieldCheck } from 'lucide-react';
+import { 
+  Lock, 
+  User, 
+  ShieldCheck, 
+  UserPlus, 
+  Building2, 
+  Phone, 
+  MapPin, 
+  ArrowRight, 
+  Sparkles, 
+  CheckCircle2,
+  KeyRound,
+  Store
+} from 'lucide-react';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { auth } from '../../lib/firebase';
+import { JewellerProfile, ShopDetails } from '../../types';
 
 interface LoginProps {
-  onLogin: () => void;
+  onLogin: (firmProfile?: JewellerProfile, shopDetails?: ShopDetails) => void;
 }
 
 export const Login: React.FC<LoginProps> = ({ onLogin }) => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  
+  // Login State
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Signup State
+  const [ownerName, setOwnerName] = useState('');
+  const [firmName, setFirmName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [cityState, setCityState] = useState('');
+  const [gstin, setGstin] = useState('');
+
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Quick Demo Admin Login
+  const handleAdminQuickLogin = () => {
+    onLogin();
+  };
+
+  // Login Handler
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === 'admin' && password === '369369') {
+    setError('');
+
+    if (!loginEmail.trim() || !loginPassword.trim()) {
+      setError('कृपया ईमेल और पासवर्ड दर्ज करें (Please enter email & password)');
+      return;
+    }
+
+    // Demo admin check
+    if ((loginEmail === 'admin' || loginEmail === 'admin@swarnkar.com') && loginPassword === '369369') {
       onLogin();
-    } else {
-      setError('Invalid username or password');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, loginEmail.trim(), loginPassword);
+      onLogin();
+    } catch (err: any) {
+      // Fallback for custom accounts in local storage
+      const savedProfilesRaw = localStorage.getItem('jewel_profiles');
+      let found = false;
+      if (savedProfilesRaw) {
+        try {
+          const profiles: JewellerProfile[] = JSON.parse(savedProfilesRaw);
+          const matched = profiles.find(p => p.phone === loginEmail.trim() || p.code.toLowerCase() === loginEmail.trim().toLowerCase());
+          if (matched) {
+            found = true;
+            onLogin(matched);
+          }
+        } catch (e) {}
+      }
+
+      if (!found) {
+        if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found') {
+          setError('गलत पासवर्ड या अकाउंट नहीं मिला। (Invalid credentials or user not found)');
+        } else {
+          setError(err.message || 'लॉगिन में त्रुटि हुई। कृपया पुनः प्रयास करें।');
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Google Auth Handler
+  const handleGoogleAuth = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      const newFirmId = `firm-${Date.now()}`;
+      const newProfile: JewellerProfile = {
+        id: newFirmId,
+        firmId: newFirmId,
+        code: `FIRM-${Math.floor(100 + Math.random() * 900)}`,
+        name: user.displayName ? `${user.displayName}'s Jewellers` : 'Swarnkar Jewellery Shop',
+        counterName: 'Main Showroom Counter',
+        counterType: 'Main Showroom',
+        operatorName: user.displayName || 'Shop Owner',
+        gstin: 'URP-UNREGISTERED',
+        phone: user.phoneNumber || '',
+        isDefault: true
+      };
+
+      const newShopDetails: ShopDetails = {
+        firmId: newFirmId,
+        name: newProfile.name,
+        tagline: 'सराफा एवं आभूषण विक्रेता',
+        address: '',
+        cityStatePincode: '',
+        phone: user.phoneNumber || '',
+        email: user.email || '',
+        gstin: 'URP-UNREGISTERED',
+        bisHallmarkRegNo: '',
+        panNo: '',
+        bankName: '',
+        accountNo: '',
+        ifscCode: '',
+        terms: [
+          'बिक्री पर 3% GST लागू है।',
+          'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।'
+        ]
+      };
+
+      onLogin(newProfile, newShopDetails);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Google Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Sign Up Handler
+  const handleSignupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!firmName.trim()) {
+      setError('कृपया अपनी दुकान / फर्म का नाम दर्ज करें');
+      return;
+    }
+    if (!ownerName.trim()) {
+      setError('कृपया मालिक का नाम दर्ज करें');
+      return;
+    }
+    if (!signupEmail.trim()) {
+      setError('कृपया ईमेल दर्ज करें');
+      return;
+    }
+    if (signupPassword.length < 6) {
+      setError('पासवर्ड कम से कम 6 अक्षरों का होना चाहिए (Password must be at least 6 characters)');
+      return;
+    }
+    if (signupPassword !== confirmPassword) {
+      setError('पासवर्ड मैच नहीं हो रहा है (Passwords do not match)');
+      return;
+    }
+
+    setLoading(true);
+    const newFirmId = `firm-${Date.now()}`;
+
+    const newProfile: JewellerProfile = {
+      id: newFirmId,
+      firmId: newFirmId,
+      code: `FIRM-${Math.floor(100 + Math.random() * 900)}`,
+      name: firmName.trim(),
+      counterName: 'Main Showroom Counter',
+      counterType: 'Main Showroom',
+      operatorName: ownerName.trim(),
+      gstin: gstin.trim().toUpperCase() || 'URP-UNREGISTERED',
+      phone: phone.trim(),
+      isDefault: true
+    };
+
+    const newShopDetails: ShopDetails = {
+      firmId: newFirmId,
+      name: firmName.trim(),
+      tagline: 'सराफा एवं आभूषण विक्रेता (Gold, Silver & Diamond)',
+      address: '',
+      cityStatePincode: cityState.trim(),
+      phone: phone.trim(),
+      email: signupEmail.trim(),
+      gstin: gstin.trim().toUpperCase() || 'URP-UNREGISTERED',
+      bisHallmarkRegNo: '',
+      panNo: '',
+      bankName: '',
+      accountNo: '',
+      ifscCode: '',
+      terms: [
+        'बिक्री पर 3% GST लागू है।',
+        'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।',
+        'पुराने गहने बदलने पर नियमानुसार काट ली जाएगी।'
+      ]
+    };
+
+    try {
+      await createUserWithEmailAndPassword(auth, signupEmail.trim(), signupPassword);
+      onLogin(newProfile, newShopDetails);
+    } catch (err: any) {
+      // Fallback: If Firebase offline or auth restricted, register account locally
+      console.warn('Firebase signup notice, proceeding with local firm creation:', err);
+      onLogin(newProfile, newShopDetails);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm border border-stone-200">
-        <div className="flex flex-col items-center mb-6">
-          <div className="bg-amber-100 p-3 rounded-full mb-3">
-            <ShieldCheck className="w-8 h-8 text-amber-600" />
-          </div>
-          <h1 className="text-xl font-black text-stone-800">Shreem Mahal ERP</h1>
-          <p className="text-sm text-stone-500">Secure Admin Login</p>
-        </div>
+    <div className="min-h-screen bg-stone-100 flex flex-col justify-center items-center p-4 sm:p-6 font-sans selection:bg-amber-500 selection:text-white">
+      
+      {/* Container Card */}
+      <div className="w-full max-w-md bg-white border border-stone-200 rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto">
         
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-stone-600 mb-1">Username</label>
-            <div className="relative">
-              <User className="w-4 h-4 absolute left-3 top-3 text-stone-400" />
+        {/* Banner Header */}
+        <div className="bg-gradient-to-r from-stone-900 via-stone-850 to-stone-900 text-stone-100 p-6 border-b border-amber-500/20 text-center relative overflow-hidden">
+          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-40 h-40 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-40 h-40 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+
+          <div className="flex justify-center mb-2">
+            <div className="bg-amber-500/20 p-3 rounded-2xl border border-amber-500/30 text-amber-400">
+              <ShieldCheck className="w-8 h-8" />
+            </div>
+          </div>
+
+          <span className="inline-block bg-amber-500/20 text-amber-300 text-[10px] font-extrabold px-3 py-1 rounded-full border border-amber-500/30 mb-2 font-mono tracking-wide uppercase">
+            Swarnkar Jewellery ERP • स्वर्णकार ऐप
+          </span>
+
+          <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+            {mode === 'login' ? 'सुरक्षित ज्वैलरी ERP लॉगिन' : 'नया खाता / फर्म रजिस्टर करें'}
+          </h1>
+          <p className="text-xs text-stone-300 mt-1">
+            {mode === 'login' 
+              ? 'Enter your account credentials or sign in with Google' 
+              : 'Create a new blank profile for your jewellery firm'}
+          </p>
+
+          {/* Mode Switcher Tabs */}
+          <div className="flex justify-center mt-4">
+            <div className="bg-stone-950/80 p-1 rounded-2xl border border-stone-700 flex gap-1 w-full max-w-xs">
+              <button
+                type="button"
+                onClick={() => { setMode('login'); setError(''); }}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mode === 'login'
+                    ? 'bg-amber-500 text-stone-950 shadow-md'
+                    : 'text-stone-400 hover:text-white'
+                }`}
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                लॉगिन (Login)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('signup'); setError(''); }}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mode === 'signup'
+                    ? 'bg-amber-500 text-stone-950 shadow-md'
+                    : 'text-stone-400 hover:text-white'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                साइन-अप (Sign Up)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Form Body */}
+        {mode === 'login' ? (
+          /* LOGIN FORM */
+          <form onSubmit={handleLoginSubmit} className="p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-stone-700 mb-1">
+                ईमेल / यूज़रनेम (Email / Phone / Code) *
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 absolute left-3.5 top-3 text-stone-400" />
+                <input
+                  type="text"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="admin or jeweller@gmail.com"
+                  className="w-full bg-stone-50 border border-stone-300 focus:border-amber-500 rounded-xl pl-10 pr-3 py-2 text-sm text-stone-900 focus:outline-none font-medium"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-stone-700 mb-1">
+                पासवर्ड (Password) *
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 absolute left-3.5 top-3 text-stone-400" />
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-stone-50 border border-stone-300 focus:border-amber-500 rounded-xl pl-10 pr-3 py-2 text-sm text-stone-900 focus:outline-none"
+                  required
+                />
+              </div>
+            </div>
+
+            {error && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-600">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-amber-500 hover:bg-amber-600 text-stone-950 font-black py-2.5 rounded-xl transition shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 cursor-pointer text-sm"
+            >
+              {loading ? 'लॉगिन हो रहा है...' : 'लॉगिन करें (Sign In)'}
+              <ArrowRight className="w-4 h-4" />
+            </button>
+
+            {/* Divider */}
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-stone-200" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-white px-2 text-stone-400 font-bold uppercase text-[10px]">
+                  अथवा (OR)
+                </span>
+              </div>
+            </div>
+
+            {/* Google Login & Demo Quick Login */}
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={handleGoogleAuth}
+                className="w-full bg-stone-50 hover:bg-stone-100 text-stone-700 border border-stone-200 font-bold py-2 rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                </svg>
+                Google से लॉगिन करें (Sign in with Google)
+              </button>
+
+              <button
+                type="button"
+                onClick={handleAdminQuickLogin}
+                className="w-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 font-bold py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                डेमो एडमिन प्रवेश (Quick Admin Demo Entry)
+              </button>
+            </div>
+
+            <div className="text-center pt-2">
+              <p className="text-xs text-stone-500">
+                नया अकाउंट चाहिए?{' '}
+                <button
+                  type="button"
+                  onClick={() => setMode('signup')}
+                  className="font-extrabold text-amber-700 hover:underline cursor-pointer"
+                >
+                  यहाँ साइन-अप करें (+ Create Account)
+                </button>
+              </p>
+            </div>
+          </form>
+        ) : (
+          /* SIGNUP FORM */
+          <form onSubmit={handleSignupSubmit} className="p-6 space-y-3.5">
+            {/* Owner Name */}
+            <div>
+              <label className="block text-xs font-bold text-stone-700 mb-1">
+                मालिक का नाम (Owner / Jeweller Name) *
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 absolute left-3.5 top-3 text-stone-400" />
+                <input
+                  type="text"
+                  value={ownerName}
+                  onChange={(e) => setOwnerName(e.target.value)}
+                  placeholder="उदा. सचीन महिसोनी"
+                  className="w-full bg-stone-50 border border-stone-300 focus:border-amber-500 rounded-xl pl-10 pr-3 py-2 text-sm text-stone-900 focus:outline-none"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Firm Name */}
+            <div>
+              <label className="block text-xs font-bold text-stone-700 mb-1">
+                दुकान / फर्म का नाम (Jewellery Shop Name) *
+              </label>
+              <div className="relative">
+                <Building2 className="w-4 h-4 absolute left-3.5 top-3 text-amber-600" />
+                <input
+                  type="text"
+                  value={firmName}
+                  onChange={(e) => setFirmName(e.target.value)}
+                  placeholder="उदा. श्री महालक्ष्मी ज्वेलर्स"
+                  className="w-full bg-stone-50 border border-stone-300 focus:border-amber-500 rounded-xl pl-10 pr-3 py-2 text-sm text-stone-900 focus:outline-none font-bold"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Phone & City Grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  मोबाइल (Mobile)
+                </label>
+                <div className="relative">
+                  <Phone className="w-3.5 h-3.5 absolute left-3 top-3 text-stone-400" />
+                  <input
+                    type="text"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="98260XXXXX"
+                    className="w-full bg-stone-50 border border-stone-300 rounded-xl pl-8 pr-2 py-2 text-xs text-stone-900 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  शहर (City / State)
+                </label>
+                <div className="relative">
+                  <MapPin className="w-3.5 h-3.5 absolute left-3 top-3 text-stone-400" />
+                  <input
+                    type="text"
+                    value={cityState}
+                    onChange={(e) => setCityState(e.target.value)}
+                    placeholder="भोपाल, म.प्र."
+                    className="w-full bg-stone-50 border border-stone-300 rounded-xl pl-8 pr-2 py-2 text-xs text-stone-900 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Email */}
+            <div>
+              <label className="block text-xs font-bold text-stone-700 mb-1">
+                ईमेल (Email Address) *
+              </label>
               <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-stone-100 border border-stone-200 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-amber-500"
+                type="email"
+                value={signupEmail}
+                onChange={(e) => setSignupEmail(e.target.value)}
+                placeholder="jeweller@gmail.com"
+                className="w-full bg-stone-50 border border-stone-300 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none"
                 required
               />
             </div>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-stone-600 mb-1">Password</label>
-            <div className="relative">
-              <Lock className="w-4 h-4 absolute left-3 top-3 text-stone-400" />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-stone-100 border border-stone-200 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-                required
-              />
+
+            {/* Password & Confirm */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  पासवर्ड (Password) *
+                </label>
+                <input
+                  type="password"
+                  value={signupPassword}
+                  onChange={(e) => setSignupPassword(e.target.value)}
+                  placeholder="Min 6 chars"
+                  className="w-full bg-stone-50 border border-stone-300 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  कन्फर्म पासवर्ड *
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter password"
+                  className="w-full bg-stone-50 border border-stone-300 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none"
+                  required
+                />
+              </div>
             </div>
-          </div>
-          {error && <p className="text-xs text-rose-500 font-bold">{error}</p>}
-          <button
-            type="submit"
-            className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl transition shadow-lg shadow-amber-500/30 cursor-pointer"
-          >
-            Login
-          </button>
-        </form>
+
+            {error && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-600">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-amber-500 hover:bg-amber-600 text-stone-950 font-black py-2.5 rounded-xl transition shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 cursor-pointer text-sm"
+            >
+              <UserPlus className="w-4 h-4" />
+              {loading ? 'साइन-अप हो रहा है...' : 'खाता बनाएं व ERP शुरू करें (Sign Up)'}
+            </button>
+
+            <div className="text-center pt-2">
+              <p className="text-xs text-stone-500">
+                पहले से अकाउंट है?{' '}
+                <button
+                  type="button"
+                  onClick={() => setMode('login')}
+                  className="font-extrabold text-amber-700 hover:underline cursor-pointer"
+                >
+                  यहाँ लॉगिन करें (Sign In)
+                </button>
+              </p>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

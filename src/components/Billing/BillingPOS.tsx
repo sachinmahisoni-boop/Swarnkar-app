@@ -1182,13 +1182,15 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
                   <select
                     value={customPurity}
                     onChange={(e) => setCustomPurity(e.target.value)}
-                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-900 font-semibold focus:border-amber-500 focus:bg-white"
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-900 font-bold focus:border-amber-500 focus:bg-white"
                   >
                     <option value="24K">24K Pure Gold (99.9%)</option>
                     <option value="22K">22K (916 BIS Hallmark)</option>
                     <option value="18K">18K (750 Diamond Setting)</option>
                     <option value="14K">14K Light Jewellery</option>
                     <option value="9K">9K (375 Casual Gold)</option>
+                    <option value="Shift Silver">Shift Silver (विशेष चांदी)</option>
+                    <option value="Silver">Silver (चांदी)</option>
                     <option value="999 Fine">Silver 999 Fine (सिक्का / सिल्ली)</option>
                     <option value="925 Sterling">Silver 925 Sterling (चांदी जेवर)</option>
                     <option value="Natural Gemstone">Natural Certified Gemstone</option>

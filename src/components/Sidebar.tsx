@@ -21,7 +21,8 @@ import {
   ArrowUpRight,
   Gem,
   Coins,
-  X
+  X,
+  LogOut
 } from 'lucide-react';
 import { TabType } from './Navigation';
 import { ShreemLogo } from './ShreemLogo';
@@ -44,6 +45,7 @@ interface SidebarProps {
   onOpenQuickGenerate?: () => void;
   onOpenCategoryModal?: () => void;
   customLogo?: string;
+  onLogout?: () => void;
 }
 
 interface NavItem {
@@ -81,6 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenQuickGenerate,
   onOpenCategoryModal,
   customLogo,
+  onLogout,
 }) => {
 
   const sections: NavSection[] = [
@@ -457,6 +460,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                 </div>
               </div>
+              {/* Logout Button */}
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="w-full py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition cursor-pointer shadow-2xs mt-1"
+                  title="लॉगआउट (Sign Out)"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>लॉगआउट (Logout)</span>
+                </button>
+              )}
             </>
           ) : (
             <div className="flex flex-col items-center space-y-2">
@@ -467,6 +481,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <Wallet className="w-4 h-4" />
               </button>
+
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 transition cursor-pointer"
+                  title="लॉगआउट (Logout)"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              )}
             </div>
           )}
         </div>

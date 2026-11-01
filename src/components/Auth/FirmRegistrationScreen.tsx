@@ -37,11 +37,11 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
   const [counterName, setCounterName] = useState('Main Showroom Counter');
   const [counterType, setCounterType] = useState<JewellerProfile['counterType']>('Main Showroom');
   const [operatorName, setOperatorName] = useState('');
-  const [phone, setPhone] = useState('+91 ');
+  const [phone, setPhone] = useState('');
   const [gstin, setGstin] = useState('');
-  const [cityStatePincode, setCityStatePincode] = useState('Bhopal, Madhya Pradesh - 462042');
+  const [cityStatePincode, setCityStatePincode] = useState('');
   const [address, setAddress] = useState('');
-  const [logoUrl, setLogoUrl] = useState<string>('/assets/aistudio/Shreem_Mahal_LOGO_355a8e42.png');
+  const [logoUrl, setLogoUrl] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -72,24 +72,37 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
     const newFirmId = `firm-${Date.now()}`;
     const newProfile: JewellerProfile = {
       id: newFirmId,
+      firmId: newFirmId,
       code: `FIRM-0${existingFirms.length + 1}`,
       name: firmName.trim(),
       counterName: counterName.trim() || 'Main Showroom',
       counterType,
-      operatorName: operatorName.trim() || 'Firm Admin',
+      operatorName: operatorName.trim() || 'Firm Owner',
       gstin: gstin.trim().toUpperCase() || 'URP-UNREGISTERED',
-      phone: phone.trim() || '+91 9202357851',
+      phone: phone.trim(),
       logoUrl: logoUrl || undefined,
       isDefault: true,
     };
 
-    const shopDetailsUpdate: Partial<ShopDetails> = {
+    const shopDetailsUpdate: ShopDetails = {
+      firmId: newFirmId,
       name: firmName.trim(),
-      tagline: tagline.trim(),
-      address: address.trim() || 'Sarafa Bazar',
+      tagline: tagline.trim() || 'सराफा एवं आभूषण विक्रेता',
+      address: address.trim(),
       cityStatePincode: cityStatePincode.trim(),
       phone: phone.trim(),
+      email: '',
       gstin: gstin.trim().toUpperCase(),
+      bisHallmarkRegNo: '',
+      panNo: '',
+      bankName: '',
+      accountNo: '',
+      ifscCode: '',
+      terms: [
+        'बिक्री पर 3% GST लागू है।',
+        'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।',
+        'पुराने गहने बदलने पर नियमानुसार काट ली जाएगी।'
+      ],
       logoUrl: logoUrl || undefined,
     };
 

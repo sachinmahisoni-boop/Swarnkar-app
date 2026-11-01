@@ -90,40 +90,74 @@ export default function App() {
     });
     return unsubscribe;
   }, []);
-  const [shopDetails, setShopDetails] = useState<ShopDetails>(() => {
-    const saved = localStorage.getItem('jewel_shop_details_v2');
-    if (saved) {
+  const [activeProfileId, setActiveProfileId] = useState<string>(() => {
+    const saved = localStorage.getItem('jewel_active_profile');
+    return saved || 'prof-main';
+  });
+
+  const getFirmStorageKey = (firmId: string, col: string) => `jewel_firm_${firmId}_${col}`;
+
+  const getFirmCollectionData = <T,>(firmId: string, col: string, legacyKey?: string, defaultData: T[] = []): T[] => {
+    if (!firmId) return [];
+    const scopedKey = getFirmStorageKey(firmId, col);
+    const saved = localStorage.getItem(scopedKey);
+    if (saved !== null) {
       try {
         return JSON.parse(saved);
       } catch (e) {
-        // fallback
+        return defaultData;
       }
     }
-    const oldSaved = localStorage.getItem('jewel_shop_details');
-    if (oldSaved) {
+    if ((firmId === 'prof-main' || firmId === 'firm-main') && legacyKey) {
+      const legacySaved = localStorage.getItem(legacyKey);
+      if (legacySaved !== null) {
+        try {
+          return JSON.parse(legacySaved);
+        } catch (e) {
+          return defaultData;
+        }
+      }
+      return defaultData;
+    }
+    return [];
+  };
+
+  const [shopDetails, setShopDetails] = useState<ShopDetails>(() => {
+    const saved = localStorage.getItem(`jewel_firm_${activeProfileId}_shop_details`);
+    if (saved) {
       try {
-        const parsed = JSON.parse(oldSaved);
-        return {
-          ...parsed,
-          address: initialShopDetails.address,
-          cityStatePincode: initialShopDetails.cityStatePincode,
-          phone: initialShopDetails.phone,
-        };
-      } catch (e) {
-        // fallback
-      }
+        return JSON.parse(saved);
+      } catch (e) {}
     }
-    return initialShopDetails;
+    if (activeProfileId === 'prof-main' || activeProfileId === 'firm-main') {
+      const oldSaved = localStorage.getItem('jewel_shop_details_v2');
+      if (oldSaved) {
+        try { return JSON.parse(oldSaved); } catch (e) {}
+      }
+      return initialShopDetails;
+    }
+    return {
+      firmId: activeProfileId,
+      name: 'Swarnkar Jewellery Shop',
+      tagline: 'सराफा एवं आभूषण विक्रेता',
+      address: '',
+      cityStatePincode: '',
+      phone: '',
+      email: '',
+      gstin: 'URP-UNREGISTERED',
+      bisHallmarkRegNo: '',
+      panNo: '',
+      bankName: '',
+      accountNo: '',
+      ifscCode: '',
+      terms: ['बिक्री पर 3% GST लागू है।', 'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।'],
+      logoUrl: undefined
+    };
   });
 
   const [profiles, setProfiles] = useState<JewellerProfile[]>(() => {
     const saved = localStorage.getItem('jewel_profiles');
     return saved ? JSON.parse(saved) : initialProfiles;
-  });
-
-  const [activeProfileId, setActiveProfileId] = useState<string>(() => {
-    const saved = localStorage.getItem('jewel_active_profile');
-    return saved || 'prof-main';
   });
 
   const [selectedCity, setSelectedCity] = useState<string>(() => {
@@ -134,87 +168,105 @@ export default function App() {
   const [rates, setRates] = useState<MetalRate[]>(() => {
     const saved = localStorage.getItem('jewel_rates_v3');
     if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        // fallback
-      }
+      try { return JSON.parse(saved); } catch (e) {}
     }
     return initialRates;
   });
 
-  // Dynamic Categories State
   const [categories, setCategories] = useState<string[]>(() => {
     const saved = localStorage.getItem('jewel_categories');
     return saved ? JSON.parse(saved) : initialCategories;
   });
 
-  const [inventory, setInventory] = useState<JewelleryItem[]>(() => {
-    const saved = localStorage.getItem('jewel_inventory');
-    return saved ? JSON.parse(saved) : initialInventory;
-  });
+  const [inventory, setInventory] = useState<JewelleryItem[]>(() =>
+    getFirmCollectionData(activeProfileId, 'inventory', 'jewel_inventory', activeProfileId === 'prof-main' ? initialInventory : [])
+  );
 
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    const saved = localStorage.getItem('jewel_customers');
-    return saved ? JSON.parse(saved) : initialCustomers;
-  });
+  const [customers, setCustomers] = useState<Customer[]>(() =>
+    getFirmCollectionData(activeProfileId, 'customers', 'jewel_customers', activeProfileId === 'prof-main' ? initialCustomers : [])
+  );
 
-  const [invoices, setInvoices] = useState<GSTInvoice[]>(() => {
-    const saved = localStorage.getItem('jewel_invoices');
-    return saved ? JSON.parse(saved) : initialInvoices;
-  });
+  const [invoices, setInvoices] = useState<GSTInvoice[]>(() =>
+    getFirmCollectionData(activeProfileId, 'invoices', 'jewel_invoices', activeProfileId === 'prof-main' ? initialInvoices : [])
+  );
 
-  // Vendors State
-  const [vendors, setVendors] = useState<Vendor[]>(() => {
-    const saved = localStorage.getItem('jewel_vendors');
-    return saved ? JSON.parse(saved) : initialVendors;
-  });
+  const [vendors, setVendors] = useState<Vendor[]>(() =>
+    getFirmCollectionData(activeProfileId, 'vendors', 'jewel_vendors', activeProfileId === 'prof-main' ? initialVendors : [])
+  );
 
-  // Purchases State
-  const [purchases, setPurchases] = useState<PurchaseInvoice[]>(() => {
-    const saved = localStorage.getItem('jewel_purchases');
-    return saved ? JSON.parse(saved) : initialPurchases;
-  });
+  const [purchases, setPurchases] = useState<PurchaseInvoice[]>(() =>
+    getFirmCollectionData(activeProfileId, 'purchases', 'jewel_purchases', activeProfileId === 'prof-main' ? initialPurchases : [])
+  );
 
-  // Expenses State
-  const [expenses, setExpenses] = useState<ShopExpense[]>(() => {
-    const saved = localStorage.getItem('jewel_expenses');
-    return saved ? JSON.parse(saved) : initialExpenses;
-  });
+  const [expenses, setExpenses] = useState<ShopExpense[]>(() =>
+    getFirmCollectionData(activeProfileId, 'expenses', 'jewel_expenses', activeProfileId === 'prof-main' ? initialExpenses : [])
+  );
 
-  // Cash & Bank Contra Transfers
-  const [transfers, setTransfers] = useState<CashBankTransfer[]>(() => {
-    const saved = localStorage.getItem('jewel_transfers');
-    return saved ? JSON.parse(saved) : initialTransfers;
-  });
+  const [transfers, setTransfers] = useState<CashBankTransfer[]>(() =>
+    getFirmCollectionData(activeProfileId, 'transfers', 'jewel_transfers', activeProfileId === 'prof-main' ? initialTransfers : [])
+  );
 
-  // Karigar State
-  const [karigars, setKarigars] = useState<Karigar[]>(() => {
-    const saved = localStorage.getItem('jewel_karigars');
-    return saved ? JSON.parse(saved) : initialKarigars;
-  });
+  const [karigars, setKarigars] = useState<Karigar[]>(() =>
+    getFirmCollectionData(activeProfileId, 'karigars', 'jewel_karigars', activeProfileId === 'prof-main' ? initialKarigars : [])
+  );
 
-  const [jobCards, setJobCards] = useState<KarigarJobCard[]>(() => {
-    const saved = localStorage.getItem('jewel_jobcards');
-    return saved ? JSON.parse(saved) : initialKarigarJobCards;
-  });
+  const [jobCards, setJobCards] = useState<KarigarJobCard[]>(() =>
+    getFirmCollectionData(activeProfileId, 'jobcards', 'jewel_jobcards', activeProfileId === 'prof-main' ? initialKarigarJobCards : [])
+  );
 
-  // Girvi State
-  const [girviLoans, setGirviLoans] = useState<GirviLoan[]>(() => {
-    const saved = localStorage.getItem('jewel_girvi');
-    return saved ? JSON.parse(saved) : initialGirviLoans;
-  });
+  const [girviLoans, setGirviLoans] = useState<GirviLoan[]>(() =>
+    getFirmCollectionData(activeProfileId, 'girvi', 'jewel_girvi', activeProfileId === 'prof-main' ? initialGirviLoans : [])
+  );
 
-  // Certified Gemstones & Rates State
-  const [gemstones, setGemstones] = useState<CertifiedGemstone[]>(() => {
-    const saved = localStorage.getItem('jewel_gemstones_v1');
-    return saved ? JSON.parse(saved) : initialGemstones;
-  });
+  const [gemstones, setGemstones] = useState<CertifiedGemstone[]>(() =>
+    getFirmCollectionData(activeProfileId, 'gemstones', 'jewel_gemstones_v1', activeProfileId === 'prof-main' ? initialGemstones : [])
+  );
 
   const [gemstoneRates, setGemstoneRates] = useState<GemstoneRate[]>(() => {
     const saved = localStorage.getItem('jewel_gemstone_rates_v1');
     return saved ? JSON.parse(saved) : initialGemstoneRates;
   });
+
+  // Reload collection state whenever active profile/firm changes
+  useEffect(() => {
+    if (activeProfileId) {
+      setInventory(getFirmCollectionData(activeProfileId, 'inventory', 'jewel_inventory', activeProfileId === 'prof-main' ? initialInventory : []));
+      setCustomers(getFirmCollectionData(activeProfileId, 'customers', 'jewel_customers', activeProfileId === 'prof-main' ? initialCustomers : []));
+      setInvoices(getFirmCollectionData(activeProfileId, 'invoices', 'jewel_invoices', activeProfileId === 'prof-main' ? initialInvoices : []));
+      setVendors(getFirmCollectionData(activeProfileId, 'vendors', 'jewel_vendors', activeProfileId === 'prof-main' ? initialVendors : []));
+      setPurchases(getFirmCollectionData(activeProfileId, 'purchases', 'jewel_purchases', activeProfileId === 'prof-main' ? initialPurchases : []));
+      setExpenses(getFirmCollectionData(activeProfileId, 'expenses', 'jewel_expenses', activeProfileId === 'prof-main' ? initialExpenses : []));
+      setTransfers(getFirmCollectionData(activeProfileId, 'transfers', 'jewel_transfers', activeProfileId === 'prof-main' ? initialTransfers : []));
+      setKarigars(getFirmCollectionData(activeProfileId, 'karigars', 'jewel_karigars', activeProfileId === 'prof-main' ? initialKarigars : []));
+      setJobCards(getFirmCollectionData(activeProfileId, 'jobcards', 'jewel_jobcards', activeProfileId === 'prof-main' ? initialKarigarJobCards : []));
+      setGirviLoans(getFirmCollectionData(activeProfileId, 'girvi', 'jewel_girvi', activeProfileId === 'prof-main' ? initialGirviLoans : []));
+      setGemstones(getFirmCollectionData(activeProfileId, 'gemstones', 'jewel_gemstones_v1', activeProfileId === 'prof-main' ? initialGemstones : []));
+
+      const savedShop = localStorage.getItem(getFirmStorageKey(activeProfileId, 'shop_details'));
+      if (savedShop) {
+        try { setShopDetails(JSON.parse(savedShop)); } catch (e) {}
+      } else if (activeProfileId !== 'prof-main' && activeProfileId !== 'firm-main') {
+        const firmProf = profiles.find(p => p.id === activeProfileId);
+        setShopDetails({
+          firmId: activeProfileId,
+          name: firmProf?.name || 'Swarnkar Jewellery Shop',
+          tagline: 'सराफा एवं आभूषण विक्रेता',
+          address: '',
+          cityStatePincode: '',
+          phone: firmProf?.phone || '',
+          email: '',
+          gstin: firmProf?.gstin || 'URP-UNREGISTERED',
+          bisHallmarkRegNo: '',
+          panNo: '',
+          bankName: '',
+          accountNo: '',
+          ifscCode: '',
+          terms: ['बिक्री पर 3% GST लागू है।', 'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।'],
+          logoUrl: firmProf?.logoUrl || undefined
+        });
+      }
+    }
+  }, [activeProfileId]);
 
   // Navigation tab state
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -238,15 +290,16 @@ export default function App() {
 
   const [printingInvoice, setPrintingInvoice] = useState<GSTInvoice | null>(null);
 
-  // Sync to LocalStorage on state change
+  // Sync to LocalStorage on state change (Firm Scoped)
   useEffect(() => {
     localStorage.setItem('jewel_sidebar_collapsed', String(isSidebarCollapsed));
   }, [isSidebarCollapsed]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_shop_details_v2', JSON.stringify(shopDetails));
-    localStorage.setItem('jewel_shop_details', JSON.stringify(shopDetails));
-  }, [shopDetails]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'shop_details'), JSON.stringify(shopDetails));
+    }
+  }, [shopDetails, activeProfileId]);
 
   useEffect(() => {
     localStorage.setItem('jewel_profiles', JSON.stringify(profiles));
@@ -262,7 +315,6 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('jewel_rates_v3', JSON.stringify(rates));
-    localStorage.setItem('jewel_rates', JSON.stringify(rates));
   }, [rates]);
 
   useEffect(() => {
@@ -270,48 +322,70 @@ export default function App() {
   }, [categories]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_inventory', JSON.stringify(inventory));
-  }, [inventory]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'inventory'), JSON.stringify(inventory));
+    }
+  }, [inventory, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_customers', JSON.stringify(customers));
-  }, [customers]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'customers'), JSON.stringify(customers));
+    }
+  }, [customers, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_invoices', JSON.stringify(invoices));
-  }, [invoices]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'invoices'), JSON.stringify(invoices));
+    }
+  }, [invoices, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_vendors', JSON.stringify(vendors));
-  }, [vendors]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'vendors'), JSON.stringify(vendors));
+    }
+  }, [vendors, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_purchases', JSON.stringify(purchases));
-  }, [purchases]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'purchases'), JSON.stringify(purchases));
+    }
+  }, [purchases, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_expenses', JSON.stringify(expenses));
-  }, [expenses]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'expenses'), JSON.stringify(expenses));
+    }
+  }, [expenses, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_transfers', JSON.stringify(transfers));
-  }, [transfers]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'transfers'), JSON.stringify(transfers));
+    }
+  }, [transfers, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_karigars', JSON.stringify(karigars));
-  }, [karigars]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'karigars'), JSON.stringify(karigars));
+    }
+  }, [karigars, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_jobcards', JSON.stringify(jobCards));
-  }, [jobCards]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'jobcards'), JSON.stringify(jobCards));
+    }
+  }, [jobCards, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_girvi', JSON.stringify(girviLoans));
-  }, [girviLoans]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'girvi'), JSON.stringify(girviLoans));
+    }
+  }, [girviLoans, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_gemstones_v1', JSON.stringify(gemstones));
-  }, [gemstones]);
+    if (activeProfileId) {
+      localStorage.setItem(getFirmStorageKey(activeProfileId, 'gemstones'), JSON.stringify(gemstones));
+    }
+  }, [gemstones, activeProfileId]);
 
   useEffect(() => {
     localStorage.setItem('jewel_gemstone_rates_v1', JSON.stringify(gemstoneRates));
@@ -432,11 +506,12 @@ export default function App() {
 
   // Gemstone Handlers
   const handleAddGemstone = (newGem: CertifiedGemstone) => {
-    setGemstones(prev => [newGem, ...prev]);
+    const tagged = { ...newGem, firmId: activeProfileId };
+    setGemstones(prev => [tagged, ...prev]);
   };
 
   const handleUpdateGemstone = (updatedGem: CertifiedGemstone) => {
-    setGemstones(prev => prev.map(g => g.id === updatedGem.id ? updatedGem : g));
+    setGemstones(prev => prev.map(g => g.id === updatedGem.id ? { ...updatedGem, firmId: activeProfileId } : g));
   };
 
   const handleDeleteGemstone = (id: string) => {
@@ -457,11 +532,12 @@ export default function App() {
   };
 
   const handleAddCustomer = (newCust: Customer) => {
-    setCustomers(prev => [newCust, ...prev]);
+    const tagged = { ...newCust, firmId: activeProfileId };
+    setCustomers(prev => [tagged, ...prev]);
   };
 
   const handleUpdateCustomer = (updatedCust: Customer) => {
-    setCustomers(prev => prev.map(c => c.id === updatedCust.id ? updatedCust : c));
+    setCustomers(prev => prev.map(c => c.id === updatedCust.id ? { ...updatedCust, firmId: activeProfileId } : c));
   };
 
   const handleDeleteCustomer = (id: string) => {
@@ -470,7 +546,8 @@ export default function App() {
 
   // Sales Invoice Creation
   const handleCreateInvoice = (newInvoice: GSTInvoice) => {
-    setInvoices(prev => [newInvoice, ...prev]);
+    const tagged = { ...newInvoice, firmId: activeProfileId };
+    setInvoices(prev => [tagged, ...prev]);
     
     // Update customer total purchases & outstanding dues ledger
     setCustomers(prev => prev.map(c => {
@@ -485,7 +562,7 @@ export default function App() {
     }));
 
     // Auto open print modal for generated invoice!
-    setPrintingInvoice(newInvoice);
+    setPrintingInvoice(tagged);
   };
 
   const handleDeleteInvoice = (id: string) => {
@@ -513,7 +590,8 @@ export default function App() {
 
   // Inward Purchase Creation
   const handleAddPurchase = (newPurchase: PurchaseInvoice, stockItemsToInsert: JewelleryItem[]) => {
-    setPurchases(prev => [newPurchase, ...prev]);
+    const taggedPurchase = { ...newPurchase, firmId: activeProfileId };
+    setPurchases(prev => [taggedPurchase, ...prev]);
 
     // Update vendor dues & purchases count
     setVendors(prev => prev.map(v => {
@@ -529,17 +607,19 @@ export default function App() {
 
     // If stock items were marked for insertion, add them directly to inventory!
     if (stockItemsToInsert.length > 0) {
-      setInventory(prev => [...stockItemsToInsert, ...prev]);
+      const taggedItems = stockItemsToInsert.map(i => ({ ...i, firmId: activeProfileId }));
+      setInventory(prev => [...taggedItems, ...prev]);
     }
   };
 
   // Vendors Handlers
   const handleAddVendor = (newVendor: Vendor) => {
-    setVendors(prev => [newVendor, ...prev]);
+    const tagged = { ...newVendor, firmId: activeProfileId };
+    setVendors(prev => [tagged, ...prev]);
   };
 
   const handleUpdateVendor = (updatedVendor: Vendor) => {
-    setVendors(prev => prev.map(v => v.id === updatedVendor.id ? updatedVendor : v));
+    setVendors(prev => prev.map(v => v.id === updatedVendor.id ? { ...updatedVendor, firmId: activeProfileId } : v));
   };
 
   const handleDeleteVendor = (id: string) => {
@@ -561,7 +641,8 @@ export default function App() {
 
   // Expenses Handlers
   const handleAddExpense = (newExpense: ShopExpense) => {
-    setExpenses(prev => [newExpense, ...prev]);
+    const tagged = { ...newExpense, firmId: activeProfileId };
+    setExpenses(prev => [tagged, ...prev]);
   };
 
   const handleDeleteExpense = (id: string) => {
@@ -570,7 +651,8 @@ export default function App() {
 
   // Contra Transfer Handlers
   const handleAddTransfer = (newTransfer: CashBankTransfer) => {
-    setTransfers(prev => [newTransfer, ...prev]);
+    const tagged = { ...newTransfer, firmId: activeProfileId };
+    setTransfers(prev => [tagged, ...prev]);
   };
 
   // Inventory Handlers
@@ -585,17 +667,19 @@ export default function App() {
   };
 
   const handleSaveInventoryItem = (item: JewelleryItem) => {
+    const tagged = { ...item, firmId: activeProfileId };
     setInventory(prev => {
       const exists = prev.some(i => i.id === item.id);
       if (exists) {
-        return prev.map(i => i.id === item.id ? item : i);
+        return prev.map(i => i.id === item.id ? tagged : i);
       }
-      return [item, ...prev];
+      return [tagged, ...prev];
     });
   };
 
   const handleItemGenerated = (newItem: JewelleryItem) => {
-    setInventory(prev => [newItem, ...prev]);
+    const tagged = { ...newItem, firmId: activeProfileId };
+    setInventory(prev => [tagged, ...prev]);
   };
 
   const handleDeleteInventoryItem = (id: string) => {
@@ -604,7 +688,8 @@ export default function App() {
 
   // Karigar Handlers
   const handleAddJobCard = (card: KarigarJobCard) => {
-    setJobCards(prev => [card, ...prev]);
+    const tagged = { ...card, firmId: activeProfileId };
+    setJobCards(prev => [tagged, ...prev]);
     setKarigars(prev => prev.map(k => {
       if (k.id === card.karigarId) {
         return {
@@ -619,7 +704,7 @@ export default function App() {
   };
 
   const handleUpdateJobCard = (updatedCard: KarigarJobCard) => {
-    setJobCards(prev => prev.map(c => c.id === updatedCard.id ? updatedCard : c));
+    setJobCards(prev => prev.map(c => c.id === updatedCard.id ? { ...updatedCard, firmId: activeProfileId } : c));
     if (updatedCard.status === 'Received') {
       setKarigars(prev => prev.map(k => {
         if (k.id === updatedCard.karigarId) {
@@ -636,48 +721,131 @@ export default function App() {
   };
 
   const handleAddKarigar = (newKg: Karigar) => {
-    setKarigars(prev => [...prev, newKg]);
+    const tagged = { ...newKg, firmId: activeProfileId };
+    setKarigars(prev => [...prev, tagged]);
   };
 
   // Girvi Handlers
   const handleAddGirviLoan = (newLoan: GirviLoan) => {
-    setGirviLoans(prev => [newLoan, ...prev]);
+    const tagged = { ...newLoan, firmId: activeProfileId };
+    setGirviLoans(prev => [tagged, ...prev]);
   };
 
   const handleUpdateGirviLoan = (updatedLoan: GirviLoan) => {
-    setGirviLoans(prev => prev.map(l => l.id === updatedLoan.id ? updatedLoan : l));
+    setGirviLoans(prev => prev.map(l => l.id === updatedLoan.id ? { ...updatedLoan, firmId: activeProfileId } : l));
   };
 
   const handleRegisterFirmFromScreen = (newProfile: JewellerProfile, shopUpdate?: Partial<ShopDetails>) => {
+    const newFirmId = newProfile.id;
+    newProfile.firmId = newFirmId;
+
+    const newShopDetails: ShopDetails = {
+      firmId: newFirmId,
+      name: newProfile.name,
+      tagline: shopUpdate?.tagline || 'सराफा एवं आभूषण विक्रेता',
+      address: shopUpdate?.address || '',
+      cityStatePincode: shopUpdate?.cityStatePincode || '',
+      phone: shopUpdate?.phone || '',
+      email: shopUpdate?.email || '',
+      gstin: newProfile.gstin || '',
+      bisHallmarkRegNo: '',
+      panNo: '',
+      bankName: '',
+      accountNo: '',
+      ifscCode: '',
+      terms: [
+        'बिक्री पर 3% GST लागू है।',
+        'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।'
+      ],
+      logoUrl: shopUpdate?.logoUrl || undefined
+    };
+
+    // Store empty array defaults for the new firm
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'inventory'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'customers'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'invoices'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'vendors'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'purchases'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'expenses'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'transfers'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'karigars'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'jobcards'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'girvi'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'gemstones'), JSON.stringify([]));
+    localStorage.setItem(getFirmStorageKey(newFirmId, 'shop_details'), JSON.stringify(newShopDetails));
+
     setProfiles(prev => [newProfile, ...prev]);
-    setActiveProfileId(newProfile.id);
-    if (shopUpdate) {
-      setShopDetails(prev => ({
-        ...prev,
-        ...shopUpdate,
-        logoUrl: shopUpdate.logoUrl || prev.logoUrl
-      }));
-    }
+    setActiveProfileId(newFirmId);
+    setShopDetails(newShopDetails);
+
+    // Completely clear React collections in memory for the new firm
+    setInventory([]);
+    setCustomers([]);
+    setInvoices([]);
+    setVendors([]);
+    setPurchases([]);
+    setExpenses([]);
+    setTransfers([]);
+    setKarigars([]);
+    setJobCards([]);
+    setGirviLoans([]);
+    setGemstones([]);
+
     setIsFirmActive(true);
     localStorage.setItem('jewel_firm_confirmed', 'true');
-    localStorage.setItem('jewel_active_profile', newProfile.id);
+    localStorage.setItem('jewel_active_profile', newFirmId);
   };
 
   const handleSelectExistingFirmFromScreen = (firmId: string) => {
     setActiveProfileId(firmId);
-    const firm = profiles.find(p => p.id === firmId);
-    if (firm) {
-      setShopDetails(prev => ({
-        ...prev,
-        name: firm.name,
-        gstin: firm.gstin || prev.gstin,
-        phone: firm.phone || prev.phone,
-        logoUrl: firm.logoUrl || prev.logoUrl
-      }));
-    }
     setIsFirmActive(true);
     localStorage.setItem('jewel_firm_confirmed', 'true');
     localStorage.setItem('jewel_active_profile', firmId);
+  };
+
+  const handleLogout = () => {
+    setIsFirmActive(false);
+    setActiveProfileId('');
+    localStorage.removeItem('jewel_firm_confirmed');
+    localStorage.removeItem('jewel_active_profile');
+    
+    // Clear all in-memory React state
+    setInventory([]);
+    setCustomers([]);
+    setInvoices([]);
+    setVendors([]);
+    setPurchases([]);
+    setExpenses([]);
+    setTransfers([]);
+    setKarigars([]);
+    setJobCards([]);
+    setGirviLoans([]);
+    setGemstones([]);
+
+    if (auth.currentUser) {
+      auth.signOut();
+    }
+    setIsAuthenticated(false);
+  };
+
+  const handleDeleteFirm = (firmIdToDelete: string) => {
+    const updatedProfiles = profiles.filter(p => p.id !== firmIdToDelete);
+    setProfiles(updatedProfiles);
+    localStorage.setItem('jewel_profiles', JSON.stringify(updatedProfiles));
+
+    // Clear local storage keys for this firm
+    const collections = ['shop_details', 'inventory', 'customers', 'invoices', 'vendors', 'purchases', 'expenses', 'transfers', 'karigars', 'jobcards', 'girvi', 'gemstones'];
+    collections.forEach(col => {
+      localStorage.removeItem(getFirmStorageKey(firmIdToDelete, col));
+    });
+
+    if (activeProfileId === firmIdToDelete) {
+      if (updatedProfiles.length > 0) {
+        setActiveProfileId(updatedProfiles[0].id);
+      } else {
+        handleLogout();
+      }
+    }
   };
 
   if (isLoading) {
@@ -685,7 +853,16 @@ export default function App() {
   }
 
   if (!isAuthenticated) {
-    return <Login onLogin={() => setIsAuthenticated(true)} />;
+    return (
+      <Login 
+        onLogin={(firmProfile, shopUpdate) => {
+          if (firmProfile) {
+            handleRegisterFirmFromScreen(firmProfile, shopUpdate);
+          }
+          setIsAuthenticated(true);
+        }} 
+      />
+    );
   }
 
   if (!isFirmActive) {
@@ -719,6 +896,7 @@ export default function App() {
         onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
         onToggleDesktopSidebar={() => setIsSidebarCollapsed(prev => !prev)}
         isDesktopSidebarCollapsed={isSidebarCollapsed}
+        onLogout={handleLogout}
       />
 
       {/* Main ERP Layout: Left-Side Vertical Sidebar List + Right-Side Content Viewport */}
@@ -746,6 +924,7 @@ export default function App() {
           onOpenQuickGenerate={() => setIsQuickGenerateOpen(true)}
           onOpenCategoryModal={() => setIsCategoryModalOpen(true)}
           customLogo={activeProfile?.logoUrl || shopDetails.logoUrl}
+          onLogout={handleLogout}
         />
 
         {/* Right Main Screen Viewport */}
@@ -1012,6 +1191,7 @@ export default function App() {
         onSelectFirm={setActiveProfileId}
         onAddFirm={handleAddProfile}
         onUpdateFirm={handleUpdateProfile}
+        onDeleteFirm={handleDeleteFirm}
       />
 
       {/* Daily Metal Rate Configurator Modal */}
