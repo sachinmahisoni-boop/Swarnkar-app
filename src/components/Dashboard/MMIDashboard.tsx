@@ -398,7 +398,7 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
         {/* Right Column (2 of 12 cols): Signature MMI 15-Button Vertical Strip */}
         <div className="xl:col-span-2 bg-[#dbeef8]/40 border border-sky-200 rounded-lg p-2 flex flex-col gap-1.5 shadow-2xs">
           <span className="text-[10px] font-black text-sky-950 uppercase tracking-wider text-center border-b border-sky-300/60 pb-1 block">
-            MMI REPORT STRIP
+            SWARNKAR REPORT STRIP
           </span>
 
           <div className="space-y-1 overflow-y-auto max-h-[640px] pr-0.5">
