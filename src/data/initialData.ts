@@ -1108,8 +1108,8 @@ export const initialExpenses: ShopExpense[] = [
   }
 ];
 
-export const initialCashInHand = 85400; // Physical cash in cash drawer
-export const initialBankBalance = 425000; // SBI Current Account
+export const initialCashInHand = 0; // Physical cash in cash drawer (Starts at 0 until user adds cash/sales)
+export const initialBankBalance = 0; // SBI Current Account (Starts at 0 until user adds deposits/sales)
 
 export const initialTransfers: CashBankTransfer[] = [
   {
