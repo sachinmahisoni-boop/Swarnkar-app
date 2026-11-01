@@ -41,7 +41,7 @@ import {
 import { Header } from './components/Header';
 import { Navigation, TabType } from './components/Navigation';
 import { Sidebar } from './components/Sidebar';
-import { ProfilesModal } from './components/ProfilesModal';
+import { FirmManagerModal } from './components/FirmManagerModal';
 import { RatesModal } from './components/RatesModal';
 import { StockAlertsModal } from './components/StockAlertsModal';
 import { ShopSettingsModal } from './components/ShopSettingsModal';
@@ -64,9 +64,32 @@ import { CashBankDashboard } from './components/CashBank/CashBankDashboard';
 import { CategoryModal } from './components/Categories/CategoryModal';
 import { QuickGenerateItemModal } from './components/Inventory/QuickGenerateItemModal';
 import { Login } from './components/Auth/Login';
+import { FirmRegistrationScreen } from './components/Auth/FirmRegistrationScreen';
+import { MMIDashboard } from './components/Dashboard/MMIDashboard';
+import { CustomerOrderManager } from './components/Orders/CustomerOrderManager';
+import { BullionTradingDesk } from './components/Bullion/BullionTradingDesk';
+import { KittySchemeManager } from './components/Kitty/KittySchemeManager';
+import { CRMManager } from './components/CRM/CRMManager';
+import { StaffPayrollManager } from './components/Payroll/StaffPayrollManager';
+import { auth } from './lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Firm onboarding & selection state
+  const [isFirmActive, setIsFirmActive] = useState<boolean>(() => {
+    return localStorage.getItem('jewel_firm_confirmed') === 'true';
+  });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setIsAuthenticated(!!user);
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  }, []);
   const [shopDetails, setShopDetails] = useState<ShopDetails>(() => {
     const saved = localStorage.getItem('jewel_shop_details_v2');
     if (saved) {
@@ -194,7 +217,7 @@ export default function App() {
   });
 
   // Navigation tab state
-  const [activeTab, setActiveTab] = useState<TabType>('pos');
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 
   // Left Sidebar Collapse & Mobile Drawer State
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
@@ -294,10 +317,13 @@ export default function App() {
     localStorage.setItem('jewel_gemstone_rates_v1', JSON.stringify(gemstoneRates));
   }, [gemstoneRates]);
 
-  // Global Keyboard Shortcuts (F2-F11 + Girvi)
+  // Global Keyboard Shortcuts (F1-F12 + Girvi)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'F2') {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        setActiveTab('dashboard');
+      } else if (e.key === 'F2') {
         e.preventDefault();
         setActiveTab('pos');
       } else if (e.key === 'F3') {
@@ -622,9 +648,57 @@ export default function App() {
     setGirviLoans(prev => prev.map(l => l.id === updatedLoan.id ? updatedLoan : l));
   };
 
-  return !isAuthenticated ? (
-    <Login onLogin={() => setIsAuthenticated(true)} />
-  ) : (
+  const handleRegisterFirmFromScreen = (newProfile: JewellerProfile, shopUpdate?: Partial<ShopDetails>) => {
+    setProfiles(prev => [newProfile, ...prev]);
+    setActiveProfileId(newProfile.id);
+    if (shopUpdate) {
+      setShopDetails(prev => ({
+        ...prev,
+        ...shopUpdate,
+        logoUrl: shopUpdate.logoUrl || prev.logoUrl
+      }));
+    }
+    setIsFirmActive(true);
+    localStorage.setItem('jewel_firm_confirmed', 'true');
+    localStorage.setItem('jewel_active_profile', newProfile.id);
+  };
+
+  const handleSelectExistingFirmFromScreen = (firmId: string) => {
+    setActiveProfileId(firmId);
+    const firm = profiles.find(p => p.id === firmId);
+    if (firm) {
+      setShopDetails(prev => ({
+        ...prev,
+        name: firm.name,
+        gstin: firm.gstin || prev.gstin,
+        phone: firm.phone || prev.phone,
+        logoUrl: firm.logoUrl || prev.logoUrl
+      }));
+    }
+    setIsFirmActive(true);
+    localStorage.setItem('jewel_firm_confirmed', 'true');
+    localStorage.setItem('jewel_active_profile', firmId);
+  };
+
+  if (isLoading) {
+    return <div className="min-h-screen flex items-center justify-center bg-stone-50">Loading...</div>;
+  }
+
+  if (!isAuthenticated) {
+    return <Login onLogin={() => setIsAuthenticated(true)} />;
+  }
+
+  if (!isFirmActive) {
+    return (
+      <FirmRegistrationScreen
+        existingFirms={profiles}
+        onRegisterFirm={handleRegisterFirmFromScreen}
+        onSelectExistingFirm={handleSelectExistingFirmFromScreen}
+      />
+    );
+  }
+
+  return (
     <div className="min-h-screen bg-stone-50 text-slate-900 font-sans flex flex-col selection:bg-amber-500 selection:text-white">
       
       {/* Top Header Bar with Live Bullion Ticker & Live Cash/Bank Indicators */}
@@ -677,6 +751,26 @@ export default function App() {
         {/* Right Main Screen Viewport */}
         <main className="flex-1 min-w-0 overflow-y-auto px-3 sm:px-6 lg:px-8 py-5">
         
+        {/* TAB 0: MMI Softwares Executive Dashboard [F1] */}
+        {activeTab === 'dashboard' && (
+          <MMIDashboard
+            invoices={invoices}
+            inventory={inventory}
+            rates={rates}
+            onNavigateTab={setActiveTab}
+          />
+        )}
+
+        {/* Customer Orders & Approval Sale (Uchhanti) */}
+        {activeTab === 'orders' && (
+          <CustomerOrderManager
+            customers={customers}
+            inventory={inventory}
+            rates={rates}
+            onBillApprovedItem={() => setActiveTab('pos')}
+          />
+        )}
+
         {/* TAB 1: POS Sales Desk (बिक्री काउंटर) [F2] */}
         {activeTab === 'pos' && (
           <BillingPOS
@@ -708,6 +802,7 @@ export default function App() {
             inventory={inventory}
             rates={rates}
             categories={categories}
+            shopName={shopDetails.name}
             onAddItem={() => {
               setEditingItem(null);
               setIsItemModalOpen(true);
@@ -865,7 +960,27 @@ export default function App() {
           />
         )}
 
-      </main>
+        {/* Sarafa Bullion Trading Desk (सौदा व बदला) */}
+        {activeTab === 'bullion' && (
+          <BullionTradingDesk rates={rates} />
+        )}
+
+        {/* Kitty Gold Savings Scheme (11+1 बचत योजना) */}
+        {activeTab === 'kitty' && (
+          <KittySchemeManager customers={customers} />
+        )}
+
+        {/* CRM, Bulk SMS & Greetings */}
+        {activeTab === 'crm' && (
+          <CRMManager customers={customers} invoices={invoices} />
+        )}
+
+        {/* Staff Payroll & Biometric Attendance */}
+        {activeTab === 'payroll' && (
+          <StaffPayrollManager />
+        )}
+
+        </main>
       </div>
 
       {/* MODALS */}
@@ -889,15 +1004,14 @@ export default function App() {
         onItemGenerated={handleItemGenerated}
       />
       
-      {/* Branch / Counter Profiles Modal */}
-      <ProfilesModal
+      <FirmManagerModal
         isOpen={isProfilesModalOpen}
         onClose={() => setIsProfilesModalOpen(false)}
-        profiles={profiles}
-        activeProfileId={activeProfileId}
-        onSelectProfile={setActiveProfileId}
-        onAddProfile={handleAddProfile}
-        onUpdateProfile={handleUpdateProfile}
+        firms={profiles}
+        activeFirmId={activeProfileId}
+        onSelectFirm={setActiveProfileId}
+        onAddFirm={handleAddProfile}
+        onUpdateFirm={handleUpdateProfile}
       />
 
       {/* Daily Metal Rate Configurator Modal */}

@@ -2,7 +2,9 @@ import React from 'react';
 import { Sidebar } from './Sidebar';
 
 export type TabType = 
+  | 'dashboard'
   | 'pos' 
+  | 'orders'
   | 'inventory' 
   | 'gemstones'
   | 'purchases' 
@@ -12,6 +14,10 @@ export type TabType =
   | 'barcode' 
   | 'karigar' 
   | 'girvi' 
+  | 'kitty'
+  | 'bullion'
+  | 'payroll'
+  | 'crm'
   | 'invoices' 
   | 'customers' 
   | 'reports'

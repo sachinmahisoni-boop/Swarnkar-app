@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "FirmProfile": {
+      "title": "Firm Profile",
+      "description": "Registers different firms or branches",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "gstin": { "type": "string" },
+        "address": { "type": "string" },
+        "logoUrl": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Stores invoice data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "firmId": { "type": "string" },
+        "grandTotal": { "type": "number" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "invoiceNumber", "firmId"]
+    }
+  },
+  "firestore": {
+    "/firms/{firmId}": {
+      "schema": "FirmProfile",
+      "description": "Registered firms"
+    },
+    "/firms/{firmId}/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Invoices per firm"
+    }
+  }
+}

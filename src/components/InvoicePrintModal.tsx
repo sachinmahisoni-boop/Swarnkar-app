@@ -62,24 +62,24 @@ Mobile: +91 9202357851`;
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto print:p-0 print:bg-white">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-4xl w-full shadow-2xl overflow-hidden my-auto text-slate-900 flex flex-col max-h-[92vh] print:max-h-none print:border-none print:shadow-none print:rounded-none">
+    <div className="fixed inset-0 z-50 bg-stone-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto print:p-0 print:bg-white">
+      <div className="bg-white border border-stone-200 rounded-3xl max-w-4xl w-full shadow-2xl overflow-hidden my-auto text-stone-900 flex flex-col max-h-[92vh] print:max-h-none print:border-none print:shadow-none print:rounded-none">
         
         {/* Top Control Bar (Hidden during printing) */}
-        <div className="p-4 bg-slate-800 border-b border-slate-700 flex items-center justify-between text-slate-100 print:hidden shrink-0">
-          <div className="flex items-center space-x-2">
-            <span className="bg-amber-500/20 text-amber-300 text-xs font-mono px-2 py-1 rounded-lg border border-amber-500/30">
+        <div className="p-4 bg-stone-50 border-b border-stone-200 flex items-center justify-between text-stone-900 print:hidden shrink-0">
+          <div className="flex items-center space-x-2.5">
+            <span className="bg-amber-100 text-amber-900 text-xs font-mono font-black px-2.5 py-1 rounded-lg border border-amber-300 shadow-xs">
               {invoice.invoiceNumber}
             </span>
-            <span className="font-bold text-slate-200">
-              {isGST ? 'Official GST Tax Invoice Preview' : 'Non-GST Estimate / Quotation Preview'}
+            <span className="font-extrabold text-stone-900 text-sm">
+              {isGST ? 'आधिकारिक GST टैक्स इनवॉइस (Official Tax Invoice)' : 'कच्चा बिल / कोटेशन (Estimate Bill)'}
             </span>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2.5">
             <button
               onClick={handleWhatsAppShare}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow transition cursor-pointer"
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition cursor-pointer"
               title="Share invoice summary via WhatsApp"
             >
               <MessageCircle className="w-3.5 h-3.5" />
@@ -88,7 +88,7 @@ Mobile: +91 9202357851`;
 
             <button
               onClick={handlePrint}
-              className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition cursor-pointer"
+              className="px-4 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-md transition cursor-pointer"
               title="Print standard Tax Invoice"
             >
               <Printer className="w-3.5 h-3.5" />
@@ -97,7 +97,7 @@ Mobile: +91 9202357851`;
 
             <button
               onClick={onClose}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-700/50 transition cursor-pointer"
+              className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-200 transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
