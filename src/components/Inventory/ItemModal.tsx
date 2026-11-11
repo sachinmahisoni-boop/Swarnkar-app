@@ -207,7 +207,8 @@ export const ItemModal: React.FC<ItemModalProps> = ({
       quantity: Number(formData.quantity) || 1,
       minStockAlert: Number(formData.minStockAlert) || 2,
       barcode: formData.barcode || formData.tagNo || 'BARCODE',
-      description: desc
+      description: desc,
+      image: formData.image
     };
 
     onSaveItem(savedItem);
@@ -511,10 +512,10 @@ export const ItemModal: React.FC<ItemModalProps> = ({
             </div>
           )}
 
-          {/* Row 5: Quantity & Alert */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-stone-600 mb-1 font-bold">Quantity in Stock (नग संख्या)</label>
+          {/* Row 5: Quantity, Alert & Image Upload */}
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+            <div className="sm:col-span-3">
+              <label className="block text-stone-600 mb-1 font-bold">Quantity (नग संख्या)</label>
               <input
                 type="number"
                 min="0"
@@ -523,8 +524,8 @@ export const ItemModal: React.FC<ItemModalProps> = ({
                 className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-900 font-bold focus:outline-none focus:border-amber-500"
               />
             </div>
-            <div>
-              <label className="block text-stone-600 mb-1 font-bold">Reorder Alert Level</label>
+            <div className="sm:col-span-3">
+              <label className="block text-stone-600 mb-1 font-bold">Alert Level</label>
               <input
                 type="number"
                 min="1"
@@ -532,6 +533,45 @@ export const ItemModal: React.FC<ItemModalProps> = ({
                 onChange={e => setFormData({ ...formData, minStockAlert: parseInt(e.target.value) || 1 })}
                 className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-900 font-bold focus:outline-none focus:border-amber-500"
               />
+            </div>
+            
+            <div className="sm:col-span-6">
+              <label className="block text-stone-600 mb-1 font-bold">Product Image (उत्पाद फोटो)</label>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-stone-100 border border-stone-200 flex items-center justify-center overflow-hidden shrink-0">
+                  {formData.image ? (
+                    <img src={formData.image} alt="Preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <Tag className="w-6 h-6 text-stone-300" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setFormData({ ...formData, image: reader.result as string });
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="block w-full text-[10px] text-stone-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200 cursor-pointer"
+                  />
+                  {formData.image && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, image: undefined })}
+                      className="text-[10px] text-rose-600 font-bold mt-1 hover:underline"
+                    >
+                      Remove Photo
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 

@@ -431,6 +431,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-300 text-[11px] uppercase tracking-wider">
+                  <th className="p-2.5 text-center w-12">Img</th>
                   <th className="p-2.5">Tag / SKU</th>
                   <th className="p-2.5">HUID / Purity</th>
                   <th className="p-2.5">Ornament Name & Category</th>
@@ -446,7 +447,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
               <tbody className="divide-y divide-slate-200">
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="text-center py-12 text-slate-500 font-medium">
+                    <td colSpan={11} className="text-center py-12 text-slate-500 font-medium">
                       No stock items found matching your filters.
                     </td>
                   </tr>
@@ -458,6 +459,17 @@ export const InventoryList: React.FC<InventoryListProps> = ({
 
                     return (
                       <tr key={item.id} className="hover:bg-amber-50/50 transition">
+                        {/* Image Thumbnail */}
+                        <td className="p-2 text-center">
+                          <div className="w-10 h-10 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden mx-auto shadow-2xs">
+                            {item.image ? (
+                              <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <Tag className="w-5 h-5 text-slate-300" />
+                            )}
+                          </div>
+                        </td>
+
                         {/* Tag */}
                         <td className="p-2.5 font-mono font-bold text-slate-900">
                           <span className="bg-slate-100 border border-slate-300 px-2 py-0.5 rounded text-[11px]">

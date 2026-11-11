@@ -38,6 +38,7 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
   const [makingChargeRate, setMakingChargeRate] = useState<number>(450);
   const [quantity, setQuantity] = useState<number>(1);
   const [description, setDescription] = useState('');
+  const [image, setImage] = useState<string | undefined>(undefined);
 
   if (!isOpen) return null;
 
@@ -197,7 +198,8 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
       quantity: Number(quantity) || 1,
       minStockAlert: 2,
       barcode: tagNo.replace(/[^a-zA-Z0-9]/g, ''),
-      description: description.trim()
+      description: description.trim(),
+      image
     };
 
     onItemGenerated(newItem);
@@ -420,9 +422,9 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
             </div>
           </div>
 
-          {/* Row 5: Making & Qty */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
+          {/* Row 5: Making, Qty & Image */}
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+            <div className="sm:col-span-3">
               <label className="block text-slate-400 mb-1 font-medium">Making Mode</label>
               <select
                 value={makingChargeType}
@@ -434,10 +436,8 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
                 <option value="flat">Flat ₹ Fixed</option>
               </select>
             </div>
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">
-                Making Rate {makingChargeType === 'percentage' ? '(%)' : '(₹)'}
-              </label>
+            <div className="sm:col-span-2">
+              <label className="block text-slate-400 mb-1 font-medium">Rate</label>
               <input
                 type="number"
                 step={makingChargeType === 'percentage' ? '0.1' : '1'}
@@ -446,8 +446,8 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
               />
             </div>
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">Pieces to Add *</label>
+            <div className="sm:col-span-2">
+              <label className="block text-slate-400 mb-1 font-medium">Qty *</label>
               <input
                 type="number"
                 min="1"
@@ -456,6 +456,33 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-emerald-400 font-mono font-bold"
                 required
               />
+            </div>
+            <div className="sm:col-span-5">
+              <label className="block text-slate-400 mb-1 font-medium">Product Photo</label>
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-lg bg-slate-950 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0">
+                  {image ? (
+                    <img src={image} alt="Preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <Tag className="w-4 h-4 text-slate-700" />
+                  )}
+                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        setImage(reader.result as string);
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="block w-full text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-[10px] file:font-black file:bg-slate-800 file:text-amber-400 hover:file:bg-slate-700 cursor-pointer"
+                />
+              </div>
             </div>
           </div>
 

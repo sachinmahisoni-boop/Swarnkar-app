@@ -676,20 +676,29 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
                         onClick={() => handleAddItemToCart(item)}
                         className="p-3 hover:bg-amber-50/50 transition cursor-pointer flex items-center justify-between text-xs text-stone-800"
                       >
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-amber-900 font-bold bg-amber-100 px-1.5 py-0.5 rounded text-[11px] border border-amber-200">{item.tagNo}</span>
-                            <span className="font-bold text-stone-900">{item.name}</span>
-                            {item.huid && (
-                              <span className="text-[10px] text-emerald-700 font-mono font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">HUID: {item.huid}</span>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg border border-stone-200 bg-stone-50 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
+                            {item.image ? (
+                              <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <Tag className="w-5 h-5 text-stone-300" />
                             )}
                           </div>
-                          <div className="text-[11px] text-stone-500">
-                            {item.purity} {item.metal} • Net: {item.netWeight.toFixed(2)}g • Qty in Stock: {item.quantity}
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-amber-900 font-bold bg-amber-100 px-1.5 py-0.5 rounded text-[11px] border border-amber-200">{item.tagNo}</span>
+                              <span className="font-bold text-stone-900 truncate">{item.name}</span>
+                              {item.huid && (
+                                <span className="text-[10px] text-emerald-700 font-mono font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">HUID: {item.huid}</span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-stone-500">
+                              {item.purity} {item.metal} • Net: {item.netWeight.toFixed(2)}g • Qty: {item.quantity}
+                            </div>
                           </div>
                         </div>
                         <button className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] rounded-xl shadow-xs">
-                          + Add to Bill
+                          + Add
                         </button>
                       </div>
                     ))}
@@ -731,6 +740,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-stone-50/80 border-b border-stone-200 text-stone-500 text-[10px] font-bold uppercase tracking-wider">
+                    <th className="py-2.5 px-3 w-10">Img</th>
                     <th className="py-2.5 px-3">Item / HUID</th>
                     <th className="py-2.5 px-3">Purity & Rate</th>
                     <th className="py-2.5 px-3 text-right">Gross Wt</th>
@@ -744,14 +754,25 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
                 <tbody className="divide-y divide-stone-100 text-xs">
                   {cartItems.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-stone-400">
+                      <td colSpan={9} className="py-12 text-center text-stone-400">
                         <ShoppingBag className="w-8 h-8 mx-auto text-stone-300 mb-2" />
                         No jewellery items in the bill yet. Scan a barcode or pick an item above.
                       </td>
                     </tr>
                   ) : (
-                    cartItems.map((item, index) => (
+                    cartItems.map((item, index) => {
+                      const invItem = inventory.find(i => i.id === item.itemId);
+                      return (
                       <tr key={index} className="hover:bg-amber-50/20 transition">
+                        <td className="py-2.5 px-3">
+                          <div className="w-10 h-10 rounded border border-stone-100 bg-stone-50 flex items-center justify-center overflow-hidden">
+                            {invItem?.image ? (
+                              <img src={invItem.image} alt={item.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <Tag className="w-4 h-4 text-stone-300" />
+                            )}
+                          </div>
+                        </td>
                         <td className="py-2.5 px-3">
                           <p className="font-bold text-stone-900 line-clamp-1">{item.name}</p>
                           <div className="flex items-center gap-1.5 text-[10px] text-stone-500 font-mono mt-0.5">
@@ -818,9 +839,10 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
                           </div>
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
+                    );
+                  })
+                )}
+              </tbody>
               </table>
             </div>
           </div>
