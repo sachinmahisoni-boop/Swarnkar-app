@@ -374,47 +374,47 @@ export default function App() {
     const unsubs: (() => void)[] = [];
 
     unsubs.push(subscribeToFirmCollection<JewelleryItem>(activeProfileId, 'inventory', (items) => {
-      if (items.length > 0) setInventory(items);
+      setInventory(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<Customer>(activeProfileId, 'customers', (items) => {
-      if (items.length > 0) setCustomers(items);
+      setCustomers(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items) => {
-      if (items.length > 0) setInvoices(items);
+      setInvoices(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<Vendor>(activeProfileId, 'vendors', (items) => {
-      if (items.length > 0) setVendors(items);
+      setVendors(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items) => {
-      if (items.length > 0) setPurchases(items);
+      setPurchases(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<ShopExpense>(activeProfileId, 'expenses', (items) => {
-      if (items.length > 0) setExpenses(items);
+      setExpenses(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<CashBankTransfer>(activeProfileId, 'transfers', (items) => {
-      if (items.length > 0) setTransfers(items);
+      setTransfers(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<Karigar>(activeProfileId, 'karigars', (items) => {
-      if (items.length > 0) setKarigars(items);
+      setKarigars(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards', (items) => {
-      if (items.length > 0) setJobCards(items);
+      setJobCards(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<GirviLoan>(activeProfileId, 'girvi', (items) => {
-      if (items.length > 0) setGirviLoans(items);
+      setGirviLoans(items);
     }, () => setIsSynced(false)));
 
     unsubs.push(subscribeToFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones', (items) => {
-      if (items.length > 0) setGemstones(items);
+      setGemstones(items);
     }, () => setIsSynced(false)));
 
     return () => {
@@ -646,14 +646,18 @@ export default function App() {
   const handleAddGemstone = (newGem: CertifiedGemstone) => {
     const tagged = { ...newGem, firmId: activeProfileId };
     setGemstones(prev => [tagged, ...prev]);
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'gemstones', tagged);
   };
 
   const handleUpdateGemstone = (updatedGem: CertifiedGemstone) => {
-    setGemstones(prev => prev.map(g => g.id === updatedGem.id ? { ...updatedGem, firmId: activeProfileId } : g));
+    const tagged = { ...updatedGem, firmId: activeProfileId };
+    setGemstones(prev => prev.map(g => g.id === updatedGem.id ? tagged : g));
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'gemstones', tagged);
   };
 
   const handleDeleteGemstone = (id: string) => {
     setGemstones(prev => prev.filter(g => g.id !== id));
+    if (activeProfileId) deleteFirmDoc(activeProfileId, 'gemstones', id);
   };
 
   const handleUpdateGemstoneRates = (updatedRates: GemstoneRate[]) => {
@@ -672,81 +676,94 @@ export default function App() {
   const handleAddCustomer = (newCust: Customer) => {
     const tagged = { ...newCust, firmId: activeProfileId };
     setCustomers(prev => [tagged, ...prev]);
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'customers', tagged);
   };
 
   const handleUpdateCustomer = (updatedCust: Customer) => {
-    setCustomers(prev => prev.map(c => c.id === updatedCust.id ? { ...updatedCust, firmId: activeProfileId } : c));
+    const tagged = { ...updatedCust, firmId: activeProfileId };
+    setCustomers(prev => prev.map(c => c.id === updatedCust.id ? tagged : c));
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'customers', tagged);
   };
 
   const handleDeleteCustomer = (id: string) => {
     setCustomers(prev => prev.filter(c => c.id !== id));
+    if (activeProfileId) deleteFirmDoc(activeProfileId, 'customers', id);
   };
 
   // Sales Invoice Creation
-  const handleCreateInvoice = (newInvoice: GSTInvoice) => {
-    const tagged = { ...newInvoice, firmId: activeProfileId };
-    setInvoices(prev => [tagged, ...prev]);
-    
-    // Update customer total purchases & outstanding dues ledger
-    setCustomers(prev => prev.map(c => {
-      if (c.id === newInvoice.customerId) {
-        return {
-          ...c,
-          totalPurchases: c.totalPurchases + newInvoice.grandTotal,
-          outstandingBalance: c.outstandingBalance + newInvoice.payment.dueAmount
-        };
-      }
-      return c;
-    }));
-
-    // Auto open print modal for generated invoice!
-    setPrintingInvoices([tagged]);
+  const handleCreateInvoice = async (
+    invoiceDraft: Omit<GSTInvoice, 'id' | 'invoiceNumber'>,
+    prefix: string = 'SMJ'
+  ): Promise<GSTInvoice | undefined> => {
+    if (!activeProfileId) {
+      alert('कोई फर्म सक्रिय नहीं है। कृपया पहले अपनी फर्म चुनें या रजिस्टर करें।');
+      return;
+    }
+    try {
+      const createdInvoice = await createInvoiceAtomic(
+        activeProfileId,
+        invoiceDraft,
+        inventory,
+        customers,
+        prefix
+      );
+      setPrintingInvoices([createdInvoice]);
+      return createdInvoice;
+    } catch (err: any) {
+      console.error('Invoice creation failed:', err);
+      alert(`इनवॉइस बनाने में त्रुटि: ${err.message || err}`);
+      throw err;
+    }
   };
 
   const handleDeleteInvoice = (id: string) => {
-    setInvoices(prev => prev.filter(i => i.id !== id));
+    alert('GST नियमों के तहत इनवॉइस को डिलीट नहीं किया जा सकता। आप इसे Cancel (रद्द) कर सकते हैं।');
   };
 
   const handleUpdateInvoiceStatus = (id: string, newTotalPaid: number) => {
-    setInvoices(prev => prev.map(inv => {
-      if (inv.id === id) {
-        const due = Math.max(0, inv.grandTotal - newTotalPaid);
-        const status = due === 0 ? 'Paid' : newTotalPaid > 0 ? 'Partial' : 'Unpaid';
-        return {
-          ...inv,
-          payment: {
-            ...inv.payment,
-            amountPaid: newTotalPaid,
-            dueAmount: due
-          },
-          status
-        };
-      }
-      return inv;
-    }));
+    const inv = invoices.find(i => i.id === id);
+    if (!inv || !activeProfileId) return;
+    const due = Math.max(0, inv.grandTotal - newTotalPaid);
+    const status = due === 0 ? 'Paid' : newTotalPaid > 0 ? 'Partial' : 'Unpaid';
+    const updated: GSTInvoice = {
+      ...inv,
+      payment: {
+        ...inv.payment,
+        amountPaid: newTotalPaid,
+        dueAmount: due
+      },
+      status
+    };
+    setInvoices(prev => prev.map(i => i.id === id ? updated : i));
+    saveFirmDoc(activeProfileId, 'invoices', updated);
   };
 
   // Inward Purchase Creation
   const handleAddPurchase = (newPurchase: PurchaseInvoice, stockItemsToInsert: JewelleryItem[]) => {
+    if (!activeProfileId) return;
     const taggedPurchase = { ...newPurchase, firmId: activeProfileId };
     setPurchases(prev => [taggedPurchase, ...prev]);
+    saveFirmDoc(activeProfileId, 'purchases', taggedPurchase);
 
     // Update vendor dues & purchases count
-    setVendors(prev => prev.map(v => {
-      if (v.id === newPurchase.vendorId) {
-        return {
-          ...v,
-          cashBalanceDue: v.cashBalanceDue + newPurchase.balanceDue,
-          totalPurchasesAmount: v.totalPurchasesAmount + newPurchase.grandTotal
-        };
-      }
-      return v;
-    }));
+    const vendor = vendors.find(v => v.id === newPurchase.vendorId);
+    if (vendor) {
+      const updatedVendor: Vendor = {
+        ...vendor,
+        cashBalanceDue: vendor.cashBalanceDue + newPurchase.balanceDue,
+        totalPurchasesAmount: vendor.totalPurchasesAmount + newPurchase.grandTotal
+      };
+      setVendors(prev => prev.map(v => v.id === vendor.id ? updatedVendor : v));
+      saveFirmDoc(activeProfileId, 'vendors', updatedVendor);
+    }
 
     // If stock items were marked for insertion, add them directly to inventory!
     if (stockItemsToInsert.length > 0) {
-      const taggedItems = stockItemsToInsert.map(i => ({ ...i, firmId: activeProfileId }));
-      setInventory(prev => [...taggedItems, ...prev]);
+      stockItemsToInsert.forEach(item => {
+        const tagged = { ...item, firmId: activeProfileId };
+        setInventory(prev => [tagged, ...prev]);
+        saveFirmDoc(activeProfileId, 'inventory', tagged);
+      });
     }
   };
 
@@ -754,54 +771,60 @@ export default function App() {
   const handleAddVendor = (newVendor: Vendor) => {
     const tagged = { ...newVendor, firmId: activeProfileId };
     setVendors(prev => [tagged, ...prev]);
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'vendors', tagged);
   };
 
   const handleUpdateVendor = (updatedVendor: Vendor) => {
-    setVendors(prev => prev.map(v => v.id === updatedVendor.id ? { ...updatedVendor, firmId: activeProfileId } : v));
+    const tagged = { ...updatedVendor, firmId: activeProfileId };
+    setVendors(prev => prev.map(v => v.id === updatedVendor.id ? tagged : v));
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'vendors', tagged);
   };
 
   const handleDeleteVendor = (id: string) => {
     setVendors(prev => prev.filter(v => v.id !== id));
+    if (activeProfileId) deleteFirmDoc(activeProfileId, 'vendors', id);
   };
 
   const handleUpdateVendorBalance = (vendorId: string, cashDelta: number, goldDelta: number) => {
-    setVendors(prev => prev.map(v => {
-      if (v.id === vendorId) {
-        return {
-          ...v,
-          cashBalanceDue: v.cashBalanceDue + cashDelta,
-          goldBalanceOwed: v.goldBalanceOwed + goldDelta
-        };
-      }
-      return v;
-    }));
+    const vendor = vendors.find(v => v.id === vendorId);
+    if (vendor && activeProfileId) {
+      const updated: Vendor = {
+        ...vendor,
+        cashBalanceDue: vendor.cashBalanceDue + cashDelta,
+        goldBalanceOwed: vendor.goldBalanceOwed + goldDelta
+      };
+      setVendors(prev => prev.map(v => v.id === vendorId ? updated : v));
+      saveFirmDoc(activeProfileId, 'vendors', updated);
+    }
   };
 
   // Expenses Handlers
   const handleAddExpense = (newExpense: ShopExpense) => {
     const tagged = { ...newExpense, firmId: activeProfileId };
     setExpenses(prev => [tagged, ...prev]);
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'expenses', tagged);
   };
 
   const handleDeleteExpense = (id: string) => {
     setExpenses(prev => prev.filter(e => e.id !== id));
+    if (activeProfileId) deleteFirmDoc(activeProfileId, 'expenses', id);
   };
 
   // Contra Transfer Handlers
   const handleAddTransfer = (newTransfer: CashBankTransfer) => {
     const tagged = { ...newTransfer, firmId: activeProfileId };
     setTransfers(prev => [tagged, ...prev]);
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'transfers', tagged);
   };
 
   // Inventory Handlers
   const handleUpdateInventoryQty = (itemId: string, qtyDeltaOrNewValue: number) => {
-    setInventory(prev => prev.map(item => {
-      if (item.id === itemId) {
-        const newQty = qtyDeltaOrNewValue < 0 ? Math.max(0, item.quantity + qtyDeltaOrNewValue) : qtyDeltaOrNewValue;
-        return { ...item, quantity: newQty };
-      }
-      return item;
-    }));
+    const item = inventory.find(i => i.id === itemId);
+    if (!item || !activeProfileId) return;
+    const newQty = qtyDeltaOrNewValue < 0 ? Math.max(0, item.quantity + qtyDeltaOrNewValue) : qtyDeltaOrNewValue;
+    const updated = { ...item, quantity: newQty, firmId: activeProfileId };
+    setInventory(prev => prev.map(i => i.id === itemId ? updated : i));
+    saveFirmDoc(activeProfileId, 'inventory', updated);
   };
 
   const handleSaveInventoryItem = (item: JewelleryItem) => {
@@ -813,64 +836,78 @@ export default function App() {
       }
       return [tagged, ...prev];
     });
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'inventory', tagged);
   };
 
   const handleItemGenerated = (newItem: JewelleryItem) => {
     const tagged = { ...newItem, firmId: activeProfileId };
     setInventory(prev => [tagged, ...prev]);
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'inventory', tagged);
   };
 
   const handleDeleteInventoryItem = (id: string) => {
     setInventory(prev => prev.filter(i => i.id !== id));
+    if (activeProfileId) deleteFirmDoc(activeProfileId, 'inventory', id);
   };
 
   // Karigar Handlers
   const handleAddJobCard = (card: KarigarJobCard) => {
+    if (!activeProfileId) return;
     const tagged = { ...card, firmId: activeProfileId };
     setJobCards(prev => [tagged, ...prev]);
-    setKarigars(prev => prev.map(k => {
-      if (k.id === card.karigarId) {
-        return {
-          ...k,
-          goldBalanceGram: card.metal === 'Gold' ? k.goldBalanceGram + card.rawMetalIssuedWeight : k.goldBalanceGram,
-          silverBalanceGram: card.metal === 'Silver' ? k.silverBalanceGram + card.rawMetalIssuedWeight : k.silverBalanceGram,
-          activeJobsCount: k.activeJobsCount + 1,
-        };
-      }
-      return k;
-    }));
+    saveFirmDoc(activeProfileId, 'jobcards', tagged);
+
+    const karigar = karigars.find(k => k.id === card.karigarId);
+    if (karigar) {
+      const updatedK: Karigar = {
+        ...karigar,
+        goldBalanceGram: card.metal === 'Gold' ? karigar.goldBalanceGram + card.rawMetalIssuedWeight : karigar.goldBalanceGram,
+        silverBalanceGram: card.metal === 'Silver' ? karigar.silverBalanceGram + card.rawMetalIssuedWeight : karigar.silverBalanceGram,
+        activeJobsCount: karigar.activeJobsCount + 1,
+      };
+      setKarigars(prev => prev.map(k => k.id === karigar.id ? updatedK : k));
+      saveFirmDoc(activeProfileId, 'karigars', updatedK);
+    }
   };
 
   const handleUpdateJobCard = (updatedCard: KarigarJobCard) => {
-    setJobCards(prev => prev.map(c => c.id === updatedCard.id ? { ...updatedCard, firmId: activeProfileId } : c));
+    if (!activeProfileId) return;
+    const tagged = { ...updatedCard, firmId: activeProfileId };
+    setJobCards(prev => prev.map(c => c.id === updatedCard.id ? tagged : c));
+    saveFirmDoc(activeProfileId, 'jobcards', tagged);
+
     if (updatedCard.status === 'Received') {
-      setKarigars(prev => prev.map(k => {
-        if (k.id === updatedCard.karigarId) {
-          const goldRet = updatedCard.metal === 'Gold' ? (updatedCard.finishedOrnamentWeight || 0) : 0;
-          return {
-            ...k,
-            goldBalanceGram: Math.max(0, k.goldBalanceGram - goldRet),
-            activeJobsCount: Math.max(0, k.activeJobsCount - 1),
-          };
-        }
-        return k;
-      }));
+      const karigar = karigars.find(k => k.id === updatedCard.karigarId);
+      if (karigar) {
+        const goldRet = updatedCard.metal === 'Gold' ? (updatedCard.finishedOrnamentWeight || 0) : 0;
+        const updatedK: Karigar = {
+          ...karigar,
+          goldBalanceGram: Math.max(0, karigar.goldBalanceGram - goldRet),
+          activeJobsCount: Math.max(0, karigar.activeJobsCount - 1),
+        };
+        setKarigars(prev => prev.map(k => k.id === karigar.id ? updatedK : k));
+        saveFirmDoc(activeProfileId, 'karigars', updatedK);
+      }
     }
   };
 
   const handleAddKarigar = (newKg: Karigar) => {
     const tagged = { ...newKg, firmId: activeProfileId };
     setKarigars(prev => [...prev, tagged]);
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'karigars', tagged);
   };
 
   // Girvi Handlers
   const handleAddGirviLoan = (newLoan: GirviLoan) => {
     const tagged = { ...newLoan, firmId: activeProfileId };
     setGirviLoans(prev => [tagged, ...prev]);
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'girvi', tagged);
   };
 
   const handleUpdateGirviLoan = (updatedLoan: GirviLoan) => {
-    setGirviLoans(prev => prev.map(l => l.id === updatedLoan.id ? { ...updatedLoan, firmId: activeProfileId } : l));
+    const tagged = { ...updatedLoan, firmId: activeProfileId };
+    setGirviLoans(prev => prev.map(l => l.id === updatedLoan.id ? tagged : l));
+    if (activeProfileId) saveFirmDoc(activeProfileId, 'girvi', tagged);
   };
 
   const handleRegisterFirmFromScreen = (newProfile: JewellerProfile, shopUpdate?: Partial<ShopDetails>) => {
@@ -899,6 +936,9 @@ export default function App() {
       ],
       logoUrl: shopUpdate?.logoUrl || undefined
     };
+
+    // Save firm shop_details to Firestore
+    saveFirmDoc(newFirmId, 'shop_details', { id: 'main', ...newShopDetails });
 
     // Store empty array defaults for the new firm
     localStorage.setItem(getFirmStorageKey(newFirmId, 'inventory'), JSON.stringify([]));
@@ -1432,7 +1472,10 @@ export default function App() {
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         shopDetails={shopDetails}
-        onSaveShopDetails={(updated) => setShopDetails(updated)}
+        onSaveShopDetails={(updated) => {
+          setShopDetails(updated);
+          if (activeProfileId) saveFirmDoc(activeProfileId, 'shop_details', { id: 'main', ...updated });
+        }}
       />
 
       {/* Add / Edit Jewellery Stock Item Modal */}

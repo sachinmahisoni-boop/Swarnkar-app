@@ -118,57 +118,84 @@ export async function createInvoiceAtomic(
   const counterDocId = `${invoiceDraft.invoiceType}_${finYearStr}`;
   const counterRef = doc(db, 'firms', firmId, 'sequence_counters', counterDocId);
 
-  // Stock check
-  const stockCheck = checkStockAvailability(invoiceDraft.items, inventory);
-  if (!stockCheck.canFulfill) {
-    const errMsg = stockCheck.issues.map(i => i.error).join('; ');
-    throw new Error(errMsg || 'स्टॉक में पर्याप्त मात्रा उपलब्ध नहीं है।');
-  }
-
   const invoiceId = `inv-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
+  // Collect unique inventory item IDs
+  const itemIds = Array.from(new Set(
+    invoiceDraft.items
+      .map(i => i.itemId)
+      .filter((id): id is string => Boolean(id))
+  ));
+
   const createdInvoice = await runTransaction(db, async (transaction) => {
-    // 1. Get counter
+    // === 1. ALL READS FIRST ===
     const counterSnap = await transaction.get(counterRef);
+
+    // Read item snapshots
+    const itemSnapshots = await Promise.all(
+      itemIds.map(id => transaction.get(doc(db, 'firms', firmId, 'inventory', id)))
+    );
+    const itemSnapMap = new Map<string, any>();
+    itemIds.forEach((id, idx) => {
+      itemSnapMap.set(id, itemSnapshots[idx]);
+    });
+
+    // Read customer snapshot if applicable
+    let custSnap: any = null;
+    let custRef: any = null;
+    if (invoiceDraft.customerId) {
+      custRef = doc(db, 'firms', firmId, 'customers', invoiceDraft.customerId);
+      custSnap = await transaction.get(custRef);
+    }
+
+    // === 2. VALIDATION INSIDE TRANSACTION ===
+    for (const item of invoiceDraft.items) {
+      if (item.itemId) {
+        const snap = itemSnapMap.get(item.itemId);
+        const freshQty = snap && snap.exists() ? (snap.data().quantity || 0) : 0;
+        const requiredQty = item.quantity || 1;
+        if (freshQty < requiredQty) {
+          throw new Error(`स्टॉक में पर्याप्त मात्रा उपलब्ध नहीं है (${item.name}): उपलब्ध ${freshQty}, आवश्यक ${requiredQty}`);
+        }
+      }
+    }
+
+    // === 3. PREPARE WRITES ===
     let nextSeq = 1;
     if (counterSnap.exists()) {
       nextSeq = (counterSnap.data().currentVal || 0) + 1;
     }
-
     const actualInvoiceNumber = formatSequentialNumber(prefix, finYearStr, nextSeq);
 
-    // 2. Reserve counter
-    transaction.set(counterRef, { currentVal: nextSeq, finYear: finYearStr }, { merge: true });
+    // === 4. ALL WRITES AFTER READS ===
+    // a. Update sequence counter
+    transaction.set(counterRef, { currentVal: nextSeq, finYear: finYearStr, lastUpdated: istInfo.isoDateStr }, { merge: true });
 
-    // 3. Deduct stock for linked items
+    // b. Deduct stock from inventory
     for (const item of invoiceDraft.items) {
       if (item.itemId) {
-        const itemRef = doc(db, 'firms', firmId, 'inventory', item.itemId);
-        const itemSnap = await transaction.get(itemRef);
-        if (itemSnap.exists()) {
-          const currentQty = itemSnap.data().quantity || 0;
-          const newQty = Math.max(0, currentQty - (item.quantity || 1));
+        const snap = itemSnapMap.get(item.itemId);
+        if (snap && snap.exists()) {
+          const freshQty = snap.data().quantity || 0;
+          const newQty = freshQty - (item.quantity || 1);
+          const itemRef = doc(db, 'firms', firmId, 'inventory', item.itemId);
           transaction.update(itemRef, { quantity: newQty });
         }
       }
     }
 
-    // 4. Update customer ledger
-    if (invoiceDraft.customerId) {
-      const custRef = doc(db, 'firms', firmId, 'customers', invoiceDraft.customerId);
-      const custSnap = await transaction.get(custRef);
-      if (custSnap.exists()) {
-        const cData = custSnap.data();
-        const newTotalPurchases = (cData.totalPurchases || 0) + invoiceDraft.grandTotal;
-        const newOutstanding = (cData.outstandingBalance || 0) + (invoiceDraft.payment?.dueAmount || 0);
-        transaction.update(custRef, {
-          totalPurchases: newTotalPurchases,
-          outstandingBalance: newOutstanding
-        });
-      }
+    // c. Update customer ledger
+    if (custRef && custSnap && custSnap.exists()) {
+      const cData = custSnap.data();
+      const newTotalPurchases = (cData.totalPurchases || 0) + invoiceDraft.grandTotal;
+      const newOutstanding = (cData.outstandingBalance || 0) + (invoiceDraft.payment?.dueAmount || 0);
+      transaction.update(custRef, {
+        totalPurchases: newTotalPurchases,
+        outstandingBalance: newOutstanding
+      });
     }
 
-    // 5. Save Invoice
+    // d. Save final invoice document
     const finalInvoice: GSTInvoice = {
       ...invoiceDraft,
       id: invoiceId,
@@ -196,45 +223,71 @@ export async function cancelInvoiceAtomic(
 ): Promise<void> {
   const invRef = doc(db, 'firms', firmId, 'invoices', invoice.id);
 
+  const itemIds = Array.from(new Set(
+    invoice.items
+      .map(i => i.itemId)
+      .filter((id): id is string => Boolean(id))
+  ));
+
   await runTransaction(db, async (transaction) => {
+    // === 1. ALL READS FIRST ===
     const invSnap = await transaction.get(invRef);
     if (!invSnap.exists()) {
       throw new Error('इनवॉइस नहीं मिला।');
     }
 
-    // Restore stock
-    for (const item of invoice.items) {
+    const invData = invSnap.data() as GSTInvoice;
+    if (invData.status === 'Cancelled') {
+      throw new Error('यह इनवॉइस पहले ही रद्द (Cancel) हो चुका है।');
+    }
+
+    // Read item snapshots
+    const itemSnapshots = await Promise.all(
+      itemIds.map(id => transaction.get(doc(db, 'firms', firmId, 'inventory', id)))
+    );
+    const itemSnapMap = new Map<string, any>();
+    itemIds.forEach((id, idx) => {
+      itemSnapMap.set(id, itemSnapshots[idx]);
+    });
+
+    // Read customer snapshot
+    let custSnap: any = null;
+    let custRef: any = null;
+    if (invData.customerId) {
+      custRef = doc(db, 'firms', firmId, 'customers', invData.customerId);
+      custSnap = await transaction.get(custRef);
+    }
+
+    // === 2. ALL WRITES AFTER READS ===
+    // a. Restore stock for linked items
+    for (const item of invData.items) {
       if (item.itemId) {
-        const itemRef = doc(db, 'firms', firmId, 'inventory', item.itemId);
-        const itemSnap = await transaction.get(itemRef);
-        if (itemSnap.exists()) {
-          const currentQty = itemSnap.data().quantity || 0;
+        const snap = itemSnapMap.get(item.itemId);
+        if (snap && snap.exists()) {
+          const currentQty = snap.data().quantity || 0;
+          const itemRef = doc(db, 'firms', firmId, 'inventory', item.itemId);
           transaction.update(itemRef, { quantity: currentQty + (item.quantity || 1) });
         }
       }
     }
 
-    // Reverse customer ledger
-    if (invoice.customerId) {
-      const custRef = doc(db, 'firms', firmId, 'customers', invoice.customerId);
-      const custSnap = await transaction.get(custRef);
-      if (custSnap.exists()) {
-        const cData = custSnap.data();
-        const newTotalPurchases = Math.max(0, (cData.totalPurchases || 0) - invoice.grandTotal);
-        const newOutstanding = Math.max(0, (cData.outstandingBalance || 0) - (invoice.payment?.dueAmount || 0));
-        transaction.update(custRef, {
-          totalPurchases: newTotalPurchases,
-          outstandingBalance: newOutstanding
-        });
-      }
+    // b. Reverse customer ledger
+    if (custRef && custSnap && custSnap.exists()) {
+      const cData = custSnap.data();
+      const newTotalPurchases = Math.max(0, (cData.totalPurchases || 0) - invData.grandTotal);
+      const newOutstanding = Math.max(0, (cData.outstandingBalance || 0) - (invData.payment?.dueAmount || 0));
+      transaction.update(custRef, {
+        totalPurchases: newTotalPurchases,
+        outstandingBalance: newOutstanding
+      });
     }
 
-    // Update invoice record to Cancelled status
+    // c. Mark invoice as Cancelled
     transaction.update(invRef, {
       status: 'Cancelled',
       cancelReason,
       cancelledBy,
-      cancelledAt: new Date().toISOString()
+      cancelledAt: getISTDate().isoDateStr
     });
   });
 }
@@ -245,17 +298,21 @@ export async function cancelInvoiceAtomic(
 export async function uploadLocalStorageToFirestore(firmId: string, data: FirmDataSnapshot): Promise<void> {
   if (!firmId) return;
 
+  if (!auth.currentUser || !auth.currentUser.uid) {
+    throw new Error('ऑथेंटिकेशन आवश्यक है। क्लाउड सिंक के लिए साइन इन करें।');
+  }
+
   const batch = writeBatch(db);
 
   // Shop Details & Firm Profile Root
   if (data.shopDetails) {
     const firmDocRef = doc(db, 'firms', firmId);
     batch.set(firmDocRef, {
-      ownerUid: auth.currentUser?.uid || 'anonymous',
+      ownerUid: auth.currentUser.uid,
       name: data.shopDetails.name,
       phone: data.shopDetails.phone,
       gstin: data.shopDetails.gstin,
-      lastSynced: new Date().toISOString()
+      lastSynced: getISTDate().isoDateStr
     }, { merge: true });
 
     const shopRef = doc(db, 'firms', firmId, 'shop_details', 'main');

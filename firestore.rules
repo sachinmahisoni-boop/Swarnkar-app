@@ -33,7 +33,12 @@ service cloud.firestore {
       // Firm Document
       allow read: if isSignedIn() && isFirmMember(resource.data);
       allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isSignedIn() && (isFirmOwner(resource.data) || isFirmMember(resource.data));
+      allow update: if isSignedIn() && (
+        isFirmOwner(resource.data) || (
+          isFirmMember(resource.data) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerUid', 'staff'])
+        )
+      );
       allow delete: if isSignedIn() && isFirmOwner(resource.data);
 
       // Isolated Firm Subcollections
@@ -46,10 +51,31 @@ service cloud.firestore {
           collectionName != 'invoices' && 
           collectionName != 'purchases';
 
-        allow create, update: if isSignedIn() && 
+        allow create: if isSignedIn() && 
           isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data) && (
-            // Cashiers cannot modify daily metal rates
-            collectionName != 'rates' || !isCashierRole(get(/databases/$(database)/documents/firms/$(firmId)).data)
+            !isCashierRole(get(/databases/$(database)/documents/firms/$(firmId)).data) || (
+              collectionName != 'rates' &&
+              collectionName != 'shop_details' &&
+              collectionName != 'sequence_counters'
+            )
+          ) && (
+            collectionName != 'sequence_counters' || request.resource.data.currentVal == 1
+          );
+
+        allow update: if isSignedIn() && 
+          isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data) && (
+            !isCashierRole(get(/databases/$(database)/documents/firms/$(firmId)).data) || (
+              collectionName != 'rates' &&
+              collectionName != 'shop_details' &&
+              collectionName != 'sequence_counters' && (
+                collectionName != 'invoices' ||
+                request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'status', 'cancelReason', 'cancelledBy', 'cancelledAt', 'payment', 'paidAmount', 'dueAmount'
+                ])
+              )
+            )
+          ) && (
+            collectionName != 'sequence_counters' || request.resource.data.currentVal == resource.data.currentVal + 1
           );
       }
     }
