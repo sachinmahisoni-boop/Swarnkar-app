@@ -63,6 +63,7 @@ export interface CityMetalRates {
 export interface JewellerProfile {
   id: string;
   firmId?: string;
+  userId?: string;
   code: string;
   name: string;
   counterName: string;
@@ -294,8 +295,11 @@ export interface PurchaseItem {
   purity: string;
   grossWeight: number;
   netWeight: number;
-  ratePerGram: number;
-  makingCharge: number;
+  ratePerGram: number; // Applied Rate (Fine rate if wastage mode, regular rate if making mode)
+  makingCharge: number; // Labor rate (Used in making mode)
+  wastagePercentage?: number; // Wastage % (Added to weight in making mode if needed)
+  wholesaleTouch?: number; // Wholesale Billing % (Tanch) - e.g. 80% for 18K
+  fineWeight?: number; // Calculated Fine Metal weight
   stoneWeight: number;
   stoneValue: number;
   totalAmount: number;
@@ -303,6 +307,9 @@ export interface PurchaseItem {
   quantity: number;
   huid?: string;
   addToStock: boolean;
+  calculationMode: 'making' | 'wastage';
+  retailMakingChargeType?: 'per_gram' | 'flat' | 'percentage';
+  retailMakingChargeRate?: number;
 }
 
 export interface PurchaseInvoice {
@@ -313,6 +320,7 @@ export interface PurchaseInvoice {
   vendorName: string;
   vendorFirm: string;
   vendorGSTIN?: string;
+  purchaseType: 'GST_INVOICE' | 'ESTIMATE_BILL';
   date: string;
   items: PurchaseItem[];
   totalGrossWeight: number;

@@ -77,11 +77,30 @@ import { onAuthStateChanged } from 'firebase/auth';
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDemoUser, setIsDemoUser] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string>(() => auth.currentUser?.uid || '');
+
+  const getEffectiveUserId = (): string => {
+    if (auth.currentUser?.uid) return auth.currentUser.uid;
+    if (isDemoUser) return 'demo';
+    return currentUserId || '';
+  };
+
+  const getUserProfiles = (uid: string): JewellerProfile[] => {
+    if (!uid) return [];
+    const key = `jewel_user_${uid}_profiles`;
+    const saved = localStorage.getItem(key);
+    if (saved !== null) {
+      try { return JSON.parse(saved); } catch (e) { return []; }
+    }
+    if (uid === 'demo') {
+      return initialProfiles;
+    }
+    return [];
+  };
 
   // Firm onboarding & selection state
-  const [isFirmActive, setIsFirmActive] = useState<boolean>(() => {
-    return localStorage.getItem('jewel_firm_confirmed') === 'true';
-  });
+  const [isFirmActive, setIsFirmActive] = useState<boolean>(false);
 
   // Light / Dark Theme State with local storage persistence
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -98,17 +117,37 @@ export default function App() {
     }
   }, [theme]);
 
+  const [activeProfileId, setActiveProfileId] = useState<string>('');
+  const [profiles, setProfiles] = useState<JewellerProfile[]>([]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setIsAuthenticated(!!user);
       setIsLoading(false);
+      if (user) {
+        setCurrentUserId(user.uid);
+        setIsDemoUser(false);
+        setIsAuthenticated(true);
+
+        const userProfs = getUserProfiles(user.uid);
+        setProfiles(userProfs);
+        if (userProfs.length > 0) {
+          const savedActive = localStorage.getItem(`jewel_user_${user.uid}_active_profile`) || userProfs[0].id;
+          setActiveProfileId(savedActive);
+          setIsFirmActive(true);
+        } else {
+          setActiveProfileId('');
+          setIsFirmActive(false);
+        }
+      } else if (!isDemoUser) {
+        setIsAuthenticated(false);
+        setCurrentUserId('');
+        setProfiles([]);
+        setActiveProfileId('');
+        setIsFirmActive(false);
+      }
     });
     return unsubscribe;
-  }, []);
-  const [activeProfileId, setActiveProfileId] = useState<string>(() => {
-    const saved = localStorage.getItem('jewel_active_profile');
-    return saved || 'prof-main';
-  });
+  }, [isDemoUser]);
 
   const getFirmStorageKey = (firmId: string, col: string) => `jewel_firm_${firmId}_${col}`;
 
@@ -138,18 +177,11 @@ export default function App() {
   };
 
   const [shopDetails, setShopDetails] = useState<ShopDetails>(() => {
-    const saved = localStorage.getItem(`jewel_firm_${activeProfileId}_shop_details`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    if (activeProfileId === 'prof-main' || activeProfileId === 'firm-main') {
-      const oldSaved = localStorage.getItem('jewel_shop_details_v2');
-      if (oldSaved) {
-        try { return JSON.parse(oldSaved); } catch (e) {}
+    if (activeProfileId) {
+      const saved = localStorage.getItem(`jewel_firm_${activeProfileId}_shop_details`);
+      if (saved) {
+        try { return JSON.parse(saved); } catch (e) {}
       }
-      return initialShopDetails;
     }
     return {
       firmId: activeProfileId,
@@ -168,11 +200,6 @@ export default function App() {
       terms: ['बिक्री पर 3% GST लागू है।', 'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।'],
       logoUrl: undefined
     };
-  });
-
-  const [profiles, setProfiles] = useState<JewellerProfile[]>(() => {
-    const saved = localStorage.getItem('jewel_profiles');
-    return saved ? JSON.parse(saved) : initialProfiles;
   });
 
   const [selectedCity, setSelectedCity] = useState<string>(() => {
@@ -303,7 +330,7 @@ export default function App() {
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<JewelleryItem | null>(null);
 
-  const [printingInvoice, setPrintingInvoice] = useState<GSTInvoice | null>(null);
+  const [printingInvoices, setPrintingInvoices] = useState<GSTInvoice[] | null>(null);
 
   // Sync to LocalStorage on state change (Firm Scoped)
   useEffect(() => {
@@ -317,12 +344,18 @@ export default function App() {
   }, [shopDetails, activeProfileId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_profiles', JSON.stringify(profiles));
-  }, [profiles]);
+    const uid = getEffectiveUserId();
+    if (uid) {
+      localStorage.setItem(`jewel_user_${uid}_profiles`, JSON.stringify(profiles));
+    }
+  }, [profiles, isDemoUser, currentUserId]);
 
   useEffect(() => {
-    localStorage.setItem('jewel_active_profile', activeProfileId);
-  }, [activeProfileId]);
+    const uid = getEffectiveUserId();
+    if (uid && activeProfileId) {
+      localStorage.setItem(`jewel_user_${uid}_active_profile`, activeProfileId);
+    }
+  }, [activeProfileId, isDemoUser, currentUserId]);
 
   useEffect(() => {
     localStorage.setItem('jewel_selected_city', selectedCity);
@@ -577,7 +610,7 @@ export default function App() {
     }));
 
     // Auto open print modal for generated invoice!
-    setPrintingInvoice(tagged);
+    setPrintingInvoices([tagged]);
   };
 
   const handleDeleteInvoice = (id: string) => {
@@ -751,8 +784,10 @@ export default function App() {
   };
 
   const handleRegisterFirmFromScreen = (newProfile: JewellerProfile, shopUpdate?: Partial<ShopDetails>) => {
+    const uid = getEffectiveUserId();
     const newFirmId = newProfile.id;
     newProfile.firmId = newFirmId;
+    newProfile.userId = uid;
 
     const newShopDetails: ShopDetails = {
       firmId: newFirmId,
@@ -789,7 +824,14 @@ export default function App() {
     localStorage.setItem(getFirmStorageKey(newFirmId, 'gemstones'), JSON.stringify([]));
     localStorage.setItem(getFirmStorageKey(newFirmId, 'shop_details'), JSON.stringify(newShopDetails));
 
-    setProfiles(prev => [newProfile, ...prev]);
+    const updatedProfiles = [newProfile, ...profiles];
+    setProfiles(updatedProfiles);
+    if (uid) {
+      localStorage.setItem(`jewel_user_${uid}_profiles`, JSON.stringify(updatedProfiles));
+      localStorage.setItem(`jewel_user_${uid}_active_profile`, newFirmId);
+      localStorage.setItem(`jewel_user_${uid}_firm_confirmed`, 'true');
+    }
+
     setActiveProfileId(newFirmId);
     setShopDetails(newShopDetails);
 
@@ -807,22 +849,28 @@ export default function App() {
     setGemstones([]);
 
     setIsFirmActive(true);
-    localStorage.setItem('jewel_firm_confirmed', 'true');
-    localStorage.setItem('jewel_active_profile', newFirmId);
   };
 
   const handleSelectExistingFirmFromScreen = (firmId: string) => {
+    const uid = getEffectiveUserId();
     setActiveProfileId(firmId);
     setIsFirmActive(true);
-    localStorage.setItem('jewel_firm_confirmed', 'true');
-    localStorage.setItem('jewel_active_profile', firmId);
+    if (uid) {
+      localStorage.setItem(`jewel_user_${uid}_firm_confirmed`, 'true');
+      localStorage.setItem(`jewel_user_${uid}_active_profile`, firmId);
+    }
   };
 
   const handleLogout = () => {
+    const uid = getEffectiveUserId();
+    if (uid) {
+      localStorage.removeItem(`jewel_user_${uid}_firm_confirmed`);
+    }
     setIsFirmActive(false);
     setActiveProfileId('');
-    localStorage.removeItem('jewel_firm_confirmed');
-    localStorage.removeItem('jewel_active_profile');
+    setIsDemoUser(false);
+    setCurrentUserId('');
+    setProfiles([]);
     
     // Clear all in-memory React state
     setInventory([]);
@@ -844,9 +892,12 @@ export default function App() {
   };
 
   const handleDeleteFirm = (firmIdToDelete: string) => {
+    const uid = getEffectiveUserId();
     const updatedProfiles = profiles.filter(p => p.id !== firmIdToDelete);
     setProfiles(updatedProfiles);
-    localStorage.setItem('jewel_profiles', JSON.stringify(updatedProfiles));
+    if (uid) {
+      localStorage.setItem(`jewel_user_${uid}_profiles`, JSON.stringify(updatedProfiles));
+    }
 
     // Clear local storage keys for this firm
     const collections = ['shop_details', 'inventory', 'customers', 'invoices', 'vendors', 'purchases', 'expenses', 'transfers', 'karigars', 'jobcards', 'girvi', 'gemstones'];
@@ -870,11 +921,34 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <Login 
-        onLogin={(firmProfile, shopUpdate) => {
+        onLogin={(firmProfile, shopUpdate, isDemo) => {
+          if (isDemo) {
+            setIsDemoUser(true);
+            setIsAuthenticated(true);
+            setCurrentUserId('demo');
+            const demoProfs = getUserProfiles('demo');
+            setProfiles(demoProfs);
+            setActiveProfileId(demoProfs[0]?.id || 'prof-main');
+            setIsFirmActive(true);
+            return;
+          }
+
+          setIsAuthenticated(true);
           if (firmProfile) {
             handleRegisterFirmFromScreen(firmProfile, shopUpdate);
+          } else {
+            const uid = auth.currentUser?.uid || '';
+            setCurrentUserId(uid);
+            const userProfs = getUserProfiles(uid);
+            setProfiles(userProfs);
+            if (userProfs.length > 0) {
+              setActiveProfileId(userProfs[0].id);
+              setIsFirmActive(true);
+            } else {
+              setActiveProfileId('');
+              setIsFirmActive(false);
+            }
           }
-          setIsAuthenticated(true);
         }} 
       />
     );
@@ -1017,6 +1091,10 @@ export default function App() {
             }}
             onOpenCategoryModal={() => setIsCategoryModalOpen(true)}
             onOpenQuickGenerate={() => setIsQuickGenerateOpen(true)}
+            onBulkAddItems={(newItems) => {
+              const taggedItems = newItems.map(it => ({ ...it, firmId: activeProfileId }));
+              setInventory(prev => [...taggedItems, ...prev]);
+            }}
           />
         )}
 
@@ -1117,7 +1195,8 @@ export default function App() {
         {activeTab === 'invoices' && (
           <InvoiceList
             invoices={invoices}
-            onViewPrintInvoice={(inv) => setPrintingInvoice(inv)}
+            onViewPrintInvoice={(inv) => setPrintingInvoices([inv])}
+            onBatchPrintInvoices={(invs) => setPrintingInvoices(invs)}
             onDeleteInvoice={handleDeleteInvoice}
             onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
           />
@@ -1258,9 +1337,9 @@ export default function App() {
 
       {/* Printable GST / Estimate Invoice Modal */}
       <InvoicePrintModal
-        isOpen={!!printingInvoice}
-        onClose={() => setPrintingInvoice(null)}
-        invoice={printingInvoice}
+        isOpen={!!printingInvoices}
+        onClose={() => setPrintingInvoices(null)}
+        invoices={printingInvoices}
         shopDetails={shopDetails}
         customLogo={activeProfile?.logoUrl || shopDetails.logoUrl}
       />

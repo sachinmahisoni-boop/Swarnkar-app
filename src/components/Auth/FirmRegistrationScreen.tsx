@@ -31,6 +31,12 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
     existingFirms.length > 0 ? 'select' : 'register'
   );
 
+  React.useEffect(() => {
+    if (existingFirms.length === 0) {
+      setViewMode('register');
+    }
+  }, [existingFirms.length]);
+
   // Form State
   const [firmName, setFirmName] = useState('');
   const [tagline, setTagline] = useState('सराफा एवं आभूषण विक्रेता (Gold, Silver & Diamond)');

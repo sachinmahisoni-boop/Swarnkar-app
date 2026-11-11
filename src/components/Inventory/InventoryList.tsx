@@ -23,7 +23,8 @@ import {
   FileSpreadsheet,
   Printer,
   CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  Download
 } from 'lucide-react';
 
 export type StockMaintainMode = 
@@ -47,6 +48,7 @@ interface InventoryListProps {
   onSelectForBarcode?: (item: JewelleryItem) => void;
   onOpenCategoryModal: () => void;
   onOpenQuickGenerate: () => void;
+  onBulkAddItems?: (items: JewelleryItem[]) => void;
 }
 
 export const InventoryList: React.FC<InventoryListProps> = ({
@@ -61,7 +63,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({
   onSelectForBarcode,
   onOpenCategoryModal,
   onOpenQuickGenerate,
+  onBulkAddItems,
 }) => {
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [maintainMode, setMaintainMode] = useState<StockMaintainMode>('tag_wise');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMetal, setSelectedMetal] = useState<string>('All');
@@ -72,6 +76,88 @@ export const InventoryList: React.FC<InventoryListProps> = ({
   const getRateForPurity = (metal: string, purity: string) => {
     const rateObj = rates.find(r => r.metal === metal && r.purity === purity);
     return rateObj ? rateObj.ratePerGram : 0;
+  };
+
+  const handleCSVUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      if (!text) return;
+
+      const items = parseCSV(text);
+      if (items.length > 0 && onBulkAddItems) {
+        onBulkAddItems(items);
+        alert(`Successfully imported ${items.length} items.`);
+      } else {
+        alert("No valid items found in CSV. Please check the format.");
+      }
+      
+      // Reset input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const downloadCSVTemplate = () => {
+    const headers = ["Name", "TagNo", "Category", "Metal", "Purity", "GrossWeight", "NetWeight", "StoneWeight", "StoneValue", "WastagePercentage", "MakingChargeType", "MakingChargeRate", "HSNCode", "Quantity", "MinStockAlert", "Barcode", "Description"];
+    const exampleRow = ["Gold Necklace", "GN-001", "Necklace", "Gold", "22K", "25.5", "24.2", "1.3", "5000", "2.5", "per_gram", "450", "7113", "1", "1", "GN001", "Beautiful antique necklace"];
+    
+    const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + exampleRow.join(",");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "inventory_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const parseCSV = (text: string): JewelleryItem[] => {
+    const lines = text.split('\n');
+    if (lines.length < 2) return [];
+
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const items: JewelleryItem[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const currentLine = lines[i].split(',');
+      if (currentLine.length < headers.length) continue;
+
+      const obj: any = {};
+      headers.forEach((header, index) => {
+        obj[header] = currentLine[index]?.trim();
+      });
+
+      // Basic mapping and validation
+      if (!obj.name && !obj.tagno) continue;
+
+      const newItem: JewelleryItem = {
+        id: `item-${Date.now()}-${i}`,
+        tagNo: obj.tagno || `TAG-${Date.now()}-${i}`,
+        name: obj.name || 'Imported Item',
+        category: obj.category || 'General',
+        metal: (obj.metal || 'Gold') as any,
+        purity: obj.purity || '22K',
+        grossWeight: parseFloat(obj.grossweight) || 0,
+        netWeight: parseFloat(obj.netweight) || 0,
+        stoneWeight: parseFloat(obj.stoneweight) || 0,
+        stoneValue: parseFloat(obj.stonevalue) || 0,
+        wastagePercentage: parseFloat(obj.wastagepercentage) || 0,
+        makingChargeType: (obj.makingchargetype || 'per_gram') as any,
+        makingChargeRate: parseFloat(obj.makingchargerate) || 0,
+        hsnCode: obj.hsncode || (obj.metal === 'Silver' ? '7106' : '7113'),
+        quantity: parseInt(obj.quantity) || 1,
+        minStockAlert: parseInt(obj.minstockalert) || 2,
+        barcode: obj.barcode || obj.tagno || `BAR-${Date.now()}-${i}`,
+        description: obj.description || ''
+      };
+      items.push(newItem);
+    }
+
+    return items;
   };
 
   // Safe search and filters
@@ -169,6 +255,31 @@ export const InventoryList: React.FC<InventoryListProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleCSVUpload}
+            accept=".csv"
+            className="hidden"
+          />
+          <button
+            onClick={downloadCSVTemplate}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 border border-slate-300 transition cursor-pointer"
+            title="Download CSV import template"
+          >
+            <Download className="w-4 h-4 text-blue-600" />
+            <span>Template</span>
+          </button>
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 border border-slate-300 transition cursor-pointer"
+            title="Bulk import items from CSV"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>Import CSV</span>
+          </button>
+
           <button
             onClick={onOpenCategoryModal}
             className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 border border-slate-300 transition cursor-pointer"

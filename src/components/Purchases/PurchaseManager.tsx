@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PurchaseInvoice, PurchaseItem, Vendor, MetalRate, JewelleryItem, MetalType } from '../../types';
-import { Truck, Plus, Search, Calendar, Scale, Coins, ShieldCheck, CheckCircle2, DollarSign, X, PackagePlus, Eye, Printer, Building2, ArrowDownRight, UserPlus } from 'lucide-react';
+import { Truck, Plus, Search, Calendar, Scale, Coins, ShieldCheck, CheckCircle2, DollarSign, X, PackagePlus, Eye, Printer, Building2, ArrowDownRight, UserPlus, Receipt } from 'lucide-react';
 import { AddVendorModal } from '../Vendors/AddVendorModal';
 import { VendorList } from '../Vendors/VendorList';
 
@@ -40,6 +40,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
   const [vendorId, setVendorId] = useState(vendors[0]?.id || '');
   const [purchaseBillNo, setPurchaseBillNo] = useState(`PUR-2026-${String(purchases.length + 18).padStart(4, '0')}`);
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [purchaseType, setPurchaseType] = useState<'GST_INVOICE' | 'ESTIMATE_BILL'>('GST_INVOICE');
   const [paymentMode, setPaymentMode] = useState<PurchaseInvoice['paymentMode']>('Bank Transfer');
   const [amountPaid, setAmountPaid] = useState<number>(0);
   const [notes, setNotes] = useState('');
@@ -55,13 +56,19 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
       netWeight: 45.0,
       ratePerGram: rates.find(r => r.metal === 'Gold' && r.purity === '22K')?.ratePerGram || 6850,
       makingCharge: 180,
+      wastagePercentage: 0,
+      wholesaleTouch: 93,
+      calculationMode: 'making',
+      fineWeight: 0,
       stoneWeight: 0,
       stoneValue: 0,
       totalAmount: 316350,
       hsnCode: '7113',
       quantity: 3,
       huid: 'ZVR' + Math.floor(100 + Math.random() * 899),
-      addToStock: true
+      addToStock: true,
+      retailMakingChargeType: 'per_gram',
+      retailMakingChargeRate: 450
     }
   ]);
 
@@ -73,7 +80,8 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
 
   // Calculations for current form
   const formSubtotal = items.reduce((s, i) => s + i.totalAmount, 0);
-  const formGstAmount = Math.round(formSubtotal * 0.03); // 3% GST
+  const formGstRate = purchaseType === 'GST_INVOICE' ? 0.03 : 0;
+  const formGstAmount = Math.round(formSubtotal * formGstRate);
   const formGrandTotal = formSubtotal + formGstAmount;
   const formTotalGross = items.reduce((s, i) => s + i.grossWeight, 0);
   const formTotalNet = items.reduce((s, i) => s + i.netWeight, 0);
@@ -90,13 +98,19 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
         netWeight: 10.0,
         ratePerGram: rates.find(r => r.metal === 'Gold' && r.purity === '22K')?.ratePerGram || 6850,
         makingCharge: 200,
+        wastagePercentage: 0,
+        wholesaleTouch: 93,
+        calculationMode: 'making',
+        fineWeight: 0,
         stoneWeight: 0,
         stoneValue: 0,
         totalAmount: 70500,
         hsnCode: '7113',
         quantity: 1,
         huid: 'SMJ' + Math.floor(100 + Math.random() * 899),
-        addToStock: true
+        addToStock: true,
+        retailMakingChargeType: 'per_gram',
+        retailMakingChargeRate: 500
       }
     ]);
   };
@@ -112,10 +126,30 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
         if (field === 'grossWeight' || field === 'stoneWeight') {
           updated.netWeight = Math.max(0, updated.grossWeight - updated.stoneWeight);
         }
-        // Recalculate amount
-        const metalCost = updated.netWeight * updated.ratePerGram;
-        const makingCost = updated.netWeight * updated.makingCharge;
-        updated.totalAmount = Math.round(metalCost + makingCost + updated.stoneValue);
+
+        if (field === 'purity') {
+          // Auto-suggest wholesale billing touch based on purity
+          if (value === '24K') updated.wholesaleTouch = 99.9;
+          else if (value === '22K') updated.wholesaleTouch = 92;
+          else if (value === '18K') updated.wholesaleTouch = 80;
+          else if (value === '14K') updated.wholesaleTouch = 65;
+          else if (value === '9K') updated.wholesaleTouch = 45;
+          else if (value === '999 Fine') updated.wholesaleTouch = 99.9;
+          else if (value === '925 Sterling') updated.wholesaleTouch = 92.5;
+        }
+
+        // Recalculate amount based on mode
+        if (updated.calculationMode === 'wastage') {
+          // Fine = Net Wt * (Wholesale Touch % / 100)
+          const touch = updated.wholesaleTouch || 0;
+          updated.fineWeight = updated.netWeight * (touch / 100);
+          updated.totalAmount = Math.round((updated.fineWeight * updated.ratePerGram) + updated.stoneValue);
+        } else {
+          // Traditional: (Net Wt * Rate) + (Net Wt * Making) + Stone
+          const metalCost = updated.netWeight * updated.ratePerGram;
+          const makingCost = updated.netWeight * updated.makingCharge;
+          updated.totalAmount = Math.round(metalCost + makingCost + updated.stoneValue);
+        }
         return updated;
       }
       return item;
@@ -129,6 +163,15 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
 
     const balanceDue = Math.max(0, formGrandTotal - Number(amountPaid));
 
+    const totalFineWeight = items.reduce((s, i) => {
+      if (i.calculationMode === 'wastage') {
+        return s + (i.fineWeight || 0);
+      }
+      // For making mode, assume 22K (91.6%) for gold if not specified
+      const purityFactor = i.purity === '24K' ? 0.999 : i.purity === '22K' ? 0.916 : 0.75;
+      return s + (i.netWeight * purityFactor);
+    }, 0);
+
     // Construct Purchase Invoice
     const newPurchase: PurchaseInvoice = {
       id: `pur-${Date.now()}`,
@@ -137,18 +180,19 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
       vendorName: vendor.contactPerson,
       vendorFirm: vendor.firmName,
       vendorGSTIN: vendor.gstin,
+      purchaseType,
       date: purchaseDate,
       items,
       totalGrossWeight: Number(formTotalGross.toFixed(2)),
       totalNetWeight: Number(formTotalNet.toFixed(2)),
       subtotal: formSubtotal,
-      gstRate: 3.0,
+      gstRate: formGstRate * 100,
       gstAmount: formGstAmount,
       grandTotal: formGrandTotal,
       paymentMode,
       amountPaid: Number(amountPaid),
       balanceDue,
-      fineGoldEquivalent: Number((formTotalNet * 0.916).toFixed(2)),
+      fineGoldEquivalent: Number(totalFineWeight.toFixed(3)),
       notes
     };
 
@@ -168,8 +212,8 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
         stoneWeight: it.stoneWeight,
         stoneValue: it.stoneValue,
         wastagePercentage: 2.5,
-        makingChargeType: 'per_gram',
-        makingChargeRate: it.makingCharge * 1.5, // Standard markup for showroom retail
+        makingChargeType: it.retailMakingChargeType || 'per_gram',
+        makingChargeRate: it.retailMakingChargeRate || 450, 
         hsnCode: it.hsnCode,
         quantity: it.quantity,
         minStockAlert: 2,
@@ -343,7 +387,16 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                     <tr key={pur.id} className="hover:bg-amber-50/30 dark:hover:bg-slate-800/40 transition">
                       <td className="py-3 px-4">
                         <span className="font-mono font-bold text-amber-800 dark:text-amber-300 block">{pur.purchaseBillNo}</span>
-                        <span className="text-[10px] text-slate-500">{pur.date}</span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] text-slate-500">{pur.date}</span>
+                          <span className={`text-[8px] font-bold px-1 rounded ${
+                            pur.purchaseType === 'GST_INVOICE' 
+                              ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' 
+                              : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                          }`}>
+                            {pur.purchaseType === 'GST_INVOICE' ? 'GST' : 'EST'}
+                          </span>
+                        </div>
                       </td>
 
                       <td className="py-3 px-4">
@@ -551,6 +604,42 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                 </div>
               </div>
 
+              {/* Purchase Bill Type Toggle */}
+              <div className="flex items-center gap-2 bg-slate-800/40 p-2 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider ml-1">Bill Type:</span>
+                <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-700 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => setPurchaseType('GST_INVOICE')}
+                    className={`px-3 py-1 rounded-md font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      purchaseType === 'GST_INVOICE'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3 h-3" />
+                    GST Tax Invoice (पक्का बिल)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPurchaseType('ESTIMATE_BILL')}
+                    className={`px-3 py-1 rounded-md font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      purchaseType === 'ESTIMATE_BILL'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    <Receipt className="w-3 h-3" />
+                    Estimate / Non-GST (कच्चा बिल)
+                  </button>
+                </div>
+                {purchaseType === 'ESTIMATE_BILL' && (
+                  <span className="text-[9px] text-amber-400 font-medium italic animate-pulse">
+                    No GST (0%) will be applied to this bill.
+                  </span>
+                )}
+              </div>
+
               {/* Purchase Items Entry Table */}
               <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700 space-y-3">
                 <div className="flex justify-between items-center">
@@ -570,7 +659,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                   {items.map((item, idx) => (
                     <div key={idx} className="bg-slate-900 p-3 rounded-xl border border-slate-700 space-y-2">
                       <div className="grid grid-cols-12 gap-2">
-                        <div className="col-span-5">
+                        <div className="col-span-4">
                           <label className="block text-[10px] text-slate-400 mb-0.5">Item Description</label>
                           <input
                             type="text"
@@ -581,7 +670,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                           />
                         </div>
 
-                        <div className="col-span-3">
+                        <div className="col-span-2">
                           <label className="block text-[10px] text-slate-400 mb-0.5">Category</label>
                           <select
                             value={item.category}
@@ -611,6 +700,18 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                           </select>
                         </div>
 
+                        <div className="col-span-2">
+                          <label className="block text-[10px] text-slate-400 mb-0.5">Mode (हिसाब)</label>
+                          <select
+                            value={item.calculationMode}
+                            onChange={(e) => handleItemFieldChange(idx, 'calculationMode', e.target.value)}
+                            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-bold"
+                          >
+                            <option value="making">Labour (मेकिंग)</option>
+                            <option value="wastage">Wastage (वेस्टेज)</option>
+                          </select>
+                        </div>
+
                         <div className="col-span-2 flex items-end justify-end">
                           {items.length > 1 && (
                             <button
@@ -625,7 +726,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                       </div>
 
                       {/* Weight, Rate, Making & Add-to-Stock Checkbox */}
-                      <div className="grid grid-cols-12 gap-2 text-[11px] items-center">
+                      <div className="grid grid-cols-12 gap-2 text-[11px] items-start">
                         <div className="col-span-2">
                           <label className="block text-slate-400 text-[10px]">Gross Wt (g)</label>
                           <input
@@ -649,7 +750,9 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                         </div>
 
                         <div className="col-span-2">
-                          <label className="block text-slate-400 text-[10px]">Purchase Rate ₹/g</label>
+                          <label className="block text-slate-400 text-[10px]">
+                            {item.calculationMode === 'wastage' ? 'Fine Rate ₹/g' : 'Purchase Rate ₹/g'}
+                          </label>
                           <input
                             type="number"
                             value={item.ratePerGram}
@@ -659,13 +762,32 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                         </div>
 
                         <div className="col-span-2">
-                          <label className="block text-slate-400 text-[10px]">Making ₹/g</label>
-                          <input
-                            type="number"
-                            value={item.makingCharge}
-                            onChange={(e) => handleItemFieldChange(idx, 'makingCharge', parseFloat(e.target.value) || 0)}
-                            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono"
-                          />
+                          {item.calculationMode === 'wastage' ? (
+                            <>
+                              <label className="block text-slate-400 text-[10px]">Billing % (टंच / Touch)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={item.wholesaleTouch}
+                                onChange={(e) => handleItemFieldChange(idx, 'wholesaleTouch', parseFloat(e.target.value) || 0)}
+                                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-emerald-400 font-mono font-bold"
+                                placeholder="e.g. 80"
+                              />
+                              {item.fineWeight && item.fineWeight > 0 && (
+                                <span className="text-[9px] text-slate-500 block mt-0.5">Fine: {item.fineWeight.toFixed(3)}g</span>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <label className="block text-slate-400 text-[10px]">Purchase Labour ₹/g</label>
+                              <input
+                                type="number"
+                                value={item.makingCharge}
+                                onChange={(e) => handleItemFieldChange(idx, 'makingCharge', parseFloat(e.target.value) || 0)}
+                                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono"
+                              />
+                            </>
+                          )}
                         </div>
 
                         <div className="col-span-2">
@@ -687,6 +809,46 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                           </label>
                         </div>
                       </div>
+
+                      {/* RETAIL PRICING SETUP (When adding to stock) */}
+                      {item.addToStock && (
+                        <div className="grid grid-cols-12 gap-2 mt-2 pt-2 border-t border-slate-800/50 bg-amber-500/5 p-2 rounded-lg">
+                          <div className="col-span-12 mb-1">
+                            <span className="text-[9px] font-black uppercase text-amber-400/80 tracking-widest flex items-center gap-1">
+                              <Coins className="w-3 h-3" /> Retail Sale Price Setup (ग्राहक के लिए भाव सेट करें)
+                            </span>
+                          </div>
+                          
+                          <div className="col-span-4">
+                            <label className="block text-[10px] text-slate-500">Retail Making Type</label>
+                            <select
+                              value={item.retailMakingChargeType}
+                              onChange={(e) => handleItemFieldChange(idx, 'retailMakingChargeType', e.target.value)}
+                              className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 text-[11px]"
+                            >
+                              <option value="per_gram">Per Gram (₹ / ग्राम)</option>
+                              <option value="percentage">Percentage (% मूल्य पर)</option>
+                              <option value="flat">Flat Piece (एकमुश्त)</option>
+                            </select>
+                          </div>
+
+                          <div className="col-span-3">
+                            <label className="block text-[10px] text-slate-500">Retail Making Rate</label>
+                            <input
+                              type="number"
+                              value={item.retailMakingChargeRate}
+                              onChange={(e) => handleItemFieldChange(idx, 'retailMakingChargeRate', parseFloat(e.target.value) || 0)}
+                              className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-amber-500 text-[11px] font-bold"
+                            />
+                          </div>
+                          
+                          <div className="col-span-5 flex items-end">
+                            <p className="text-[9px] text-slate-500 italic leading-tight">
+                              This making charge will be applied when you sell this item in POS.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -734,8 +896,12 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                   <strong className="text-amber-300 font-mono">{formTotalNet.toFixed(2)} g</strong>
                   <span className="text-slate-400 text-xs ml-3">Subtotal: </span>
                   <strong className="text-slate-200 font-mono">₹{formSubtotal.toLocaleString('en-IN')}</strong>
-                  <span className="text-slate-400 text-xs ml-3">GST 3%: </span>
-                  <strong className="text-slate-200 font-mono">₹{formGstAmount.toLocaleString('en-IN')}</strong>
+                  {purchaseType === 'GST_INVOICE' && (
+                    <>
+                      <span className="text-slate-400 text-xs ml-3">GST 3%: </span>
+                      <strong className="text-slate-200 font-mono">₹{formGstAmount.toLocaleString('en-IN')}</strong>
+                    </>
+                  )}
                 </div>
 
                 <div className="text-right">
@@ -802,10 +968,12 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                   <span>Subtotal:</span>
                   <span>₹{selectedPurchaseDetails.subtotal.toLocaleString('en-IN')}</span>
                 </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>GST (3%):</span>
-                  <span>₹{selectedPurchaseDetails.gstAmount.toLocaleString('en-IN')}</span>
-                </div>
+                {selectedPurchaseDetails.gstRate > 0 && (
+                  <div className="flex justify-between text-slate-400">
+                    <span>GST ({selectedPurchaseDetails.gstRate}%):</span>
+                    <span>₹{selectedPurchaseDetails.gstAmount.toLocaleString('en-IN')}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-amber-300 font-bold text-sm pt-1 border-t border-slate-700">
                   <span>Grand Total:</span>
                   <span>₹{selectedPurchaseDetails.grandTotal.toLocaleString('en-IN')}</span>

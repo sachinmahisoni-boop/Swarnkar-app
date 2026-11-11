@@ -18,7 +18,7 @@ import { auth } from '../../lib/firebase';
 import { JewellerProfile, ShopDetails } from '../../types';
 
 interface LoginProps {
-  onLogin: (firmProfile?: JewellerProfile, shopDetails?: ShopDetails) => void;
+  onLogin: (firmProfile?: JewellerProfile, shopDetails?: ShopDetails, isDemo?: boolean) => void;
 }
 
 export const Login: React.FC<LoginProps> = ({ onLogin }) => {
@@ -43,7 +43,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
   // Quick Demo Admin Login
   const handleAdminQuickLogin = () => {
-    onLogin();
+    onLogin(undefined, undefined, true);
   };
 
   // Login Handler
@@ -58,7 +58,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
     // Demo admin check
     if ((loginEmail === 'admin' || loginEmail === 'admin@swarnkar.com') && loginPassword === '369369') {
-      onLogin();
+      onLogin(undefined, undefined, true);
       return;
     }
 
@@ -99,44 +99,8 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
-      const newFirmId = `firm-${Date.now()}`;
-      const newProfile: JewellerProfile = {
-        id: newFirmId,
-        firmId: newFirmId,
-        code: `FIRM-${Math.floor(100 + Math.random() * 900)}`,
-        name: user.displayName ? `${user.displayName}'s Jewellers` : 'Swarnkar Jewellery Shop',
-        counterName: 'Main Showroom Counter',
-        counterType: 'Main Showroom',
-        operatorName: user.displayName || 'Shop Owner',
-        gstin: 'URP-UNREGISTERED',
-        phone: user.phoneNumber || '',
-        isDefault: true
-      };
-
-      const newShopDetails: ShopDetails = {
-        firmId: newFirmId,
-        name: newProfile.name,
-        tagline: 'सराफा एवं आभूषण विक्रेता',
-        address: '',
-        cityStatePincode: '',
-        phone: user.phoneNumber || '',
-        email: user.email || '',
-        gstin: 'URP-UNREGISTERED',
-        bisHallmarkRegNo: '',
-        panNo: '',
-        bankName: '',
-        accountNo: '',
-        ifscCode: '',
-        terms: [
-          'बिक्री पर 3% GST लागू है।',
-          'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।'
-        ]
-      };
-
-      onLogin(newProfile, newShopDetails);
+      await signInWithPopup(auth, provider);
+      onLogin();
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Google Login failed');

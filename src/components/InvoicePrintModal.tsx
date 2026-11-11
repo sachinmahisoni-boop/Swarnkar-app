@@ -29,7 +29,7 @@ export type FontScale = '90' | '100' | '110';
 interface InvoicePrintModalProps {
   isOpen: boolean;
   onClose: () => void;
-  invoice: GSTInvoice | null;
+  invoices: GSTInvoice[] | null;
   shopDetails: ShopDetails;
   customLogo?: string;
 }
@@ -61,7 +61,7 @@ const DEFAULT_PREFERENCES: PrintPreferences = {
 export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   isOpen,
   onClose,
-  invoice,
+  invoices,
   shopDetails,
   customLogo,
 }) => {
@@ -82,44 +82,27 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
     localStorage.setItem('jewel_print_preferences', JSON.stringify(preferences));
   }, [preferences]);
 
-  if (!isOpen || !invoice) return null;
+  if (!isOpen || !invoices || invoices.length === 0) return null;
 
-  const isGST = invoice.invoiceType !== 'ESTIMATE_BILL';
+  const activeInvoice = invoices[0];
+  const isGST = activeInvoice.invoiceType !== 'ESTIMATE_BILL';
 
-  // Robust printing handler with iframe fallback
+  // Robust printing handler with popup window isolation
   const handlePrint = () => {
-    // 1. Direct window print
-    try {
-      window.focus();
-      window.print();
-    } catch (err) {
-      console.warn('Direct window.print error, triggering iframe print fallback:', err);
-    }
-
-    // 2. Iframe Fallback Print (Guarantees print dialog opens even inside iframe sandboxes)
     try {
       const printContent = printableRef.current;
-      if (!printContent) return;
+      if (!printContent) {
+        window.print();
+        return;
+      }
 
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      document.body.appendChild(iframe);
-
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open();
-        doc.write(`
+      const printWindow = window.open('', '_blank', 'width=1000,height=800');
+      if (printWindow) {
+        printWindow.document.write(`
           <!DOCTYPE html>
           <html>
             <head>
-              <title>${isGST ? 'Tax Invoice' : 'Estimate'} - ${invoice.invoiceNumber}</title>
-              <link rel="stylesheet" href="/src/index.css" />
-              <script src="https://cdn.tailwindcss.com"></script>
+              <title>${isGST ? 'Tax Invoice' : 'Estimate'} - ${invoices.length > 1 ? `Batch of ${invoices.length}` : activeInvoice.invoiceNumber}</title>
               <style>
                 @page {
                   size: ${
@@ -147,53 +130,61 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
                   color: black !important;
                   margin: 0;
                   padding: 10px;
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
                 }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: left; }
+                .print-break-after { page-break-after: always; break-after: page; }
               </style>
+              <script src="https://cdn.tailwindcss.com"></script>
             </head>
             <body>
               ${printContent.innerHTML}
               <script>
                 window.onload = function() {
-                  window.focus();
-                  window.print();
                   setTimeout(function() {
-                    window.frameElement.remove();
-                  }, 1000);
+                    window.focus();
+                    window.print();
+                  }, 400);
                 };
               </script>
             </body>
           </html>
         `);
-        doc.close();
+        printWindow.document.close();
+      } else {
+        window.print();
       }
-    } catch (e) {
-      console.error('Iframe print fallback error:', e);
+    } catch (err) {
+      console.warn('Print window error, falling back to window.print:', err);
+      window.print();
     }
   };
 
   const handleWhatsAppShare = () => {
-    const itemsSummary = invoice.items
+    const itemsSummary = activeInvoice.items
       .map(i => `• ${i.name} (${i.purity}) - Net Wt: ${i.netWeight}g | ₹${i.subtotal.toLocaleString('en-IN')}`)
       .join('\n');
 
     const message = `*${isGST ? 'TAX INVOICE' : 'ESTIMATE MEMO'} - ${shopDetails.name}*
-${isGST ? 'Invoice No:' : 'Estimate No:'} ${invoice.invoiceNumber}
-Date: ${invoice.date}
-Customer: ${invoice.customerName}
-Phone: ${invoice.customerPhone}
+${isGST ? 'Invoice No:' : 'Estimate No:'} ${activeInvoice.invoiceNumber}
+Date: ${activeInvoice.date}
+Customer: ${activeInvoice.customerName}
+Phone: ${activeInvoice.customerPhone}
 
 *Ornaments Summary:*
 ${itemsSummary}
-${invoice.oldMetalExchange && invoice.oldMetalExchange.totalCreditAmount > 0 ? `\n*Old Metal Credit Deducted:* -₹${invoice.oldMetalExchange.totalCreditAmount.toLocaleString('en-IN')}` : ''}
+${activeInvoice.oldMetalExchange && activeInvoice.oldMetalExchange.totalCreditAmount > 0 ? `\n*Old Metal Credit Deducted:* -₹${activeInvoice.oldMetalExchange.totalCreditAmount.toLocaleString('en-IN')}` : ''}
 
-*Grand Total: ₹${invoice.grandTotal.toLocaleString('en-IN')}*
-Payment: ${invoice.payment.dueAmount > 0 ? `Paid ₹${invoice.payment.amountPaid.toLocaleString('en-IN')} | Due ₹${invoice.payment.dueAmount.toLocaleString('en-IN')}` : 'Paid in Full'}
+*Grand Total: ₹${activeInvoice.grandTotal.toLocaleString('en-IN')}*
+Payment: ${activeInvoice.payment.dueAmount > 0 ? `Paid ₹${activeInvoice.payment.amountPaid.toLocaleString('en-IN')} | Due ₹${activeInvoice.payment.dueAmount.toLocaleString('en-IN')}` : 'Paid in Full'}
 
 *${shopDetails.name}*
 ${shopDetails.address || shopDetails.cityStatePincode || 'Bhopal'}
 Mobile: ${shopDetails.phone}`;
 
-    let cleanPhone = invoice.customerPhone ? invoice.customerPhone.replace(/[^0-9]/g, '') : '';
+    let cleanPhone = activeInvoice.customerPhone ? activeInvoice.customerPhone.replace(/[^0-9]/g, '') : '';
     if (cleanPhone.length === 10) {
       cleanPhone = `91${cleanPhone}`;
     }
@@ -324,11 +315,11 @@ Mobile: ${shopDetails.phone}`;
           
           <div className="flex items-center space-x-2.5">
             <span className="bg-amber-500 text-stone-950 text-xs font-mono font-black px-2.5 py-1 rounded-lg shadow-2xs">
-              {invoice.invoiceNumber}
+              {invoices.length > 1 ? `BATCH: ${invoices.length}` : activeInvoice.invoiceNumber}
             </span>
             <div>
               <h3 className="font-extrabold text-white text-sm leading-tight">
-                {isGST ? 'GST टैक्स इनवॉइस (Official Bill)' : 'कच्चा बिल / कोटेशन (Estimate Memo)'}
+                {invoices.length > 1 ? 'Bulk Batch Print (थोक प्रिंट)' : isGST ? 'GST टैक्स इनवॉइस (Official Bill)' : 'कच्चा बिल / कोटेशन (Estimate Memo)'}
               </h3>
               <p className="text-[11px] text-stone-400">
                 प्रिंट फॉर्मेट, हॉरिजॉन्टल (Landscape) ओरिएंटेशन व मार्जिन चुनें
@@ -621,7 +612,9 @@ Mobile: ${shopDetails.phone}`;
         {/* PRINTABLE DOCUMENT BODY */}
         <div ref={printableRef} className={`overflow-y-auto bg-white flex-1 text-slate-900 print:overflow-visible print:p-0 ${getMarginStyle()}`}>
           
-          {copiesToRender.map((copyLabel, copyIdx) => (
+          {invoices.map((invoice, invIdx) => (
+            <React.Fragment key={invoice.id}>
+              {copiesToRender.map((copyLabel, copyIdx) => (
             <div 
               key={copyIdx} 
               className={`space-y-4 ${
@@ -1047,10 +1040,18 @@ Mobile: ${shopDetails.phone}`;
                 </div>
               )}
 
-            </div>
-          ))}
-
-        </div>
+              </div>
+            ))}
+            
+            {/* Batch Print Page Break for next invoice */}
+            {invIdx < invoices.length - 1 && (
+              <div className="print-break-after border-t-4 border-double border-slate-400 my-8 py-4 text-center text-slate-400 no-print font-bold uppercase tracking-widest">
+                --- Next Invoice in Batch (अगला बिल) ---
+              </div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
 
       </div>
     </div>

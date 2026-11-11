@@ -993,6 +993,7 @@ export const initialPurchases: PurchaseInvoice[] = [
     vendorName: 'Kantilal Zaveri',
     vendorFirm: 'Zaveri Bullion & Chains Pvt Ltd',
     vendorGSTIN: '27AABCZ9812M1Z4',
+    purchaseType: 'GST_INVOICE',
     date: '2026-10-25',
     items: [
       {
@@ -1010,7 +1011,8 @@ export const initialPurchases: PurchaseInvoice[] = [
         hsnCode: '7113',
         quantity: 5,
         huid: 'ZVR221',
-        addToStock: true
+        addToStock: true,
+        calculationMode: 'making'
       }
     ],
     totalGrossWeight: 52.40,
@@ -1032,6 +1034,7 @@ export const initialPurchases: PurchaseInvoice[] = [
     vendorName: 'Mohan Lal Agarwal',
     vendorFirm: 'Agra Chandi Payal & Utensils Emporium',
     vendorGSTIN: '09AAACA3321A1Z9',
+    purchaseType: 'GST_INVOICE',
     date: '2026-10-27',
     items: [
       {
@@ -1048,7 +1051,8 @@ export const initialPurchases: PurchaseInvoice[] = [
         totalAmount: 41175,
         hsnCode: '7113',
         quantity: 4,
-        addToStock: true
+        addToStock: true,
+        calculationMode: 'making'
       }
     ],
     totalGrossWeight: 450.0,

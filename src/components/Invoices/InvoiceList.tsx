@@ -27,6 +27,7 @@ import {
 interface InvoiceListProps {
   invoices: GSTInvoice[];
   onViewPrintInvoice: (invoice: GSTInvoice) => void;
+  onBatchPrintInvoices?: (invoices: GSTInvoice[]) => void;
   onDeleteInvoice: (id: string) => void;
   onUpdateInvoiceStatus: (id: string, paidAmount: number) => void;
 }
@@ -34,6 +35,7 @@ interface InvoiceListProps {
 export const InvoiceList: React.FC<InvoiceListProps> = ({
   invoices,
   onViewPrintInvoice,
+  onBatchPrintInvoices,
   onDeleteInvoice,
   onUpdateInvoiceStatus,
 }) => {
@@ -42,6 +44,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   const [typeFilter, setTypeFilter] = useState<'All' | 'GST_INVOICE' | 'ESTIMATE_BILL'>('All');
   const [dateFilter, setDateFilter] = useState<'All' | 'Today' | 'Week' | 'Month'>('All');
   const [counterFilter, setCounterFilter] = useState<string>('All');
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
 
   // Quick Payment Update Modal State
   const [paymentModalInvoice, setPaymentModalInvoice] = useState<GSTInvoice | null>(null);
@@ -157,6 +160,26 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
     setPaymentModalInvoice(null);
   };
 
+  const toggleSelectInvoice = (id: string) => {
+    setSelectedInvoiceIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedInvoiceIds.length === 0 || selectedInvoiceIds.length < filteredInvoices.length) {
+      setSelectedInvoiceIds(filteredInvoices.map(i => i.id));
+    } else {
+      setSelectedInvoiceIds([]);
+    }
+  };
+
+  const handleBatchPrint = () => {
+    if (!onBatchPrintInvoices || selectedInvoiceIds.length === 0) return;
+    const selectedInvoices = invoices.filter(inv => selectedInvoiceIds.includes(inv.id));
+    onBatchPrintInvoices(selectedInvoices);
+  };
+
   return (
     <div className="space-y-6">
       
@@ -178,6 +201,17 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {selectedInvoiceIds.length > 0 && (
+              <button
+                type="button"
+                onClick={handleBatchPrint}
+                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer animate-in zoom-in-95 duration-200"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Selected ({selectedInvoiceIds.length})</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleExportCSV}
@@ -355,6 +389,14 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
+                <th className="p-3.5 w-10">
+                  <input
+                    type="checkbox"
+                    checked={filteredInvoices.length > 0 && selectedInvoiceIds.length === filteredInvoices.length}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                  />
+                </th>
                 <th className="p-3.5">Bill # & Type</th>
                 <th className="p-3.5">Date & Counter</th>
                 <th className="p-3.5">Customer Details</th>
@@ -369,7 +411,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
               {filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-12 text-slate-500 dark:text-slate-400">
+                  <td colSpan={10} className="text-center py-12 text-slate-500 dark:text-slate-400">
                     <FileText className="w-10 h-10 mx-auto text-slate-400 dark:text-slate-600 mb-2 opacity-50" />
                     <p className="font-bold text-slate-700 dark:text-slate-300">No invoices match your search</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Try clearing filters or search term to see all generated bills.</p>
@@ -378,9 +420,19 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
               ) : (
                 filteredInvoices.map(inv => {
                   const isGST = inv.invoiceType === 'GST_INVOICE';
+                  const isSelected = selectedInvoiceIds.includes(inv.id);
 
                   return (
-                    <tr key={inv.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                    <tr key={inv.id} className={`transition ${isSelected ? 'bg-amber-50 dark:bg-amber-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
+                      {/* Selection Checkbox */}
+                      <td className="p-3.5">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectInvoice(inv.id)}
+                          className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                        />
+                      </td>
                       
                       {/* Invoice Number & Type */}
                       <td className="p-3.5">
