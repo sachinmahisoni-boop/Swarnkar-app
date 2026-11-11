@@ -17,7 +17,10 @@ import {
   ArrowRightLeft,
   LogOut,
   Sun,
-  Moon
+  Moon,
+  Cloud,
+  CloudOff,
+  Database
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -41,6 +44,9 @@ interface HeaderProps {
   onLogout?: () => void;
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
+  isOnline?: boolean;
+  isSynced?: boolean;
+  onOpenBackupModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -63,6 +69,9 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   theme = 'light',
   onToggleTheme,
+  isOnline = true,
+  isSynced = true,
+  onOpenBackupModal
 }) => {
   const gold24k = rates.find(r => r.metal === 'Gold' && r.purity === '24K')?.ratePerGram || 0;
   const gold22k = rates.find(r => r.metal === 'Gold' && r.purity === '22K')?.ratePerGram || 0;
@@ -74,7 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Top Utility Bar: Active Firm, Balances & Right-Aligned ERP Quick Tabs */}
       <div className="bg-stone-100/90 dark:bg-slate-950/80 border-b border-stone-200/80 dark:border-slate-800/80 px-2 sm:px-4 py-1.5 text-xs flex flex-wrap items-center justify-between gap-2 text-stone-700 dark:text-slate-300">
         
-        {/* Left: Mobile Trigger + Active Firm + Cash/Bank live balances */}
+        {/* Left: Mobile Trigger + Active Firm + Cash/Bank live balances + Sync Status */}
         <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto max-w-full">
           {onToggleMobileSidebar && (
             <button
@@ -101,6 +110,40 @@ export const Header: React.FC<HeaderProps> = ({
               बदलें
             </span>
           </button>
+
+          {/* Small Synced / Offline Indicator Badge */}
+          <div 
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-xl border text-[10px] font-extrabold font-mono transition shadow-2xs ${
+              isOnline && isSynced 
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700/60' 
+                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
+            }`}
+            title={isOnline ? 'Firestore Live Synced' : 'Offline Mode - Local cache active'}
+          >
+            {isOnline ? (
+              <>
+                <Cloud className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                <span>Synced</span>
+              </>
+            ) : (
+              <>
+                <CloudOff className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                <span>Offline</span>
+              </>
+            )}
+          </div>
+
+          {/* Backup / Export Trigger Button */}
+          {onOpenBackupModal && (
+            <button
+              onClick={onOpenBackupModal}
+              className="flex items-center gap-1 px-2 py-1 rounded-xl bg-white dark:bg-slate-800 hover:bg-stone-50 dark:hover:bg-slate-700 text-stone-700 dark:text-slate-200 border border-stone-300 dark:border-slate-700 text-[11px] font-bold transition cursor-pointer shadow-2xs"
+              title="Backup & Migration Tool (डेटा बैकअप व रिस्टोर)"
+            >
+              <Database className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+              <span className="hidden sm:inline">Backup/Export</span>
+            </button>
+          )}
 
           <PWAInstallButton />
 

@@ -71,10 +71,28 @@ import { BullionTradingDesk } from './components/Bullion/BullionTradingDesk';
 import { KittySchemeManager } from './components/Kitty/KittySchemeManager';
 import { CRMManager } from './components/CRM/CRMManager';
 import { StaffPayrollManager } from './components/Payroll/StaffPayrollManager';
-import { auth } from './lib/firebase';
+import { DataBackupModal } from './components/DataBackupModal';
+import { FirebaseConfigMissingScreen } from './components/FirebaseConfigMissingScreen';
+import { auth, missingFirebaseEnvVars, firebaseConfigError } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { 
+  subscribeToFirmCollection, 
+  saveFirmDoc, 
+  deleteFirmDoc, 
+  createInvoiceAtomic, 
+  cancelInvoiceAtomic 
+} from './lib/firestoreSync';
 
 export default function App() {
+  if (missingFirebaseEnvVars.length > 0) {
+    return (
+      <FirebaseConfigMissingScreen
+        missingVars={missingFirebaseEnvVars}
+        errorMsg={firebaseConfigError}
+      />
+    );
+  }
+
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isDemoUser, setIsDemoUser] = useState(false);
@@ -319,6 +337,22 @@ export default function App() {
   });
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
+  // Network & Sync State
+  const [isOnline, setIsOnline] = useState<boolean>(() => navigator.onLine);
+  const [isSynced, setIsSynced] = useState<boolean>(true);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   // Modals state
   const [isProfilesModalOpen, setIsProfilesModalOpen] = useState(false);
   const [isRatesModalOpen, setIsRatesModalOpen] = useState(false);
@@ -331,6 +365,62 @@ export default function App() {
   const [editingItem, setEditingItem] = useState<JewelleryItem | null>(null);
 
   const [printingInvoices, setPrintingInvoices] = useState<GSTInvoice[] | null>(null);
+
+  // Firestore Realtime Subscriptions for Active Firm
+  useEffect(() => {
+    if (!activeProfileId) return;
+
+    setIsSynced(true);
+    const unsubs: (() => void)[] = [];
+
+    unsubs.push(subscribeToFirmCollection<JewelleryItem>(activeProfileId, 'inventory', (items) => {
+      if (items.length > 0) setInventory(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<Customer>(activeProfileId, 'customers', (items) => {
+      if (items.length > 0) setCustomers(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items) => {
+      if (items.length > 0) setInvoices(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<Vendor>(activeProfileId, 'vendors', (items) => {
+      if (items.length > 0) setVendors(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items) => {
+      if (items.length > 0) setPurchases(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<ShopExpense>(activeProfileId, 'expenses', (items) => {
+      if (items.length > 0) setExpenses(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<CashBankTransfer>(activeProfileId, 'transfers', (items) => {
+      if (items.length > 0) setTransfers(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<Karigar>(activeProfileId, 'karigars', (items) => {
+      if (items.length > 0) setKarigars(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards', (items) => {
+      if (items.length > 0) setJobCards(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<GirviLoan>(activeProfileId, 'girvi', (items) => {
+      if (items.length > 0) setGirviLoans(items);
+    }, () => setIsSynced(false)));
+
+    unsubs.push(subscribeToFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones', (items) => {
+      if (items.length > 0) setGemstones(items);
+    }, () => setIsSynced(false)));
+
+    return () => {
+      unsubs.forEach(unsub => unsub());
+    };
+  }, [activeProfileId]);
 
   // Sync to LocalStorage on state change (Firm Scoped)
   useEffect(() => {
@@ -679,8 +769,8 @@ export default function App() {
       if (v.id === vendorId) {
         return {
           ...v,
-          cashBalanceDue: Math.max(0, v.cashBalanceDue + cashDelta),
-          goldBalanceOwed: Math.max(0, v.goldBalanceOwed + goldDelta)
+          cashBalanceDue: v.cashBalanceDue + cashDelta,
+          goldBalanceOwed: v.goldBalanceOwed + goldDelta
         };
       }
       return v;
@@ -988,6 +1078,9 @@ export default function App() {
         onLogout={handleLogout}
         theme={theme}
         onToggleTheme={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
+        isOnline={isOnline}
+        isSynced={isSynced}
+        onOpenBackupModal={() => setIsBackupModalOpen(true)}
       />
 
       {/* Main ERP Layout: Left-Side Vertical Sidebar List + Right-Side Content Viewport */}
@@ -1198,6 +1291,25 @@ export default function App() {
             onViewPrintInvoice={(inv) => setPrintingInvoices([inv])}
             onBatchPrintInvoices={(invs) => setPrintingInvoices(invs)}
             onDeleteInvoice={handleDeleteInvoice}
+            onCancelInvoice={(inv, reason) => {
+              // Atomically cancel invoice and restore stock/customer ledger
+              cancelInvoiceAtomic(activeProfileId, inv, reason, shopDetails.name || 'Owner')
+                .catch(err => console.warn('Cancel invoice sync error:', err));
+              
+              // In-memory update
+              setInvoices(prev => prev.map(i => i.id === inv.id ? {
+                ...i,
+                status: 'Cancelled',
+                cancelReason: reason,
+                cancelledBy: shopDetails.name || 'Owner',
+                cancelledAt: new Date().toISOString()
+              } : i));
+
+              // Restore stock
+              inv.items.forEach(it => {
+                if (it.itemId) handleUpdateInventoryQty(it.itemId, it.quantity || 1);
+              });
+            }}
             onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
           />
         )}
@@ -1342,6 +1454,43 @@ export default function App() {
         invoices={printingInvoices}
         shopDetails={shopDetails}
         customLogo={activeProfile?.logoUrl || shopDetails.logoUrl}
+      />
+
+      {/* Cloud & Local Data Backup / Export Modal */}
+      <DataBackupModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        firmId={activeProfileId}
+        firmName={activeProfile?.name || shopDetails.name}
+        allFirmData={{
+          shopDetails,
+          inventory,
+          customers,
+          invoices,
+          vendors,
+          purchases,
+          expenses,
+          transfers,
+          karigars,
+          jobCards,
+          girviLoans,
+          gemstones,
+          profiles
+        }}
+        onRestoreData={(restored) => {
+          if (restored.inventory) setInventory(restored.inventory);
+          if (restored.customers) setCustomers(restored.customers);
+          if (restored.invoices) setInvoices(restored.invoices);
+          if (restored.vendors) setVendors(restored.vendors);
+          if (restored.purchases) setPurchases(restored.purchases);
+          if (restored.expenses) setExpenses(restored.expenses);
+          if (restored.transfers) setTransfers(restored.transfers);
+          if (restored.karigars) setKarigars(restored.karigars);
+          if (restored.jobCards) setJobCards(restored.jobCards);
+          if (restored.girviLoans) setGirviLoans(restored.girviLoans);
+          if (restored.gemstones) setGemstones(restored.gemstones);
+          if (restored.shopDetails) setShopDetails(restored.shopDetails);
+        }}
       />
 
     </div>

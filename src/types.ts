@@ -1,4 +1,4 @@
-export type MetalType = 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Gemstone';
+export type MetalType = 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Gemstone' | 'Artificial';
 
 export type GoldPurity = '24K' | '22K' | '18K' | '14K' | '9K';
 export type SilverPurity = '999 Fine' | '925 Sterling';
@@ -64,6 +64,8 @@ export interface JewellerProfile {
   id: string;
   firmId?: string;
   userId?: string;
+  ownerUid?: string;
+  staff?: Record<string, 'owner' | 'manager' | 'cashier'>;
   code: string;
   name: string;
   counterName: string;
@@ -104,10 +106,11 @@ export interface JewelleryItem {
   makingChargeFixed?: number;
   // Cost Price & Profit Analytics
   costPrice?: number; // Total unit acquisition cost price in ₹
+  isCostEstimated?: boolean; // True if cost was auto-estimated
   purchaseRatePerGram?: number; // Raw metal wholesale cost rate per gram
   makingCostPerGram?: number; // Karigar labor cost per gram paid by shop
   stoneCost?: number; // Wholesale acquisition cost of stones
-  hsnCode: string; // e.g. '7113' for jewellery, '7106' for silver, '7102' for diamonds
+  hsnCode: string; // e.g. '7113' for jewellery, '7117' for artificial
   quantity: number;
   minStockAlert: number;
   barcode: string; // Code 128 / Barcode string
@@ -145,6 +148,7 @@ export interface InvoiceItem {
   subtotal: number;
   // Profit Tracking
   costPrice?: number; // Unit Cost Price in ₹
+  isCostEstimated?: boolean;
   unitProfit?: number; // subtotal - costPrice
   profitMarginPercent?: number; // (profit / subtotal) * 100
   hsnCode: string;
@@ -227,7 +231,7 @@ export type InvoiceType = 'GST_INVOICE' | 'ESTIMATE_BILL';
 export interface GSTInvoice {
   id: string;
   firmId?: string;
-  invoiceNumber: string; // e.g., SMJ-INV-2026-0089 or SMJ-EST-2026-0042
+  invoiceNumber: string; // e.g., SMJ/2026-27/0001 or EST/2026-27/0001
   invoiceType: InvoiceType; // 'GST_INVOICE' = Pakka Bill, 'ESTIMATE_BILL' = Kachha / Estimate
   date: string;
   customerId: string;
@@ -235,6 +239,7 @@ export interface GSTInvoice {
   customerPhone: string;
   customerAddress: string;
   customerGSTIN?: string;
+  customerPAN?: string;
   placeOfSupply: string;
   isInterState: boolean;
   profileId?: string;
@@ -261,7 +266,10 @@ export interface GSTInvoice {
   grandTotal: number;
   
   payment: PaymentDetails;
-  status: 'Paid' | 'Partial' | 'Unpaid';
+  status: 'Paid' | 'Partial' | 'Unpaid' | 'Cancelled';
+  cancelReason?: string;
+  cancelledBy?: string;
+  cancelledAt?: string;
   notes?: string;
   hallmarkCertified: boolean;
 }

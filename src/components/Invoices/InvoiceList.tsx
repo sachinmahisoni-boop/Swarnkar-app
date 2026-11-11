@@ -21,7 +21,8 @@ import {
   User,
   Phone,
   Tag,
-  CreditCard
+  CreditCard,
+  X
 } from 'lucide-react';
 
 interface InvoiceListProps {
@@ -29,6 +30,7 @@ interface InvoiceListProps {
   onViewPrintInvoice: (invoice: GSTInvoice) => void;
   onBatchPrintInvoices?: (invoices: GSTInvoice[]) => void;
   onDeleteInvoice: (id: string) => void;
+  onCancelInvoice?: (invoice: GSTInvoice, reason: string) => void;
   onUpdateInvoiceStatus: (id: string, paidAmount: number) => void;
 }
 
@@ -37,6 +39,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   onViewPrintInvoice,
   onBatchPrintInvoices,
   onDeleteInvoice,
+  onCancelInvoice,
   onUpdateInvoiceStatus,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -526,12 +529,18 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                       {/* Status Badge */}
                       <td className="p-3.5 text-center">
                         <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          inv.status === 'Cancelled' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
                           inv.status === 'Paid' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
                           inv.status === 'Partial' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
                           'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                         }`}>
-                          {inv.status}
+                          {inv.status === 'Cancelled' ? 'Cancelled (निरस्त)' : inv.status}
                         </span>
+                        {inv.status === 'Cancelled' && inv.cancelReason && (
+                          <span className="block text-[9px] text-rose-400 font-mono mt-0.5 truncate max-w-[100px]" title={inv.cancelReason}>
+                            {inv.cancelReason}
+                          </span>
+                        )}
                       </td>
 
                       {/* Actions */}
@@ -557,8 +566,8 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                             <Share2 className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* If partial/unpaid, Quick Payment Receipt */}
-                          {inv.payment.dueAmount > 0 && (
+                          {/* If partial/unpaid and not cancelled, Quick Payment Receipt */}
+                          {inv.status !== 'Cancelled' && inv.payment.dueAmount > 0 && (
                             <button
                               onClick={() => handleOpenPaymentModal(inv)}
                               className="p-1.5 bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-amber-400 rounded-lg transition cursor-pointer"
@@ -568,18 +577,25 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                             </button>
                           )}
 
-                          {/* Delete Invoice */}
-                          <button
-                            onClick={() => {
-                              if (confirm(`Are you sure you want to delete invoice ${inv.invoiceNumber}?`)) {
-                                onDeleteInvoice(inv.id);
-                              }
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
-                            title="Delete Invoice"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {/* Cancel Invoice Button */}
+                          {inv.status !== 'Cancelled' && (
+                            <button
+                              onClick={() => {
+                                const reason = prompt(`इनवॉइस ${inv.invoiceNumber} निरस्त (Cancel) करने का कारण दर्ज करें:`);
+                                if (reason && reason.trim()) {
+                                  if (onCancelInvoice) {
+                                    onCancelInvoice(inv, reason.trim());
+                                  } else {
+                                    onDeleteInvoice(inv.id);
+                                  }
+                                }
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                              title="Cancel Invoice & Restore Stock"
+                            >
+                              <X className="w-3.5 h-3.5 text-rose-400" />
+                            </button>
+                          )}
 
                         </div>
                       </td>

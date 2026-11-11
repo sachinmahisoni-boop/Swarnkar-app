@@ -44,7 +44,14 @@ export default defineConfig(() => {
           ]
         },
         workbox: {
-          maximumFileSizeToCacheInBytes: 5242880 // 5MB
+          maximumFileSizeToCacheInBytes: 5242880, // 5MB
+          navigateFallbackDenylist: [/^\/api/, /googleapis\.com/, /firebase/],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/(firestore|identitytoolkit|securetoken|firebase|googleapis)\.googleapis\.com\/.*/i,
+              handler: 'NetworkOnly'
+            }
+          ]
         }
       })
     ],

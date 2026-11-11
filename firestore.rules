@@ -2,40 +2,55 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Default deny rule for all unmanaged paths
+    // Default deny all unmanaged paths
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Helper functions for auth and firm verification
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isFirmOwner(firmId) {
+    function isFirmOwner(firmData) {
+      return isSignedIn() && firmData.ownerUid == request.auth.uid;
+    }
+
+    function isFirmMember(firmData) {
       return isSignedIn() && (
-        request.auth.uid == firmId ||
-        request.auth.token.firmId == firmId ||
-        (firmId is string && firmId.size() > 0)
+        firmData.ownerUid == request.auth.uid ||
+        ('staff' in firmData && request.auth.uid in firmData.staff)
       );
     }
 
-    function isFirmDataValid(firmId) {
-      return !('firmId' in request.resource.data) || request.resource.data.firmId == firmId;
+    function isCashierRole(firmData) {
+      return isFirmMember(firmData) && 
+        ('staff' in firmData) && 
+        firmData.staff[request.auth.uid] == 'cashier';
     }
 
     // Firm Root Collection
     match /firms/{firmId} {
       // Firm Document
-      allow read: if isSignedIn() && isFirmOwner(firmId);
-      allow create, update: if isSignedIn() && isFirmOwner(firmId) && isFirmDataValid(firmId);
-      allow delete: if isSignedIn() && isFirmOwner(firmId);
+      allow read: if isSignedIn() && isFirmMember(resource.data);
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isSignedIn() && (isFirmOwner(resource.data) || isFirmMember(resource.data));
+      allow delete: if isSignedIn() && isFirmOwner(resource.data);
 
-      // Isolated Firm Subcollections (inventory, customers, invoices, vendors, purchases, expenses, karigars, girvi, gemstones, settings, etc.)
+      // Isolated Firm Subcollections
       match /{collectionName}/{docId} {
-        allow read: if isSignedIn() && isFirmOwner(firmId);
-        allow create, update: if isSignedIn() && isFirmOwner(firmId) && isFirmDataValid(firmId);
-        allow delete: if isSignedIn() && isFirmOwner(firmId);
+        allow read: if isSignedIn() && isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data);
+        
+        // Disallow hard deletion of GST Invoices and Purchase Invoices - must be Cancelled instead
+        allow delete: if isSignedIn() && 
+          isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data) &&
+          collectionName != 'invoices' && 
+          collectionName != 'purchases';
+
+        allow create, update: if isSignedIn() && 
+          isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data) && (
+            // Cashiers cannot modify daily metal rates
+            collectionName != 'rates' || !isCashierRole(get(/databases/$(database)/documents/firms/$(firmId)).data)
+          );
       }
     }
   }
