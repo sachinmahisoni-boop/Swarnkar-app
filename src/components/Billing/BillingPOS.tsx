@@ -60,7 +60,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
   const [customRatti, setCustomRatti] = useState<number>(0);
   const [customCertNo, setCustomCertNo] = useState('');
   const [customWastage, setCustomWastage] = useState<number>(2.5);
-  const [customMakingType, setCustomMakingType] = useState<'per_gram' | 'flat'>('per_gram');
+  const [customMakingType, setCustomMakingType] = useState<'per_gram' | 'flat' | 'percentage'>('per_gram');
   const [customMakingRate, setCustomMakingRate] = useState<number>(450);
   const [customEnableHuid, setCustomEnableHuid] = useState(true);
   const [customHuidCode, setCustomHuidCode] = useState('SMJ916');
@@ -145,6 +145,8 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
     const wastageCost = netWeight * (wastagePercentage / 100) * rate;
     const makingCharge = item.makingChargeType === 'flat'
       ? makingChargeRate
+      : item.makingChargeType === 'percentage'
+      ? Math.round(metalCost * (makingChargeRate / 100))
       : netWeight * makingChargeRate;
     const huidCharge = item.huid ? 45 : 0;
     const subtotal = metalCost + wastageCost + makingCharge + stoneValue + huidCharge;
@@ -204,6 +206,8 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
     const wastageCost = netWeight * (customWastage / 100) * rate;
     const makingCharge = customMakingType === 'per_gram'
       ? netWeight * customMakingRate
+      : customMakingType === 'percentage'
+      ? Math.round(metalCost * (customMakingRate / 100))
       : customMakingRate;
     const huidCharge = customEnableHuid ? 45 : 0;
     const subtotal = metalCost + wastageCost + makingCharge + customStoneVal + huidCharge;
@@ -268,7 +272,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
     stoneValue: number;
     metalRateApplied: number;
     wastagePercentage: number;
-    makingChargeType: 'per_gram' | 'flat';
+    makingChargeType: 'per_gram' | 'flat' | 'percentage';
     makingChargeRate: number;
     huid?: string;
     quantity: number;
@@ -301,6 +305,8 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
     const wastageCost = netWeight * (editCartForm.wastagePercentage / 100) * editCartForm.metalRateApplied;
     const makingCharge = editCartForm.makingChargeType === 'per_gram'
       ? netWeight * editCartForm.makingChargeRate
+      : editCartForm.makingChargeType === 'percentage'
+      ? Math.round(metalCost * (editCartForm.makingChargeRate / 100))
       : editCartForm.makingChargeRate;
     const huidCharge = editCartForm.huid ? 45 : 0;
     const qty = editCartForm.quantity || 1;
@@ -782,8 +788,8 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
 
                         <td className="py-2.5 px-3 text-right font-mono">
                           <span className="text-stone-900 font-medium block">₹{item.makingCharge.toLocaleString('en-IN')}</span>
-                          <span className="text-[10px] text-stone-500">
-                            {item.makingChargeType === 'per_gram' ? `₹${item.makingChargeRate}/g` : 'Flat'}
+                          <span className="text-[10px] text-stone-500 font-semibold">
+                            {item.makingChargeType === 'per_gram' ? `₹${item.makingChargeRate}/g` : item.makingChargeType === 'percentage' ? `${item.makingChargeRate}%` : 'Flat'}
                           </span>
                         </td>
 
@@ -1292,13 +1298,17 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
                     className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2 py-1.5 text-stone-900 font-medium"
                   >
                     <option value="per_gram">₹ प्रति ग्राम (Per Gram)</option>
+                    <option value="percentage">% प्रतिशत (Percentage %)</option>
                     <option value="flat">एकमुश्त (Fixed Flat ₹)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-stone-600 mb-1 font-bold">Rate (₹)</label>
+                  <label className="block text-stone-600 mb-1 font-bold">
+                    {customMakingType === 'per_gram' ? 'Rate (₹/g)' : customMakingType === 'percentage' ? 'Making %' : 'Flat Rate (₹)'}
+                  </label>
                   <input
                     type="number"
+                    step={customMakingType === 'percentage' ? '0.1' : '1'}
                     value={customMakingRate}
                     onChange={(e) => setCustomMakingRate(parseFloat(e.target.value) || 0)}
                     className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2 py-1.5 text-stone-900 font-mono font-bold"
@@ -1559,16 +1569,18 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
                     className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-900 font-semibold focus:border-amber-500 focus:bg-white"
                   >
                     <option value="per_gram">Per Gram (₹/g)</option>
-                    <option value="flat">Flat / Lumpsum (एकमुश्त)</option>
+                    <option value="percentage">Percentage (% ऑन सोना/चांदी)</option>
+                    <option value="flat">Flat / Lumpsum (एकमुश्त ₹)</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-stone-600 mb-1 font-bold">
-                    Making Rate {editCartForm.makingChargeType === 'per_gram' ? '(₹/g)' : '(₹ Flat)'} *
+                    Making Rate {editCartForm.makingChargeType === 'per_gram' ? '(₹/g)' : editCartForm.makingChargeType === 'percentage' ? '(%)' : '(₹ Flat)'} *
                   </label>
                   <input
                     type="number"
+                    step={editCartForm.makingChargeType === 'percentage' ? '0.1' : '1'}
                     required
                     value={editCartForm.makingChargeRate || ''}
                     onChange={(e) => setEditCartForm(prev => prev ? ({ ...prev, makingChargeRate: parseFloat(e.target.value) || 0 }) : null)}
@@ -1594,7 +1606,11 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
                   ₹{Math.round(
                     (Math.max(0, editCartForm.grossWeight - editCartForm.stoneWeight) * editCartForm.metalRateApplied) +
                     (Math.max(0, editCartForm.grossWeight - editCartForm.stoneWeight) * (editCartForm.wastagePercentage / 100) * editCartForm.metalRateApplied) +
-                    (editCartForm.makingChargeType === 'per_gram' ? Math.max(0, editCartForm.grossWeight - editCartForm.stoneWeight) * editCartForm.makingChargeRate : editCartForm.makingChargeRate) +
+                    (editCartForm.makingChargeType === 'per_gram'
+                      ? Math.max(0, editCartForm.grossWeight - editCartForm.stoneWeight) * editCartForm.makingChargeRate
+                      : editCartForm.makingChargeType === 'percentage'
+                      ? Math.round(Math.max(0, editCartForm.grossWeight - editCartForm.stoneWeight) * editCartForm.metalRateApplied * (editCartForm.makingChargeRate / 100))
+                      : editCartForm.makingChargeRate) +
                     editCartForm.stoneValue +
                     (editCartForm.huid ? 45 : 0)
                   ).toLocaleString('en-IN')}

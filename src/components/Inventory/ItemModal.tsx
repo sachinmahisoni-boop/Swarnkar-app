@@ -215,20 +215,20 @@ export const ItemModal: React.FC<ItemModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-stone-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white border border-stone-200 rounded-3xl max-w-2xl w-full p-6 shadow-2xl text-stone-900 my-8">
+    <div className="fixed inset-0 z-50 bg-stone-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 border border-stone-300 dark:border-slate-800 rounded-3xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl text-stone-900 dark:text-slate-100 max-h-[92vh] overflow-y-auto my-auto">
         
         {/* Modal Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-stone-200">
+        <div className="flex items-center justify-between pb-4 border-b border-stone-200 dark:border-slate-800">
           <div className="flex items-center space-x-2.5">
-            <span className="p-2.5 bg-amber-100 text-amber-700 rounded-2xl border border-amber-200">
+            <span className="p-2.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 rounded-2xl border border-amber-200 dark:border-amber-800">
               <Sparkles className="w-5 h-5" />
             </span>
             <div>
-              <h2 className="text-base font-black text-stone-900">
+              <h2 className="text-base font-black text-stone-900 dark:text-slate-100">
                 {initialItem ? 'Edit Jewellery Item' : 'Add New Jewellery Stock Piece'}
               </h2>
-              <p className="text-xs text-stone-500">
+              <p className="text-xs text-stone-600 dark:text-slate-400">
                 Swarnkar Jewellery ERP • Dynamic Purity Master & Wholesale Silver Calculator
               </p>
             </div>
@@ -236,7 +236,7 @@ export const ItemModal: React.FC<ItemModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 text-stone-400 hover:text-stone-700 rounded-xl hover:bg-stone-100 transition cursor-pointer"
+            className="p-1.5 text-stone-500 hover:text-stone-900 dark:text-slate-400 dark:hover:text-slate-100 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -480,26 +480,32 @@ export const ItemModal: React.FC<ItemModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-stone-600 mb-1 font-bold">Making Charge Type</label>
+                <label className="block text-stone-700 dark:text-stone-300 mb-1 font-bold">Making Charge Type (मेकिंग प्रकार)</label>
                 <select
                   value={formData.makingChargeType}
-                  onChange={e => setFormData({ ...formData, makingChargeType: e.target.value as 'per_gram' | 'flat' })}
-                  className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-900 font-semibold focus:outline-none focus:border-amber-500"
+                  onChange={e => setFormData({ ...formData, makingChargeType: e.target.value as 'per_gram' | 'flat' | 'percentage' })}
+                  className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 rounded-xl px-3 py-2 text-stone-900 dark:text-slate-100 font-semibold focus:outline-none focus:border-amber-500"
                 >
                   <option value="per_gram">Per Gram (₹ / ग्राम)</option>
+                  <option value="percentage">Percentage (% प्रतिशत सोना/चांदी मूल्य पर)</option>
                   <option value="flat">Flat Piece (एकमुश्त ₹)</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-stone-600 mb-1 font-bold">
-                  {formData.makingChargeType === 'per_gram' ? 'Making Rate (₹ / g)' : 'Flat Making Rate (₹)'}
+                <label className="block text-stone-700 dark:text-stone-300 mb-1 font-bold">
+                  {formData.makingChargeType === 'per_gram'
+                    ? 'Making Rate (₹ / g)'
+                    : formData.makingChargeType === 'percentage'
+                    ? 'Making Percentage (%)'
+                    : 'Flat Making Rate (₹)'}
                 </label>
                 <input
                   type="number"
+                  step={formData.makingChargeType === 'percentage' ? '0.1' : '1'}
                   value={formData.makingChargeRate}
                   onChange={e => setFormData({ ...formData, makingChargeRate: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-900 font-mono font-bold focus:outline-none focus:border-amber-500"
+                  className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 rounded-xl px-3 py-2 text-stone-900 dark:text-slate-100 font-mono font-bold focus:outline-none focus:border-amber-500"
                 />
               </div>
             </div>

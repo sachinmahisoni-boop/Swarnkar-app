@@ -300,22 +300,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 lg:static bg-white border-r border-stone-200 flex flex-col transition-all duration-300 ease-in-out shadow-lg shrink-0 ${
+        className={`fixed top-0 bottom-0 left-0 z-40 lg:static bg-white dark:bg-slate-900 border-r border-stone-200 dark:border-slate-800 flex flex-col transition-all duration-300 ease-in-out shadow-lg shrink-0 ${
           isMobileOpen ? 'translate-x-0 w-72' : '-translate-x-full lg:translate-x-0'
         } ${
           isCollapsed ? 'lg:w-20' : 'lg:w-64'
         }`}
       >
         {/* Sidebar Header (Mobile & Brand info) */}
-        <div className="p-3.5 border-b border-stone-100 flex items-center justify-between bg-stone-50">
+        <div className="p-3.5 border-b border-stone-100 dark:border-slate-800 flex items-center justify-between bg-stone-50 dark:bg-slate-950/90">
           <div className={`flex items-center space-x-2.5 overflow-hidden transition-all duration-300 ${isCollapsed ? 'lg:justify-center w-full' : ''}`}>
             <ShreemLogo size="sm" showText={false} customLogo={customLogo} transparentBg={true} />
             {!isCollapsed && (
               <div className="leading-tight">
-                <span className="text-sm font-black tracking-wide text-amber-600 block font-serif">
+                <span className="text-sm font-black tracking-wide text-amber-600 dark:text-amber-400 block font-serif">
                   MAIN DESK
                 </span>
-                <span className="text-[10px] text-stone-500 font-medium block">
+                <span className="text-[10px] text-stone-500 dark:text-slate-400 font-medium block">
                   मुख्य मेन्यू व खाते
                 </span>
               </div>
@@ -325,7 +325,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Mobile close button */}
           <button
             onClick={onCloseMobile}
-            className="p-1.5 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-100 lg:hidden cursor-pointer"
+            className="p-1.5 text-stone-500 hover:text-stone-900 dark:text-slate-400 dark:hover:text-white rounded-lg hover:bg-stone-100 dark:hover:bg-slate-800 lg:hidden cursor-pointer"
             title="Close Menu"
           >
             <X className="w-5 h-5" />
@@ -334,7 +334,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Desktop collapse / expand button */}
           <button
             onClick={onToggleCollapse}
-            className="hidden lg:flex p-1.5 text-stone-500 hover:text-amber-600 hover:bg-stone-100 rounded-lg transition cursor-pointer"
+            className="hidden lg:flex p-1.5 text-stone-500 hover:text-amber-600 dark:text-slate-400 dark:hover:text-amber-400 hover:bg-stone-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer"
             title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
           >
             {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
@@ -347,15 +347,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div key={idx} className="space-y-1">
               {!isCollapsed ? (
                 <div className="px-2.5 pt-1 pb-1 flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 font-mono">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
                     {section.title}
                   </span>
-                  <span className="text-[10px] text-amber-800 font-bold">
+                  <span className="text-[10px] text-amber-800 dark:text-amber-400 font-bold">
                     {section.hindiTitle}
                   </span>
                 </div>
               ) : (
-                <div className="h-px bg-slate-200 my-2 mx-2" />
+                <div className="h-px bg-slate-200 dark:bg-slate-800 my-2 mx-2" />
               )}
 
               <div className="space-y-0.5">
@@ -369,25 +369,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onClick={() => handleItemClick(item.id)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all duration-150 group cursor-pointer ${
                         isActive
-                          ? 'bg-amber-500/20 text-slate-950 font-black border-l-4 border-amber-600 shadow-xs'
-                          : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                          ? 'bg-amber-500/20 text-slate-950 dark:text-amber-300 font-black border-l-4 border-amber-600 dark:border-amber-400 shadow-xs'
+                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white font-medium'
                       } ${isCollapsed ? 'justify-center !px-1.5' : ''}`}
                       title={item.label}
                     >
-                      <Icon className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-amber-700' : 'text-slate-500 group-hover:text-slate-800'}`} />
+                      <Icon className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-800 dark:group-hover:text-white'}`} />
                       {!isCollapsed && (
                         <div className="flex flex-col text-left truncate flex-1 min-w-0">
-                          <span className={`text-xs leading-tight truncate ${isActive ? 'font-black text-slate-950' : 'font-extrabold text-slate-800'}`}>{item.label}</span>
-                          <span className="text-[11px] text-slate-600 font-medium leading-tight truncate">{item.hindiLabel}</span>
+                          <span className={`text-xs leading-tight truncate ${isActive ? 'font-black text-slate-950 dark:text-white' : 'font-extrabold text-slate-800 dark:text-slate-200'}`}>{item.label}</span>
+                          <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium leading-tight truncate">{item.hindiLabel}</span>
                         </div>
                       )}
                       {!isCollapsed && item.shortKey && (
-                        <span className="text-[9px] font-mono font-bold text-amber-900 px-1 py-0.5 rounded bg-amber-100/70 border border-amber-200 shrink-0">
+                        <span className="text-[9px] font-mono font-bold text-amber-900 dark:text-amber-300 px-1 py-0.5 rounded bg-amber-100/70 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 shrink-0">
                           {item.shortKey}
                         </span>
                       )}
                       {item.badge && !isCollapsed && (
-                        <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${item.badgeColor || 'bg-stone-200 text-stone-700'}`}>
+                        <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${item.badgeColor || 'bg-stone-200 dark:bg-slate-700 text-stone-700 dark:text-slate-200'}`}>
                           {item.badge}
                         </span>
                       )}
@@ -400,7 +400,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Bottom Section: Quick Shortcuts & Live Balances */}
-        <div className="p-3 border-t border-stone-100 bg-stone-50 space-y-2">
+        <div className="p-3 border-t border-stone-100 dark:border-slate-800 bg-stone-50 dark:bg-slate-950/80 space-y-2">
           {!isCollapsed ? (
             <>
               {/* Quick Actions Bar */}
@@ -408,30 +408,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {onOpenNewItem && (
                   <button
                     onClick={onOpenNewItem}
-                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 border border-stone-200 text-[10px] text-stone-700 hover:text-amber-700 transition cursor-pointer"
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 border border-stone-200 dark:border-slate-700 text-[10px] text-stone-700 dark:text-slate-200 hover:text-amber-700 transition cursor-pointer"
                     title="Add New Jewellery Stock Item"
                   >
-                    <PlusCircle className="w-3.5 h-3.5 text-amber-600 mb-0.5" />
+                    <PlusCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 mb-0.5" />
                     <span className="font-medium">+ Item</span>
                   </button>
                 )}
                 {onOpenQuickGenerate && (
                   <button
                     onClick={onOpenQuickGenerate}
-                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 border border-amber-200 text-[10px] text-amber-800 transition cursor-pointer"
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950/60 hover:bg-amber-200 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800 text-[10px] text-amber-900 dark:text-amber-300 transition cursor-pointer"
                     title="1-Click Fast Stock Generator"
                   >
-                    <Zap className="w-3.5 h-3.5 text-amber-600 mb-0.5" />
+                    <Zap className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 mb-0.5" />
                     <span className="font-bold">⚡ Fast</span>
                   </button>
                 )}
                 {onOpenCategoryModal && (
                   <button
                     onClick={onOpenCategoryModal}
-                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 border border-stone-200 text-[10px] text-stone-700 hover:text-amber-700 transition cursor-pointer"
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 border border-stone-200 dark:border-slate-700 text-[10px] text-stone-700 dark:text-slate-200 hover:text-amber-700 transition cursor-pointer"
                     title="Manage Custom Categories"
                   >
-                    <FolderPlus className="w-3.5 h-3.5 text-amber-600 mb-0.5" />
+                    <FolderPlus className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 mb-0.5" />
                     <span className="font-medium">+ Cat</span>
                   </button>
                 )}
@@ -440,22 +440,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* Cash in Hand & Bank Mini Pill */}
               <div 
                 onClick={() => handleItemClick('cashbank')}
-                className="bg-white border border-stone-200 hover:border-amber-300 rounded-xl p-2.5 transition cursor-pointer group shadow-sm"
+                className="bg-white dark:bg-slate-800 border border-stone-200 dark:border-slate-700 hover:border-amber-400 rounded-xl p-2.5 transition cursor-pointer group shadow-xs"
                 title="Click to view Cash & Bank Dashboard"
               >
                 <div className="flex items-center justify-between text-[11px] mb-1">
-                  <span className="text-stone-500 flex items-center gap-1 font-medium">
-                    <Wallet className="w-3 h-3 text-amber-600" /> Cash:
+                  <span className="text-stone-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                    <Wallet className="w-3 h-3 text-amber-600 dark:text-amber-400" /> Cash:
                   </span>
-                  <span className="font-mono font-bold text-stone-900 group-hover:text-amber-700">
+                  <span className="font-mono font-bold text-stone-900 dark:text-slate-100 group-hover:text-amber-700 dark:group-hover:text-amber-400">
                     ₹{cashInHand.toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-stone-500 flex items-center gap-1 font-medium">
-                    <Landmark className="w-3 h-3 text-blue-600" /> Bank:
+                  <span className="text-stone-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                    <Landmark className="w-3 h-3 text-blue-600 dark:text-blue-400" /> Bank:
                   </span>
-                  <span className="font-mono font-bold text-stone-900 group-hover:text-blue-700">
+                  <span className="font-mono font-bold text-stone-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400">
                     ₹{bankBalance.toLocaleString('en-IN')}
                   </span>
                 </div>

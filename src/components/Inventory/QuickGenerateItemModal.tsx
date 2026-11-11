@@ -34,7 +34,7 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
   const [stoneWeight, setStoneWeight] = useState<number>(0);
   const [stoneValue, setStoneValue] = useState<number>(0);
   const [wastagePercentage, setWastagePercentage] = useState<number>(2.5);
-  const [makingChargeType, setMakingChargeType] = useState<'per_gram' | 'flat'>('per_gram');
+  const [makingChargeType, setMakingChargeType] = useState<'per_gram' | 'flat' | 'percentage'>('per_gram');
   const [makingChargeRate, setMakingChargeRate] = useState<number>(450);
   const [quantity, setQuantity] = useState<number>(1);
   const [description, setDescription] = useState('');
@@ -168,7 +168,9 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
 
     const liveRate = rates.find(r => r.metal === metal && r.purity === purity)?.ratePerGram || (metal === 'Gold' ? 13085 : 176);
     const purchaseRate = Math.round(liveRate * 0.94);
-    const makingCost = makingChargeType === 'per_gram' ? Math.round(netWeight * (makingChargeRate * 0.45)) : Math.round(makingChargeRate * 0.45);
+    const metalVal = netWeight * liveRate;
+    const estMaking = makingChargeType === 'per_gram' ? (netWeight * makingChargeRate) : makingChargeType === 'percentage' ? Math.round(metalVal * (makingChargeRate / 100)) : makingChargeRate;
+    const makingCost = Math.round(estMaking * 0.45);
     const stoneCostVal = Math.round(stoneValue * 0.65);
     const calculatedCostPrice = Math.round((netWeight * purchaseRate) + makingCost + stoneCostVal + (huid ? 45 : 0));
 
@@ -428,13 +430,17 @@ export const QuickGenerateItemModal: React.FC<QuickGenerateItemModalProps> = ({
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
               >
                 <option value="per_gram">₹ Per Gram</option>
+                <option value="percentage">% Percentage</option>
                 <option value="flat">Flat ₹ Fixed</option>
               </select>
             </div>
             <div>
-              <label className="block text-slate-400 mb-1 font-medium">Making Rate (₹)</label>
+              <label className="block text-slate-400 mb-1 font-medium">
+                Making Rate {makingChargeType === 'percentage' ? '(%)' : '(₹)'}
+              </label>
               <input
                 type="number"
+                step={makingChargeType === 'percentage' ? '0.1' : '1'}
                 value={makingChargeRate}
                 onChange={(e) => setMakingChargeRate(parseFloat(e.target.value) || 0)}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"

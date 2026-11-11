@@ -162,62 +162,62 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
     <div className="space-y-6">
       
       {/* Top Banner & Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center gap-3 shadow-lg">
-          <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center gap-3 shadow-sm dark:shadow-lg transition">
+          <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl border border-amber-500/20">
             <Landmark className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs text-slate-400 font-medium">Principal Loan Book (गिरवी)</p>
-            <h3 className="text-xl font-black text-amber-300 font-mono">₹{totalPrincipalOut.toLocaleString('en-IN')}</h3>
-            <span className="text-[10px] text-amber-500/80">{activeLoans.length} Active Pawn Accounts</span>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Principal Loan Book (गिरवी)</p>
+            <h3 className="text-xl font-black text-amber-600 dark:text-amber-300 font-mono">₹{totalPrincipalOut.toLocaleString('en-IN')}</h3>
+            <span className="text-[10px] text-amber-600 dark:text-amber-500/80 font-medium">{activeLoans.length} Active Pawn Accounts</span>
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center gap-3 shadow-lg">
-          <div className="p-3 bg-amber-600/10 text-amber-300 rounded-xl border border-amber-600/20">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center gap-3 shadow-sm dark:shadow-lg transition">
+          <div className="p-3 bg-amber-600/10 text-amber-700 dark:text-amber-300 rounded-xl border border-amber-600/20">
             <Scale className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs text-slate-400 font-medium">Gold Pledged in Vault</p>
-            <h3 className="text-xl font-black text-amber-300 font-mono">{totalGoldWeight.toFixed(2)} g</h3>
-            <span className="text-[10px] text-slate-400">Security ornament weight</span>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Gold Pledged in Vault</p>
+            <h3 className="text-xl font-black text-amber-600 dark:text-amber-300 font-mono">{totalGoldWeight.toFixed(2)} g</h3>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">Security ornament weight</span>
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center gap-3 shadow-lg">
-          <div className="p-3 bg-slate-700/40 text-slate-300 rounded-xl border border-slate-600/30">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center gap-3 shadow-sm dark:shadow-lg transition">
+          <div className="p-3 bg-slate-100 dark:bg-slate-700/40 text-slate-700 dark:text-slate-300 rounded-xl border border-slate-300 dark:border-slate-600/30">
             <Scale className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs text-slate-400 font-medium">Silver Pledged in Vault</p>
-            <h3 className="text-xl font-black text-slate-200 font-mono">{totalSilverWeight.toFixed(2)} g</h3>
-            <span className="text-[10px] text-slate-400">Payal / coins security</span>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Silver Pledged in Vault</p>
+            <h3 className="text-xl font-black text-slate-800 dark:text-slate-200 font-mono">{totalSilverWeight.toFixed(2)} g</h3>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">Payal / coins security</span>
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center gap-3 shadow-lg">
-          <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center gap-3 shadow-sm dark:shadow-lg transition">
+          <div className="p-3 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-500/20">
             <Calculator className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs text-slate-400 font-medium">Interest Accrued to Date</p>
-            <h3 className="text-xl font-black text-emerald-300 font-mono">₹{totalEstimatedInterest.toLocaleString('en-IN')}</h3>
-            <span className="text-[10px] text-emerald-400/80">Monthly compounding rate</span>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Interest Accrued to Date</p>
+            <h3 className="text-xl font-black text-emerald-600 dark:text-emerald-300 font-mono">₹{totalEstimatedInterest.toLocaleString('en-IN')}</h3>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400/80 font-medium">Monthly compounding rate</span>
           </div>
         </div>
       </div>
 
       {/* Control Bar */}
-      <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm dark:shadow-lg transition">
         <div className="flex flex-wrap items-center gap-3">
           {/* Status filter */}
-          <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-300 dark:border-slate-700 text-xs overflow-x-auto">
             {(['all', 'Active', 'Overdue', 'Redeemed'] as const).map(st => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1.5 rounded-lg font-bold transition capitalize ${statusFilter === st ? 'bg-amber-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`px-3 py-1.5 rounded-lg font-bold transition capitalize cursor-pointer ${statusFilter === st ? 'bg-amber-500 text-slate-950 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
               >
                 {st === 'all' ? 'All Loans (सब)' : st}
               </button>
@@ -231,23 +231,23 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
               placeholder="Search borrower or loan no..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 w-56 focus:outline-none focus:border-amber-500"
+              className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 w-56 focus:outline-none focus:border-amber-500"
             />
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+            <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-2.5 top-2.5" />
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setShowCalcModal(true)}
-            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition cursor-pointer"
           >
-            <Calculator className="w-4 h-4 text-amber-400" />
+            <Calculator className="w-4 h-4 text-amber-500" />
             Interest Calculator (ब्याज कैलक्यूलेटर)
           </button>
           <button
             onClick={() => setShowNewLoanModal(true)}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition cursor-pointer"
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             + New Girvi Loan (नई गिरवी)
@@ -256,11 +256,11 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
       </div>
 
       {/* Main Table: Girvi Register */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl transition">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-800/80 border-b border-slate-700 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+              <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold uppercase tracking-wider">
                 <th className="py-3 px-4">Loan No & Date</th>
                 <th className="py-3 px-4">Borrower Name (ग्राहक)</th>
                 <th className="py-3 px-4">Pledged Ornaments (बंधक आभूषण)</th>
@@ -272,10 +272,10 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800 text-xs">
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
               {filteredLoans.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-500">
+                  <td colSpan={9} className="py-12 text-center text-slate-500 dark:text-slate-400">
                     No Girvi loan accounts found matching the filter.
                   </td>
                 </tr>
@@ -285,46 +285,46 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
                   const isClosed = loan.status === 'Redeemed';
 
                   return (
-                    <tr key={loan.id} className="hover:bg-slate-800/40 transition">
+                    <tr key={loan.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                       <td className="py-3 px-4">
-                        <span className="font-mono font-bold text-amber-300 block">{loan.loanNo}</span>
-                        <span className="text-[10px] text-slate-500">{loan.date}</span>
+                        <span className="font-mono font-bold text-amber-700 dark:text-amber-300 block">{loan.loanNo}</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">{loan.date}</span>
                       </td>
                       <td className="py-3 px-4">
-                        <p className="font-semibold text-slate-200">{loan.borrowerName}</p>
-                        <span className="text-[10px] text-slate-400 font-mono">{loan.borrowerPhone}</span>
+                        <p className="font-semibold text-slate-900 dark:text-slate-200">{loan.borrowerName}</p>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{loan.borrowerPhone}</span>
                       </td>
                       <td className="py-3 px-4">
-                        <p className="font-medium text-slate-300 line-clamp-1">
+                        <p className="font-medium text-slate-700 dark:text-slate-300 line-clamp-1">
                           {loan.items.map(i => `${i.description} (${i.grossWeight}g)`).join(', ')}
                         </p>
-                        <span className="text-[10px] text-slate-500">Valuation: ₹{loan.totalValuation.toLocaleString('en-IN')}</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">Valuation: ₹{loan.totalValuation.toLocaleString('en-IN')}</span>
                       </td>
-                      <td className="py-3 px-4 font-mono font-bold text-slate-200">
+                      <td className="py-3 px-4 font-mono font-bold text-slate-800 dark:text-slate-200">
                         {loan.totalNetWeight.toFixed(2)} g
                       </td>
                       <td className="py-3 px-4">
-                        <span className="font-mono font-bold text-amber-400 block">
+                        <span className="font-mono font-bold text-amber-600 dark:text-amber-400 block">
                           ₹{loan.principalAmount.toLocaleString('en-IN')}
                         </span>
-                        <span className="text-[10px] text-slate-500">Bal: ₹{loan.balanceDue.toLocaleString('en-IN')}</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">Bal: ₹{loan.balanceDue.toLocaleString('en-IN')}</span>
                       </td>
-                      <td className="py-3 px-4 font-mono text-slate-300">
+                      <td className="py-3 px-4 font-mono text-slate-700 dark:text-slate-300">
                         {loan.monthlyInterestRate}% / mo
                       </td>
                       <td className="py-3 px-4">
-                        <span className="font-mono font-bold text-emerald-400 block">
+                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 block">
                           ₹{isClosed ? loan.interestPaidSoFar.toLocaleString('en-IN') : accrued.toLocaleString('en-IN')}
                         </span>
-                        <span className="text-[10px] text-slate-500">Paid: ₹{loan.interestPaidSoFar.toLocaleString('en-IN')}</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">Paid: ₹{loan.interestPaidSoFar.toLocaleString('en-IN')}</span>
                       </td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1 ${
                           loan.status === 'Redeemed'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/20'
                             : loan.status === 'Overdue'
-                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            ? 'bg-rose-100 dark:bg-rose-500/10 text-rose-800 dark:text-rose-400 border border-rose-300 dark:border-rose-500/20'
+                            : 'bg-amber-100 dark:bg-amber-500/10 text-amber-800 dark:text-amber-400 border border-amber-300 dark:border-amber-500/20'
                         }`}>
                           {loan.status === 'Redeemed' && <CheckCircle2 className="w-3 h-3" />}
                           {loan.status === 'Overdue' && <AlertTriangle className="w-3 h-3" />}
@@ -348,7 +348,7 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
                         )}
                         <button
                           onClick={() => setPrintLoan(loan)}
-                          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[11px] border border-slate-700 transition cursor-pointer"
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] border border-slate-300 dark:border-slate-700 transition cursor-pointer"
                           title="Print Girvi Parcha"
                         >
                           <Printer className="w-3.5 h-3.5 inline" />
@@ -365,83 +365,86 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
 
       {/* Modal: New Girvi Loan */}
       {showNewLoanModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-slate-100 text-base flex items-center gap-2">
-                <Landmark className="w-5 h-5 text-amber-400" /> New Girvi / Pawn Loan (गिरवी खाता)
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-2xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 shadow-2xl text-slate-900 dark:text-slate-100">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100 text-base flex items-center gap-2">
+                <Landmark className="w-5 h-5 text-amber-500" /> New Girvi / Pawn Loan (गिरवी खाता)
               </h3>
-              <button onClick={() => setShowNewLoanModal(false)} className="text-slate-400 hover:text-slate-200">
+              <button 
+                onClick={() => setShowNewLoanModal(false)} 
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleCreateLoan} className="space-y-4 mt-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Borrower Full Name *</label>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Borrower Full Name *</label>
                   <input
                     type="text"
                     placeholder="e.g. Ramesh Chandra Sharma"
                     value={borrowerName}
                     onChange={(e) => setBorrowerName(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500 font-medium"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500 font-medium"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Mobile Number *</label>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Mobile Number *</label>
                   <input
                     type="text"
                     placeholder="e.g. 9826012345"
                     value={borrowerPhone}
                     onChange={(e) => setBorrowerPhone(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-amber-500"
                     required
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Aadhaar Card No. *</label>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Aadhaar Card No. *</label>
                   <input
                     type="text"
                     placeholder="e.g. 7821-4920-1123"
                     value={borrowerAadhaar}
                     onChange={(e) => setBorrowerAadhaar(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-amber-500"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Residential Address *</label>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Residential Address *</label>
                   <input
                     type="text"
                     placeholder="e.g. Mandakini Colony, Kolar Road, Bhopal"
                     value={borrowerAddress}
                     onChange={(e) => setBorrowerAddress(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
                     required
                   />
                 </div>
               </div>
 
               {/* Pledged Ornaments Section */}
-              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/60 space-y-3">
+              <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-amber-300">Pledged Security Ornaments (बंधक सामान)</span>
+                  <span className="font-bold text-amber-700 dark:text-amber-300">Pledged Security Ornaments (बंधक सामान)</span>
                   <button
                     type="button"
                     onClick={handleAddItemToPledge}
-                    className="text-[11px] text-amber-400 hover:underline flex items-center gap-1 font-bold"
+                    className="text-[11px] text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
                   >
                     + Add Item
                   </button>
                 </div>
 
                 {pledgedItems.map((item, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 bg-slate-900/80 p-2 rounded-lg border border-slate-700/50">
+                  <div key={idx} className="grid grid-cols-12 gap-2 bg-white dark:bg-slate-900/80 p-2 rounded-lg border border-slate-200 dark:border-slate-700/50">
                     <div className="col-span-5">
                       <input
                         type="text"
@@ -451,7 +454,7 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
                           setPledgedItems(prev => prev.map((it, i) => i === idx ? { ...it, description: val } : it));
                         }}
                         placeholder="Description (e.g. 22K Gold Chain)"
-                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-200 text-xs"
                       />
                     </div>
                     <div className="col-span-2">
@@ -461,7 +464,7 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
                           const m = e.target.value as MetalType;
                           setPledgedItems(prev => prev.map((it, i) => i === idx ? { ...it, metal: m } : it));
                         }}
-                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-200 text-xs"
                       >
                         <option value="Gold">Gold</option>
                         <option value="Silver">Silver</option>
@@ -477,7 +480,7 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
                           setPledgedItems(prev => prev.map((it, i) => i === idx ? { ...it, grossWeight: gw, netWeight: gw, valuationAmount: gw * it.estimatedMarketRate } : it));
                         }}
                         placeholder="Weight (g)"
-                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-mono font-bold"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-200 text-xs font-mono font-bold"
                       />
                     </div>
                     <div className="col-span-3">
@@ -489,7 +492,7 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
                           setPledgedItems(prev => prev.map((it, i) => i === idx ? { ...it, valuationAmount: val } : it));
                         }}
                         placeholder="Valuation (₹)"
-                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-amber-400 font-bold text-xs font-mono"
+                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-amber-700 dark:text-amber-400 font-bold text-xs font-mono"
                       />
                     </div>
                   </div>
@@ -497,60 +500,60 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
               </div>
 
               {/* Loan Terms */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Loan Principal (₹) *</label>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Loan Principal (₹) *</label>
                   <input
                     type="number"
                     value={principalAmount}
                     onChange={(e) => setPrincipalAmount(parseFloat(e.target.value) || 0)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-amber-400 font-mono font-bold focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-amber-700 dark:text-amber-400 font-mono font-bold focus:outline-none focus:border-amber-500"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Monthly Interest % *</label>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Monthly Interest % *</label>
                   <input
                     type="number"
                     step="0.05"
                     value={monthlyInterestRate}
                     onChange={(e) => setMonthlyInterestRate(parseFloat(e.target.value) || 0)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-amber-500"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Tenure (Months)</label>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Tenure (Months)</label>
                   <input
                     type="number"
                     value={tenureMonths}
                     onChange={(e) => setTenureMonths(parseInt(e.target.value) || 12)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-amber-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">Vault Locker No & Packet Details</label>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Vault Locker No & Packet Details</label>
                 <input
                   type="text"
                   value={vaultNotes}
                   onChange={(e) => setVaultNotes(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowNewLoanModal(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl"
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-300 font-bold rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg shadow-amber-500/20"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-md cursor-pointer"
                 >
                   Create Girvi Loan Account
                 </button>
@@ -562,67 +565,70 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
 
       {/* Modal: Redeem / Settlement */}
       {showRedeemModal && selectedLoan && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-2xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 shadow-2xl text-slate-900 dark:text-slate-100">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
               <div>
-                <h3 className="font-bold text-slate-100 text-base">Redeem Pawn Loan (बंधक छुड़ाना)</h3>
-                <p className="text-xs text-amber-400">{selectedLoan.loanNo} • {selectedLoan.borrowerName}</p>
+                <h3 className="font-bold text-slate-900 dark:text-slate-100 text-base">Redeem Pawn Loan (बंधक छुड़ाना)</h3>
+                <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold">{selectedLoan.loanNo} • {selectedLoan.borrowerName}</p>
               </div>
-              <button onClick={() => setShowRedeemModal(false)} className="text-slate-400 hover:text-slate-200">
+              <button 
+                onClick={() => setShowRedeemModal(false)} 
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleRedeemSubmit} className="space-y-4 mt-4 text-xs">
-              <div className="bg-slate-800 p-3 rounded-xl border border-slate-700 space-y-1">
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Principal Balance:</span>
-                  <span className="font-mono font-bold text-slate-100">₹{selectedLoan.balanceDue.toLocaleString('en-IN')}</span>
+                  <span className="text-slate-600 dark:text-slate-400">Principal Balance:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">₹{selectedLoan.balanceDue.toLocaleString('en-IN')}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Monthly Rate:</span>
-                  <span className="font-mono text-amber-300">{selectedLoan.monthlyInterestRate}% / month</span>
+                  <span className="text-slate-600 dark:text-slate-400">Monthly Rate:</span>
+                  <span className="font-mono text-amber-700 dark:text-amber-300 font-semibold">{selectedLoan.monthlyInterestRate}% / month</span>
                 </div>
-                <div className="flex justify-between pt-1 border-t border-slate-700">
-                  <span className="text-slate-300 font-bold">Total Estimated Due:</span>
-                  <span className="font-mono font-bold text-emerald-400 text-sm">
+                <div className="flex justify-between pt-1 border-t border-slate-200 dark:border-slate-700">
+                  <span className="text-slate-800 dark:text-slate-300 font-bold">Total Estimated Due:</span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">
                     ₹{(selectedLoan.balanceDue + Math.max(0, calculateTotalInterestAccrued(selectedLoan) - selectedLoan.interestPaidSoFar)).toLocaleString('en-IN')}
                   </span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">Interest Amount Paying (₹)</label>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Interest Amount Paying (₹)</label>
                 <input
                   type="number"
                   value={repayInterest}
                   onChange={(e) => setRepayInterest(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-emerald-400 font-mono font-bold focus:outline-none focus:border-amber-500"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-emerald-600 dark:text-emerald-400 font-mono font-bold focus:outline-none focus:border-amber-500"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">Principal Amount Paying (₹)</label>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Principal Amount Paying (₹)</label>
                 <input
                   type="number"
                   value={repayPrincipal}
                   onChange={(e) => setRepayPrincipal(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-amber-400 font-mono font-bold focus:outline-none focus:border-amber-500"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-amber-600 dark:text-amber-400 font-mono font-bold focus:outline-none focus:border-amber-500"
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowRedeemModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 font-bold rounded-xl"
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-300 font-bold rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-md cursor-pointer"
                 >
                   Confirm Payment & Release Ornament
                 </button>
@@ -634,63 +640,66 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
 
       {/* Modal: Interactive Interest Calculator */}
       {showCalcModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-slate-100 text-base flex items-center gap-2">
-                <Calculator className="w-5 h-5 text-amber-400" /> Girvi Interest Calculator
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-2xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 shadow-2xl text-slate-900 dark:text-slate-100">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100 text-base flex items-center gap-2">
+                <Calculator className="w-5 h-5 text-amber-500" /> Girvi Interest Calculator
               </h3>
-              <button onClick={() => setShowCalcModal(false)} className="text-slate-400 hover:text-slate-200">
+              <button 
+                onClick={() => setShowCalcModal(false)} 
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-4 mt-4 text-xs">
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">Principal Loan Amount (मूलधन ₹)</label>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Principal Loan Amount (मूलधन ₹)</label>
                 <input
                   type="number"
                   value={calcPrincipal}
                   onChange={(e) => setCalcPrincipal(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-amber-400 font-mono font-bold focus:outline-none focus:border-amber-500"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-amber-700 dark:text-amber-400 font-mono font-bold focus:outline-none focus:border-amber-500"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Interest Rate (% per month)</label>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Interest Rate (% per month)</label>
                   <input
                     type="number"
                     step="0.1"
                     value={calcRate}
                     onChange={(e) => setCalcRate(parseFloat(e.target.value) || 0)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-amber-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Duration (Months)</label>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Duration (Months)</label>
                   <input
                     type="number"
                     value={calcMonths}
                     onChange={(e) => setCalcMonths(parseFloat(e.target.value) || 0)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-amber-500"
                   />
                 </div>
               </div>
 
               {/* Calculator Output */}
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-2">
+              <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4 space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Monthly Interest:</span>
-                  <span className="font-mono font-bold text-amber-300">₹{Math.round(calcPrincipal * (calcRate / 100)).toLocaleString('en-IN')} / mo</span>
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">Monthly Interest:</span>
+                  <span className="font-mono font-bold text-amber-700 dark:text-amber-300">₹{Math.round(calcPrincipal * (calcRate / 100)).toLocaleString('en-IN')} / mo</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Total Interest for {calcMonths} months:</span>
-                  <span className="font-mono font-bold text-amber-400">₹{Math.round(calcPrincipal * (calcRate / 100) * calcMonths).toLocaleString('en-IN')}</span>
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">Total Interest for {calcMonths} months:</span>
+                  <span className="font-mono font-bold text-amber-700 dark:text-amber-400">₹{Math.round(calcPrincipal * (calcRate / 100) * calcMonths).toLocaleString('en-IN')}</span>
                 </div>
-                <div className="flex justify-between pt-2 border-t border-amber-500/20 text-sm">
-                  <span className="font-bold text-slate-200">Total Payable to Release:</span>
-                  <span className="font-mono font-black text-emerald-400">
+                <div className="flex justify-between pt-2 border-t border-amber-200 dark:border-amber-500/20 text-sm">
+                  <span className="font-bold text-slate-800 dark:text-slate-200">Total Payable to Release:</span>
+                  <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
                     ₹{Math.round(calcPrincipal + (calcPrincipal * (calcRate / 100) * calcMonths)).toLocaleString('en-IN')}
                   </span>
                 </div>
@@ -699,7 +708,7 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
               <div className="pt-2 flex justify-end">
                 <button
                   onClick={() => setShowCalcModal(false)}
-                  className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl cursor-pointer shadow-sm"
                 >
                   Done
                 </button>

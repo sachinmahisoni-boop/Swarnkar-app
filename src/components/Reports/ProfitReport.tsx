@@ -105,9 +105,14 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
     const liveRate = getRateForPurity(item.metal, item.purity);
     const purchaseRate = item.purchaseRatePerGram || (liveRate * 0.94);
     const metalCost = item.netWeight * purchaseRate;
+    const makingVal = item.makingChargeType === 'per_gram'
+      ? item.netWeight * (item.makingChargeRate || 0)
+      : item.makingChargeType === 'percentage'
+      ? (item.netWeight * liveRate * ((item.makingChargeRate || 0) / 100))
+      : (item.makingChargeRate || 0);
     const makingCost = item.makingCostPerGram 
       ? item.netWeight * item.makingCostPerGram 
-      : (item.makingChargeType === 'per_gram' ? item.netWeight * (item.makingChargeRate * 0.45) : item.makingChargeRate * 0.45);
+      : (makingVal * 0.45);
     const stoneCost = item.stoneCost || Math.round((item.stoneValue || 0) * 0.65);
     const huidCost = item.huid ? 45 : 0;
     return Math.round(metalCost + makingCost + stoneCost + huidCost);
@@ -120,6 +125,8 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
     const wastageCost = item.netWeight * ((item.wastagePercentage || 0) / 100) * liveRate;
     const makingCharge = item.makingChargeType === 'per_gram'
       ? item.netWeight * (item.makingChargeRate || 0)
+      : item.makingChargeType === 'percentage'
+      ? (metalCost * ((item.makingChargeRate || 0) / 100))
       : (item.makingChargeRate || 0);
     const huidFee = item.huid ? 45 : 0;
     return Math.round(metalCost + wastageCost + makingCharge + (item.stoneValue || 0) + huidFee);
@@ -500,24 +507,24 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
 
       {/* Top Banner & Control Station */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm dark:shadow-2xl relative overflow-hidden transition">
         {/* Subtle decorative gold gradient in background */}
         <div className="absolute -right-20 -top-20 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5">
-              <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400">
+              <div className="p-2.5 bg-amber-100 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl text-amber-700 dark:text-amber-400">
                 <TrendingUp className="w-5 h-5" />
               </div>
               <div>
-                <h1 className="text-xl font-black text-slate-100 flex items-center gap-2 font-serif tracking-wide">
+                <h1 className="text-xl font-black text-slate-900 dark:text-slate-100 flex items-center gap-2 font-serif tracking-wide flex-wrap">
                   Profit & Margin Analytics
-                  <span className="text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                  <span className="text-xs font-mono font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30 px-2 py-0.5 rounded-full">
                     मुनाफा व मार्जिन रिपोर्ट
                   </span>
                 </h1>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Itemized Cost vs Sale Price Analysis • Realized Invoices & In-Stock Inventory Margin Audits
                 </p>
               </div>
@@ -530,8 +537,8 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
               onClick={() => setShowSimulator(prev => !prev)}
               className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
                 showSimulator 
-                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/20' 
-                  : 'bg-slate-800 text-amber-300 border-slate-700 hover:bg-slate-700'
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm' 
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-amber-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
               title="Simulate profit impact of making charge and gold rate tweaks"
             >
@@ -541,16 +548,16 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
 
             <button
               onClick={() => setIsPrintModalOpen(true)}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl border border-slate-300 dark:border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
               title="Print Auditor Profit Summary"
             >
-              <Printer className="w-3.5 h-3.5 text-amber-400" />
+              <Printer className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
               <span>Print Audit</span>
             </button>
 
             <button
               onClick={handleExportCSV}
-              className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center gap-1.5 transition cursor-pointer"
+              className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition cursor-pointer"
               title="Export complete profit margin breakdown to CSV spreadsheet"
             >
               <Download className="w-3.5 h-3.5" />
@@ -560,15 +567,15 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
         </div>
 
         {/* View Mode Tabs & Date Presets */}
-        <div className="mt-5 pt-4 border-t border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
           {/* Main View Selector */}
-          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs self-start">
+          <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs self-start overflow-x-auto">
             <button
               onClick={() => setActiveView('sold')}
-              className={`px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                 activeView === 'sold'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -576,10 +583,10 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
             </button>
             <button
               onClick={() => setActiveView('inventory')}
-              className={`px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                 activeView === 'inventory'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
@@ -587,10 +594,10 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
             </button>
             <button
               onClick={() => setActiveView('all')}
-              className={`px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                 activeView === 'all'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               <span>Combined View</span>
@@ -600,18 +607,18 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
           {/* Date Filter (Active for Sold Invoices) */}
           {activeView !== 'inventory' && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-slate-400 flex items-center gap-1 text-[11px] font-medium">
-                <Calendar className="w-3 h-3 text-amber-400" /> Date Filter:
+              <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 text-[11px] font-medium">
+                <Calendar className="w-3 h-3 text-amber-600 dark:text-amber-400" /> Date Filter:
               </span>
-              <div className="flex bg-slate-950 rounded-xl border border-slate-800 p-0.5">
+              <div className="flex bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 p-0.5 overflow-x-auto">
                 {(['all', 'today', 'yesterday', 'week', 'month', 'custom'] as const).map((preset) => (
                   <button
                     key={preset}
                     onClick={() => setDateRangePreset(preset)}
-                    className={`px-2.5 py-1 rounded-lg font-medium capitalize text-[11px] transition cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-lg font-medium capitalize text-[11px] transition cursor-pointer whitespace-nowrap ${
                       dateRangePreset === preset
-                        ? 'bg-slate-800 text-amber-300 font-bold'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'bg-white dark:bg-slate-800 text-amber-800 dark:text-amber-300 font-bold shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                     }`}
                   >
                     {preset === 'all' ? 'All Time' : preset === 'week' ? 'Last 7 Days' : preset === 'month' ? 'This Month' : preset}
@@ -625,7 +632,7 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
                     type="date"
                     value={customStartDate}
                     onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 font-mono"
+                    className="bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-slate-200 font-mono"
                     title="Start Date"
                   />
                   <span className="text-slate-500 text-xs">to</span>
@@ -633,7 +640,7 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
                     type="date"
                     value={customEndDate}
                     onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 font-mono"
+                    className="bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-slate-200 font-mono"
                     title="End Date"
                   />
                 </div>
@@ -734,40 +741,40 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
       {/* Executive Shop Performance KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Gross Revenue */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg relative overflow-hidden group hover:border-amber-500/40 transition">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-lg relative overflow-hidden group hover:border-amber-500/40 transition">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-slate-400 font-medium">
+            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">
               {activeView === 'inventory' ? 'Inventory Valuation' : 'Total Sales Turnover'}
             </span>
-            <div className="p-1.5 bg-amber-500/10 rounded-lg text-amber-400">
+            <div className="p-1.5 bg-amber-100 dark:bg-amber-500/10 rounded-lg text-amber-700 dark:text-amber-400">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-black text-slate-100 font-mono tracking-tight">
+          <p className="text-2xl font-black text-slate-900 dark:text-slate-100 font-mono tracking-tight">
             ₹{Math.round(activeView === 'inventory' ? summaryMetrics.inventoryTotalValuation : summaryMetrics.totalSalesRevenue).toLocaleString('en-IN')}
           </p>
-          <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
             <span>{activeView === 'inventory' ? `${inventoryItemRecords.length} Stock Units` : `${summaryMetrics.soldItemsCount} Items Billed`}</span>
-            <span className="text-amber-400 font-mono font-bold">100% Volume</span>
+            <span className="text-amber-700 dark:text-amber-400 font-mono font-bold">100% Volume</span>
           </div>
         </div>
 
         {/* Card 2: Cost of Goods Sold (COGS) */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg relative overflow-hidden group hover:border-slate-700 transition">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-lg relative overflow-hidden group hover:border-slate-300 dark:hover:border-slate-700 transition">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-slate-400 font-medium">
+            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">
               {activeView === 'inventory' ? 'Total Acquisition Cost' : 'Cost of Goods Sold (COGS)'}
             </span>
-            <div className="p-1.5 bg-slate-800 rounded-lg text-slate-400">
+            <div className="p-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-400">
               <Scale className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-black text-slate-300 font-mono tracking-tight">
+          <p className="text-2xl font-black text-slate-700 dark:text-slate-300 font-mono tracking-tight">
             ₹{Math.round(activeView === 'inventory' ? summaryMetrics.inventoryTotalCost : summaryMetrics.totalCOGS).toLocaleString('en-IN')}
           </p>
-          <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
             <span>Wholesale metal + karigar + stone</span>
-            <span className="font-mono text-slate-400">
+            <span className="font-mono text-slate-500 dark:text-slate-400">
               {activeView === 'inventory' 
                 ? `${((summaryMetrics.inventoryTotalCost / (summaryMetrics.inventoryTotalValuation || 1)) * 100).toFixed(1)}% of value` 
                 : `${((summaryMetrics.totalCOGS / (summaryMetrics.totalSalesRevenue || 1)) * 100).toFixed(1)}% of sales`}
@@ -776,24 +783,24 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
         </div>
 
         {/* Card 3: Total Gross Profit */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg relative overflow-hidden group hover:border-emerald-500/40 transition">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-lg relative overflow-hidden group hover:border-emerald-500/40 transition">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-slate-400 font-medium">
+            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">
               {activeView === 'inventory' ? 'Unrealized Gross Margin' : 'Total Gross Profit (सकल लाभ)'}
             </span>
-            <div className="p-1.5 bg-emerald-500/10 rounded-lg text-emerald-400">
+            <div className="p-1.5 bg-emerald-100 dark:bg-emerald-500/10 rounded-lg text-emerald-700 dark:text-emerald-400">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-black text-emerald-400 font-mono tracking-tight">
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
             ₹{Math.round(activeView === 'inventory' ? summaryMetrics.inventoryUnrealizedProfit : summaryMetrics.totalGrossProfit).toLocaleString('en-IN')}
           </p>
-          <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
-            <span className="text-emerald-400/90 font-medium flex items-center gap-1">
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+            <span className="text-emerald-700 dark:text-emerald-400/90 font-medium flex items-center gap-1">
               <ArrowUpRight className="w-3 h-3" />
               {activeView === 'inventory' ? `${summaryMetrics.inventoryPotentialMarginPct}% Projected` : `${summaryMetrics.overallMarginPercent}% Margin`}
             </span>
-            <span className="font-mono text-slate-400">
+            <span className="font-mono text-slate-500 dark:text-slate-400">
               Markup: {activeView === 'inventory' 
                 ? `${(((summaryMetrics.inventoryUnrealizedProfit / (summaryMetrics.inventoryTotalCost || 1))) * 100).toFixed(1)}%` 
                 : `${summaryMetrics.overallMarkupPercent}%`}
@@ -802,19 +809,19 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
         </div>
 
         {/* Card 4: Net Operating Profit (After Shop Expenses) */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg relative overflow-hidden group hover:border-amber-500/40 transition">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-lg relative overflow-hidden group hover:border-amber-500/40 transition">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-slate-400 font-medium">Net Profit (दुकान खर्च काटकर)</span>
-            <div className="p-1.5 bg-blue-500/10 rounded-lg text-blue-400">
+            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Net Profit (दुकान खर्च काटकर)</span>
+            <div className="p-1.5 bg-blue-100 dark:bg-blue-500/10 rounded-lg text-blue-700 dark:text-blue-400">
               <Wallet className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-black text-amber-300 font-mono tracking-tight">
+          <p className="text-2xl font-black text-amber-700 dark:text-amber-300 font-mono tracking-tight">
             ₹{Math.round(summaryMetrics.netOperatingProfit).toLocaleString('en-IN')}
           </p>
-          <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
             <span className="truncate">Expenses: -₹{summaryMetrics.totalShopExpenses.toLocaleString('en-IN')}</span>
-            <span className="text-slate-400 text-[10px]">Rent, MPEB, Staff</span>
+            <span className="text-slate-500 dark:text-slate-400 text-[10px]">Rent, MPEB, Staff</span>
           </div>
         </div>
       </div>
@@ -823,25 +830,25 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Chart 1: Category Profitability Comparison (2 Columns) */}
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm dark:shadow-xl space-y-4">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-amber-400" />
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                 Category-wise Profit & Revenue Breakdown
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Visual margin distribution across jewellery categories
               </p>
             </div>
-            <span className="text-xs font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+            <span className="text-xs font-mono text-amber-800 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-500/20 font-bold">
               Top: {summaryMetrics.topCategory}
             </span>
           </div>
 
           <div className="space-y-3 pt-2">
             {categoryBreakdownList.length === 0 ? (
-              <div className="text-center py-8 text-slate-500 text-xs">
+              <div className="text-center py-8 text-slate-500 dark:text-slate-400 text-xs">
                 No category sales recorded for the selected filter range.
               </div>
             ) : (
@@ -850,23 +857,23 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
                 const revWidth = Math.min(100, Math.max(8, (catItem.revenue / maxRevenue) * 100));
 
                 return (
-                  <div key={catItem.category} className="space-y-1 bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/80">
+                  <div key={catItem.category} className="space-y-1 bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800/80">
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-200">{catItem.category}</span>
-                        <span className="text-[10px] text-slate-400 font-mono">({catItem.count} sold)</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200">{catItem.category}</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">({catItem.count} sold)</span>
                       </div>
                       <div className="flex items-center gap-3 font-mono">
-                        <span className="text-slate-400 text-[11px]">Rev: ₹{catItem.revenue.toLocaleString('en-IN')}</span>
-                        <span className="text-emerald-400 font-bold">Profit: ₹{catItem.profit.toLocaleString('en-IN')}</span>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                        <span className="text-slate-500 dark:text-slate-400 text-[11px]">Rev: ₹{catItem.revenue.toLocaleString('en-IN')}</span>
+                        <span className="text-emerald-700 dark:text-emerald-400 font-bold">Profit: ₹{catItem.profit.toLocaleString('en-IN')}</span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/20">
                           {catItem.margin}%
                         </span>
                       </div>
                     </div>
 
                     {/* Progress Bar Track */}
-                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
+                    <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden flex">
                       <div 
                         className="bg-gradient-to-r from-amber-500 to-amber-400 h-full rounded-full transition-all duration-500" 
                         style={{ width: `${revWidth}%` }}
@@ -881,70 +888,70 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
         </div>
 
         {/* Chart 2: Margin Tiers & Profit Quality Gauge */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4 flex flex-col justify-between">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm dark:shadow-xl space-y-4 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-3">
               <div className="space-y-0.5">
-                <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                  <PieChart className="w-4 h-4 text-amber-400" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <PieChart className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                   Profit Margin Quality Tiers
                 </h3>
-                <p className="text-xs text-slate-400">Distribution of sold merchandise</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Distribution of sold merchandise</p>
               </div>
             </div>
 
             {/* Visual Gauge Stack */}
             <div className="space-y-3 pt-2">
               {/* High Margin */}
-              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-1.5">
+              <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-200 font-bold flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
+                  <span className="text-slate-800 dark:text-slate-200 font-bold flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
                     High Margin (&gt; 20%)
                   </span>
-                  <span className="font-mono text-emerald-400 font-bold">{marginTiers.high} items ({marginTiers.highPct}%)</span>
+                  <span className="font-mono text-emerald-700 dark:text-emerald-400 font-bold">{marginTiers.high} items ({marginTiers.highPct}%)</span>
                 </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-emerald-400 h-full rounded-full" style={{ width: `${marginTiers.highPct}%` }} />
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${marginTiers.highPct}%` }} />
                 </div>
-                <span className="text-[10px] text-slate-400 block">Diamonds, Gemstones, Custom Designer Bridal</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Diamonds, Gemstones, Custom Designer Bridal</span>
               </div>
 
               {/* Moderate Margin */}
-              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-1.5">
+              <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-200 font-bold flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
+                  <span className="text-slate-800 dark:text-slate-200 font-bold flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
                     Standard Jewellery (10% - 20%)
                   </span>
-                  <span className="font-mono text-amber-400 font-bold">{marginTiers.medium} items ({marginTiers.mediumPct}%)</span>
+                  <span className="font-mono text-amber-700 dark:text-amber-400 font-bold">{marginTiers.medium} items ({marginTiers.mediumPct}%)</span>
                 </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-amber-400 h-full rounded-full" style={{ width: `${marginTiers.mediumPct}%` }} />
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                  <div className="bg-amber-500 h-full rounded-full" style={{ width: `${marginTiers.mediumPct}%` }} />
                 </div>
-                <span className="text-[10px] text-slate-400 block">Hallmarked 22K/18K Gold & Sterling Silver</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Hallmarked 22K/18K Gold & Sterling Silver</span>
               </div>
 
               {/* Low / Bullion Margin */}
-              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-1.5">
+              <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-200 font-bold flex items-center gap-1.5">
+                  <span className="text-slate-800 dark:text-slate-200 font-bold flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
                     Bullion & Coins (&lt; 10%)
                   </span>
-                  <span className="font-mono text-slate-300 font-bold">{marginTiers.low} items ({marginTiers.lowPct}%)</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300 font-bold">{marginTiers.low} items ({marginTiers.lowPct}%)</span>
                 </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                   <div className="bg-slate-400 h-full rounded-full" style={{ width: `${marginTiers.lowPct}%` }} />
                 </div>
-                <span className="text-[10px] text-slate-400 block">Minted 24K Bars, Coins & Pure Bullion</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Minted 24K Bars, Coins & Pure Bullion</span>
               </div>
             </div>
           </div>
 
           {/* Quick Sarafa Tip */}
-          <div className="p-3 bg-amber-500/5 rounded-xl border border-amber-500/20 text-[11px] text-amber-300/90 leading-relaxed flex items-start gap-2">
-            <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="p-3 bg-amber-50 dark:bg-amber-500/5 rounded-xl border border-amber-200 dark:border-amber-500/20 text-[11px] text-amber-900 dark:text-amber-300/90 leading-relaxed flex items-start gap-2">
+            <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <span>
               Tip: In Bhopal Sarafa retail, studded diamond rings and loose certified gemstones generate the highest margin percentage (~30-40%), balancing tight bullion coin trading.
             </span>
@@ -953,25 +960,25 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
       </div>
 
       {/* Individual Item-Level Profit Margins Ledger Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl space-y-3">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-2xl space-y-3 transition">
         
         {/* Table Filter Toolbar */}
-        <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="p-4 bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
           
           {/* Left: Search input */}
           <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-2.5" />
             <input
               type="text"
               placeholder="Search by Item name, Tag No, HUID, Bill No..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl pl-9 pr-8 py-1.5 text-xs text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300"
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -984,7 +991,7 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-amber-500"
             >
               <option value="All">All Categories</option>
               {categories.map((c) => (
@@ -996,7 +1003,7 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
             <select
               value={selectedMetal}
               onChange={(e) => setSelectedMetal(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-amber-500"
             >
               <option value="All">All Metals</option>
               <option value="Gold">Gold</option>
@@ -1009,7 +1016,7 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
             <select
               value={selectedMarginTier}
               onChange={(e) => setSelectedMarginTier(e.target.value as any)}
-              className="bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-amber-500"
             >
               <option value="all">All Margins</option>
               <option value="high">High Margin (&gt; 20%)</option>
@@ -1018,12 +1025,12 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
             </select>
 
             {/* Sort Dropdown */}
-            <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-xl px-2 py-1 text-xs">
-              <span className="text-slate-400 text-[10px]">Sort:</span>
+            <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2 py-1 text-xs">
+              <span className="text-slate-500 dark:text-slate-400 text-[10px]">Sort:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-transparent text-amber-300 font-bold focus:outline-none cursor-pointer"
+                className="bg-transparent text-amber-700 dark:text-amber-300 font-bold focus:outline-none cursor-pointer"
               >
                 <option value="profit">Profit (₹)</option>
                 <option value="margin">Margin (%)</option>
@@ -1032,7 +1039,7 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
               </select>
               <button
                 onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
-                className="text-slate-400 hover:text-white px-1"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-white px-1"
                 title={`Sort: ${sortOrder === 'desc' ? 'Descending' : 'Ascending'}`}
               >
                 {sortOrder === 'desc' ? '↓' : '↑'}
@@ -1043,9 +1050,9 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
 
         {/* Results Count & Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-xs min-w-[850px]">
             <thead>
-              <tr className="bg-slate-950/60 text-slate-400 text-[11px] font-bold uppercase tracking-wider border-b border-slate-800">
+              <tr className="bg-slate-100 dark:bg-slate-950/60 text-slate-700 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
                 <th className="py-3 px-3.5">Tag & HUID</th>
                 <th className="py-3 px-3.5">Item Description</th>
                 <th className="py-3 px-3.5">Category & Metal</th>
@@ -1058,12 +1065,12 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
                 <th className="py-3 px-3.5 text-center">Breakdown</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80 text-xs">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-500">
+                  <td colSpan={10} className="py-12 text-center text-slate-500 dark:text-slate-400">
                     <p className="text-sm font-medium">No items found matching the selected filters.</p>
-                    <p className="text-xs text-slate-600 mt-1">Try resetting search query or switching between Sold and Inventory views.</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Try resetting search query or switching between Sold and Inventory views.</p>
                   </td>
                 </tr>
               ) : (
@@ -1072,24 +1079,24 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
                   const isMediumMargin = item.marginPercent >= 10 && item.marginPercent < 20;
 
                   return (
-                    <tr key={item.id} className="hover:bg-slate-800/30 transition group">
+                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition group">
                       {/* Tag & HUID */}
                       <td className="py-3 px-3.5 whitespace-nowrap">
-                        <span className="font-mono font-bold text-amber-300 block">{item.tagNo}</span>
+                        <span className="font-mono font-bold text-amber-700 dark:text-amber-300 block">{item.tagNo}</span>
                         {item.huid && (
-                          <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
-                            <ShieldCheck className="w-2.5 h-2.5 text-amber-400" /> HUID: {item.huid}
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono flex items-center gap-1">
+                            <ShieldCheck className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" /> HUID: {item.huid}
                           </span>
                         )}
                       </td>
 
                       {/* Name */}
                       <td className="py-3 px-3.5 max-w-xs">
-                        <span className="font-semibold text-slate-200 block truncate" title={item.name}>
+                        <span className="font-semibold text-slate-900 dark:text-slate-200 block truncate" title={item.name}>
                           {item.name}
                         </span>
                         {item.customerName && item.customerName !== '-' && (
-                          <span className="text-[10px] text-slate-400 block truncate">
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
                             Sold to: {item.customerName}
                           </span>
                         )}
@@ -1097,30 +1104,30 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
 
                       {/* Category & Metal */}
                       <td className="py-3 px-3.5 whitespace-nowrap">
-                        <span className="text-slate-300 font-medium block">{item.category}</span>
-                        <span className="text-[10px] text-amber-400/80 font-mono">
+                        <span className="text-slate-700 dark:text-slate-300 font-medium block">{item.category}</span>
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400/80 font-mono">
                           {item.metal} {item.purity}
                         </span>
                       </td>
 
                       {/* Net Wt */}
-                      <td className="py-3 px-3.5 text-right font-mono text-slate-300 whitespace-nowrap">
+                      <td className="py-3 px-3.5 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
                         {item.netWeight > 0 ? `${item.netWeight.toFixed(2)}g` : '-'}
                       </td>
 
                       {/* Cost Price */}
-                      <td className="py-3 px-3.5 text-right font-mono text-slate-400 whitespace-nowrap">
+                      <td className="py-3 px-3.5 text-right font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
                         ₹{item.costPrice.toLocaleString('en-IN')}
                       </td>
 
                       {/* Sale Price */}
-                      <td className="py-3 px-3.5 text-right font-mono font-semibold text-slate-200 whitespace-nowrap">
+                      <td className="py-3 px-3.5 text-right font-mono font-semibold text-slate-900 dark:text-slate-200 whitespace-nowrap">
                         ₹{item.salePrice.toLocaleString('en-IN')}
                       </td>
 
                       {/* Profit Amount */}
                       <td className="py-3 px-3.5 text-right font-mono font-bold whitespace-nowrap">
-                        <span className={item.profitAmount >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                        <span className={item.profitAmount >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
                           {item.profitAmount >= 0 ? `+₹${item.profitAmount.toLocaleString('en-IN')}` : `-₹${Math.abs(item.profitAmount).toLocaleString('en-IN')}`}
                         </span>
                       </td>
@@ -1129,10 +1136,10 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
                       <td className="py-3 px-3.5 text-center whitespace-nowrap">
                         <span className={`inline-block px-2 py-0.5 rounded-full font-mono text-[11px] font-bold border ${
                           isHighMargin
-                            ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                            ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30'
                             : isMediumMargin
-                            ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                            ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-500/30'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
                         }`}>
                           {item.marginPercent}%
                         </span>
@@ -1141,12 +1148,12 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
                       {/* Status / Date */}
                       <td className="py-3 px-3.5 text-center whitespace-nowrap">
                         <span className={`text-[10px] px-2 py-0.5 rounded font-medium block ${
-                          item.isSold ? 'bg-blue-500/10 text-blue-300' : 'bg-emerald-500/10 text-emerald-300'
+                          item.isSold ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-800 dark:text-blue-300' : 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300'
                         }`}>
                           {item.isSold ? `Billed (${item.date})` : 'In Stock Safe'}
                         </span>
                         {item.invoiceNo && item.invoiceNo !== 'Available Inventory' && (
-                          <span className="text-[9px] text-slate-500 font-mono block mt-0.5">
+                          <span className="text-[9px] text-slate-500 dark:text-slate-500 font-mono block mt-0.5">
                             {item.invoiceNo}
                           </span>
                         )}
@@ -1156,7 +1163,7 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
                       <td className="py-3 px-3.5 text-center whitespace-nowrap">
                         <button
                           onClick={() => setSelectedDrilldownItem(item)}
-                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-medium border border-slate-700 transition cursor-pointer flex items-center gap-1 mx-auto"
+                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-amber-800 dark:text-amber-300 text-[10px] font-medium border border-slate-300 dark:border-slate-700 transition cursor-pointer flex items-center gap-1 mx-auto"
                           title="View detailed cost & pricing breakdown"
                         >
                           <Eye className="w-3 h-3" />
@@ -1172,58 +1179,58 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
         </div>
 
         {/* Table Footer Summary */}
-        <div className="p-3 bg-slate-950/70 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-400 gap-2">
+        <div className="p-3 bg-slate-50 dark:bg-slate-950/70 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-600 dark:text-slate-400 gap-2">
           <span>Showing {filteredRecords.length} items</span>
           <div className="flex items-center gap-4 font-mono">
-            <span>Total Sales Value: <strong className="text-slate-200">₹{filteredRecords.reduce((s, i) => s + i.salePrice, 0).toLocaleString('en-IN')}</strong></span>
-            <span>Total Profit: <strong className="text-emerald-400">₹{filteredRecords.reduce((s, i) => s + i.profitAmount, 0).toLocaleString('en-IN')}</strong></span>
+            <span>Total Sales Value: <strong className="text-slate-900 dark:text-slate-200">₹{filteredRecords.reduce((s, i) => s + i.salePrice, 0).toLocaleString('en-IN')}</strong></span>
+            <span>Total Profit: <strong className="text-emerald-700 dark:text-emerald-400">₹{filteredRecords.reduce((s, i) => s + i.profitAmount, 0).toLocaleString('en-IN')}</strong></span>
           </div>
         </div>
       </div>
 
       {/* Drilldown Cost Price Modal */}
       {selectedDrilldownItem && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-4 sm:p-6 shadow-2xl relative space-y-4 max-h-[92vh] overflow-y-auto text-slate-900 dark:text-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <ShreemLogo size="sm" showText={false} />
                 <div>
-                  <h3 className="text-base font-bold text-slate-100 font-serif">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 font-serif">
                     Item Cost Price & Profit Drilldown
                   </h3>
-                  <span className="text-xs text-amber-400 font-mono">
+                  <span className="text-xs text-amber-700 dark:text-amber-400 font-mono font-bold">
                     {selectedDrilldownItem.tagNo} {selectedDrilldownItem.huid ? `• HUID: ${selectedDrilldownItem.huid}` : ''}
                   </span>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedDrilldownItem(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                <span className="text-slate-400 block text-[11px]">Item Name:</span>
-                <span className="text-sm font-bold text-slate-100">{selectedDrilldownItem.name}</span>
-                <div className="flex gap-3 text-slate-400 mt-1 font-mono">
-                  <span>Category: <strong className="text-slate-300">{selectedDrilldownItem.category}</strong></span>
-                  <span>Metal: <strong className="text-slate-300">{selectedDrilldownItem.metal} {selectedDrilldownItem.purity}</strong></span>
-                  <span>Net Wt: <strong className="text-slate-300">{selectedDrilldownItem.netWeight}g</strong></span>
+              <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Item Name:</span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{selectedDrilldownItem.name}</span>
+                <div className="flex flex-wrap gap-3 text-slate-600 dark:text-slate-400 mt-1 font-mono">
+                  <span>Category: <strong className="text-slate-800 dark:text-slate-300">{selectedDrilldownItem.category}</strong></span>
+                  <span>Metal: <strong className="text-slate-800 dark:text-slate-300">{selectedDrilldownItem.metal} {selectedDrilldownItem.purity}</strong></span>
+                  <span>Net Wt: <strong className="text-slate-800 dark:text-slate-300">{selectedDrilldownItem.netWeight}g</strong></span>
                 </div>
               </div>
 
               {/* Cost vs Selling Side-by-Side */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800 space-y-1.5">
-                  <span className="text-[11px] font-bold text-slate-400 block uppercase tracking-wider">Acquisition Cost (COGS)</span>
-                  <div className="text-xl font-black text-slate-200 font-mono">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-slate-50 dark:bg-slate-950/80 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block uppercase tracking-wider">Acquisition Cost (COGS)</span>
+                  <div className="text-xl font-black text-slate-800 dark:text-slate-200 font-mono">
                     ₹{selectedDrilldownItem.costPrice.toLocaleString('en-IN')}
                   </div>
-                  <ul className="text-[10px] text-slate-400 space-y-1 pt-1 border-t border-slate-800">
+                  <ul className="text-[10px] text-slate-500 dark:text-slate-400 space-y-1 pt-1 border-t border-slate-200 dark:border-slate-800">
                     <li>• Raw wholesale bullion purchase</li>
                     <li>• Karigar casting & labor paid</li>
                     <li>• Wholesale gemstone cost</li>
@@ -1231,12 +1238,12 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
                   </ul>
                 </div>
 
-                <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800 space-y-1.5">
-                  <span className="text-[11px] font-bold text-amber-400 block uppercase tracking-wider">Sale / Billing Value</span>
-                  <div className="text-xl font-black text-amber-300 font-mono">
+                <div className="bg-slate-50 dark:bg-slate-950/80 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 block uppercase tracking-wider">Sale / Billing Value</span>
+                  <div className="text-xl font-black text-amber-700 dark:text-amber-300 font-mono">
                     ₹{selectedDrilldownItem.salePrice.toLocaleString('en-IN')}
                   </div>
-                  <ul className="text-[10px] text-slate-400 space-y-1 pt-1 border-t border-slate-800">
+                  <ul className="text-[10px] text-slate-500 dark:text-slate-400 space-y-1 pt-1 border-t border-slate-200 dark:border-slate-800">
                     <li>• Retail bullion rate applied</li>
                     <li>• Wastage / touch addition</li>
                     <li>• Retail making charges collected</li>
@@ -1246,16 +1253,16 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
               </div>
 
               {/* Profit Bottom Line */}
-              <div className="p-3.5 bg-gradient-to-r from-emerald-950/30 via-slate-950 to-slate-950 border border-emerald-500/40 rounded-xl flex items-center justify-between">
+              <div className="p-3.5 bg-emerald-50 dark:bg-gradient-to-r dark:from-emerald-950/30 dark:via-slate-950 dark:to-slate-950 border border-emerald-300 dark:border-emerald-500/40 rounded-xl flex items-center justify-between">
                 <div>
-                  <span className="text-xs text-slate-400 font-medium block">Net Item Profit</span>
-                  <span className="text-2xl font-black text-emerald-400 font-mono">
+                  <span className="text-xs text-slate-600 dark:text-slate-400 font-medium block">Net Item Profit</span>
+                  <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400 font-mono">
                     ₹{selectedDrilldownItem.profitAmount.toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-xs text-slate-400 font-medium block">Gross Margin</span>
-                  <span className="text-2xl font-black text-emerald-300 font-mono">
+                  <span className="text-xs text-slate-600 dark:text-slate-400 font-medium block">Gross Margin</span>
+                  <span className="text-2xl font-black text-emerald-800 dark:text-emerald-300 font-mono">
                     {selectedDrilldownItem.marginPercent}%
                   </span>
                   <span className="text-[10px] text-slate-500 block">Markup: {selectedDrilldownItem.markupPercent}%</span>
@@ -1266,7 +1273,7 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
             <div className="pt-2">
               <button
                 onClick={() => setSelectedDrilldownItem(null)}
-                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition"
+                className="w-full py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition cursor-pointer"
               >
                 Close Breakdown
               </button>

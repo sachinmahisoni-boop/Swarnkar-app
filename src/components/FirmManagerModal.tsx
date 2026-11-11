@@ -135,27 +135,27 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-stone-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white border border-stone-200 rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
+    <div className="fixed inset-0 z-50 bg-stone-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-800 rounded-3xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col text-slate-900 dark:text-slate-100">
         
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-stone-100 shrink-0">
+        <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-100 text-amber-700 rounded-2xl">
+            <div className="p-2 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 rounded-2xl">
               <Building2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="font-extrabold text-stone-900 text-lg">
+              <h3 className="font-extrabold text-stone-900 dark:text-slate-100 text-base sm:text-lg">
                 पंजीकृत फर्म व लोगो प्रबंधन (Firm & Logo Manager)
               </h3>
-              <p className="text-xs text-stone-500">
+              <p className="text-xs text-stone-600 dark:text-slate-400">
                 अपनी फर्म चुनें, नई फर्म रजिस्टर करें या लोगो व GSTIN अपडेट करें
               </p>
             </div>
           </div>
           <button 
             onClick={onClose} 
-            className="text-stone-400 hover:text-stone-700 p-2 rounded-xl hover:bg-stone-100 transition cursor-pointer"
+            className="text-stone-400 hover:text-stone-700 dark:hover:text-slate-200 p-2 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -168,7 +168,7 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
           {!showAddForm && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-stone-400 uppercase tracking-wider">
+                <span className="text-xs font-bold text-stone-600 dark:text-slate-400 uppercase tracking-wider">
                   पंजीकृत फर्म सूची ({firms.length})
                 </span>
                 <button
@@ -177,7 +177,7 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                     handleResetForm();
                     setShowAddForm(true);
                   }}
-                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>+ नई फर्म जोड़ें (Add Firm)</span>
@@ -193,12 +193,12 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                       key={f.id}
                       className={`p-4 rounded-2xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
                         isActive
-                          ? 'bg-amber-50/80 border-amber-300 shadow-sm'
-                          : 'bg-stone-50 border-stone-200 hover:bg-stone-100/60'
+                          ? 'bg-amber-50/90 dark:bg-amber-950/30 border-amber-300 dark:border-amber-600/50 shadow-xs'
+                          : 'bg-stone-50 dark:bg-slate-800/70 border-stone-200 dark:border-slate-700/80 hover:bg-stone-100/60 dark:hover:bg-slate-750'
                       }`}
                     >
                       <div className="flex items-start gap-3.5">
-                        <div className="shrink-0 p-1.5 bg-white rounded-2xl border border-stone-200 flex items-center justify-center w-14 h-14 shadow-2xs">
+                        <div className="shrink-0 p-1.5 bg-white dark:bg-slate-900 rounded-2xl border border-stone-200 dark:border-slate-700 flex items-center justify-center w-14 h-14 shadow-2xs">
                           {f.logoUrl ? (
                             <img 
                               src={f.logoUrl} 
@@ -212,7 +212,7 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
 
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-base text-stone-900">{f.name}</h4>
+                            <h4 className="font-bold text-base text-stone-900 dark:text-slate-100">{f.name}</h4>
                             {isActive && (
                               <span className="bg-amber-500 text-stone-950 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
                                 <CheckCircle2 className="w-3 h-3" /> सक्रिय फर्म (Active)
@@ -220,19 +220,19 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                             )}
                           </div>
 
-                          <p className="text-xs text-amber-800 font-medium">{f.counterName} • {f.counterType}</p>
+                          <p className="text-xs text-amber-800 dark:text-amber-400 font-semibold">{f.counterName} • {f.counterType}</p>
                           
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-stone-500 pt-1">
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-stone-600 dark:text-slate-400 pt-1">
                             <span className="flex items-center gap-1">
-                              <UserCheck className="w-3.5 h-3.5 text-stone-400" />
-                              संचालक: <strong className="text-stone-700">{f.operatorName}</strong>
+                              <UserCheck className="w-3.5 h-3.5 text-stone-400 dark:text-slate-500" />
+                              संचालक: <strong className="text-stone-800 dark:text-slate-200">{f.operatorName}</strong>
                             </span>
                             <span className="flex items-center gap-1">
-                              <ShieldCheck className="w-3.5 h-3.5 text-stone-400" />
-                              GSTIN: <strong className="text-stone-700 font-mono">{f.gstin}</strong>
+                              <ShieldCheck className="w-3.5 h-3.5 text-stone-400 dark:text-slate-500" />
+                              GSTIN: <strong className="text-stone-800 dark:text-slate-200 font-mono">{f.gstin}</strong>
                             </span>
                             <span className="flex items-center gap-1">
-                              <Phone className="w-3.5 h-3.5 text-stone-400" />
+                              <Phone className="w-3.5 h-3.5 text-stone-400 dark:text-slate-500" />
                               {f.phone}
                             </span>
                           </div>
@@ -243,10 +243,10 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleStartEdit(f)}
-                          className="px-3 py-1.5 bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 rounded-xl text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                          className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-stone-100 dark:hover:bg-slate-700 text-stone-700 dark:text-slate-200 border border-stone-300 dark:border-slate-600 rounded-xl text-xs font-bold flex items-center gap-1 transition cursor-pointer"
                           title="फर्म व लोगो एडिट करें"
                         >
-                          <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                          <Edit3 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                           <span>एडिट</span>
                         </button>
 
@@ -258,7 +258,7 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                                 onDeleteFirm(f.id);
                               }
                             }}
-                            className="p-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl transition cursor-pointer"
+                            className="p-1.5 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 rounded-xl transition cursor-pointer"
                             title="फर्म डिलीट करें (Delete Firm)"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -273,8 +273,8 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                           }}
                           className={`px-4 py-1.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer ${
                             isActive
-                              ? 'bg-amber-500 text-white shadow'
-                              : 'bg-stone-200 text-stone-800 hover:bg-stone-300'
+                              ? 'bg-amber-500 text-slate-950 shadow-xs'
+                              : 'bg-stone-200 dark:bg-slate-700 text-stone-800 dark:text-slate-200 hover:bg-stone-300 dark:hover:bg-slate-600'
                           }`}
                         >
                           {isActive ? 'Current Firm' : 'Select Firm'}
@@ -289,32 +289,32 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
 
           {/* Add / Edit Form */}
           {showAddForm && (
-            <form onSubmit={handleSubmit} className="bg-stone-50 border border-stone-200 p-5 rounded-3xl space-y-4 text-xs">
-              <div className="flex items-center justify-between border-b border-stone-200 pb-2">
-                <h4 className="font-extrabold text-stone-900 text-sm flex items-center gap-1.5">
-                  <Store className="w-4 h-4 text-amber-600" />
+            <form onSubmit={handleSubmit} className="bg-stone-50 dark:bg-slate-800/80 border border-stone-200 dark:border-slate-700/80 p-5 rounded-3xl space-y-4 text-xs">
+              <div className="flex items-center justify-between border-b border-stone-200 dark:border-slate-700 pb-2">
+                <h4 className="font-extrabold text-stone-900 dark:text-slate-100 text-sm flex items-center gap-1.5">
+                  <Store className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                   {editingFirmId ? 'फर्म विवरण व लोगो एडिट करें' : 'नई फर्म रजिस्टर करें (+ Register Firm)'}
                 </h4>
                 <button
                   type="button"
                   onClick={handleResetForm}
-                  className="text-stone-500 hover:text-stone-800 text-xs font-semibold"
+                  className="text-stone-600 dark:text-slate-400 hover:text-stone-900 dark:hover:text-slate-100 text-xs font-semibold cursor-pointer"
                 >
                   ← वापस सूची पर जाएं
                 </button>
               </div>
 
               {/* Logo Upload Section */}
-              <div className="p-3.5 bg-white rounded-2xl border border-stone-200 space-y-2">
-                <span className="font-bold text-stone-800 text-xs flex items-center gap-1.5">
+              <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-stone-200 dark:border-slate-700 space-y-2">
+                <span className="font-bold text-stone-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
                   फर्म का लोगो (Firm Logo)
                 </span>
-                <p className="text-[11px] text-stone-500">
+                <p className="text-[11px] text-stone-600 dark:text-slate-400">
                   यह लोगो आपके सभी बिलों व टैक्स इनवॉइस पर प्रिंट होगा। पारदर्शी (Transparent) PNG या JPG चुन सकते हैं।
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
-                  <div className="w-16 h-16 rounded-2xl bg-stone-100 border border-stone-200 p-2 flex items-center justify-center shrink-0">
+                  <div className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 p-2 flex items-center justify-center shrink-0">
                     {logoUrl ? (
                       <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" />
                     ) : (
@@ -335,7 +335,7 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+                        className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
                       >
                         <Upload className="w-3.5 h-3.5" />
                         <span>लोगो अपलोड करें</span>
@@ -344,9 +344,9 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setLogoUrl('/assets/aistudio/Shreem_Mahal_LOGO_355a8e42.png')}
-                        className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-300 rounded-xl flex items-center gap-1 transition cursor-pointer"
+                        className="px-3 py-1.5 bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-700 dark:text-slate-300 border border-stone-300 dark:border-slate-600 rounded-xl flex items-center gap-1 transition cursor-pointer"
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                        <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                         <span>डिफ़ॉल्ट "श्रीः" लोगो रखें</span>
                       </button>
 
@@ -354,7 +354,7 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                         <button
                           type="button"
                           onClick={() => setLogoUrl('')}
-                          className="p-1.5 bg-stone-100 hover:bg-rose-100 text-stone-500 hover:text-rose-600 rounded-xl transition cursor-pointer"
+                          className="p-1.5 bg-stone-100 dark:bg-slate-800 hover:bg-rose-100 dark:hover:bg-rose-950/40 text-stone-500 hover:text-rose-600 rounded-xl transition cursor-pointer"
                           title="हटाएं"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
@@ -368,35 +368,35 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
               {/* Input Fields */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-stone-700 font-bold mb-1">फर्म / दुकान का नाम *</label>
+                  <label className="block text-stone-700 dark:text-slate-300 font-bold mb-1">फर्म / दुकान का नाम *</label>
                   <input
                     type="text"
                     required
                     placeholder="उदा. श्री महालक्ष्मी ज्वेलर्स"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-white border border-stone-300 rounded-xl px-3 py-2 text-stone-900 font-bold text-sm"
+                    className="w-full bg-white dark:bg-slate-900 border border-stone-300 dark:border-slate-600 rounded-xl px-3 py-2 text-stone-900 dark:text-slate-100 font-bold text-sm focus:border-amber-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-stone-700 font-medium mb-1">काउंटर / शाखा का नाम</label>
+                  <label className="block text-stone-700 dark:text-slate-300 font-medium mb-1">काउंटर / शाखा का नाम</label>
                   <input
                     type="text"
                     placeholder="उदा. Main Retail Counter"
                     value={counterName}
                     onChange={(e) => setCounterName(e.target.value)}
-                    className="w-full bg-white border border-stone-300 rounded-xl px-3 py-2 text-stone-900 text-sm"
+                    className="w-full bg-white dark:bg-slate-900 border border-stone-300 dark:border-slate-600 rounded-xl px-3 py-2 text-stone-900 dark:text-slate-100 text-sm focus:border-amber-500 focus:outline-none"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-stone-700 font-medium mb-1">काउंटर का प्रकार</label>
+                  <label className="block text-stone-700 dark:text-slate-300 font-medium mb-1">काउंटर का प्रकार</label>
                   <select
                     value={counterType}
                     onChange={(e) => setCounterType(e.target.value as any)}
-                    className="w-full bg-white border border-stone-300 rounded-xl px-3 py-2 text-stone-900 text-sm"
+                    className="w-full bg-white dark:bg-slate-900 border border-stone-300 dark:border-slate-600 rounded-xl px-3 py-2 text-stone-900 dark:text-slate-100 text-sm focus:border-amber-500 focus:outline-none"
                   >
                     <option value="Main Showroom">Main Showroom</option>
                     <option value="Counter 2 (Silver & Gem)">Counter 2 (Silver & Gem)</option>
@@ -406,49 +406,49 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-stone-700 font-medium mb-1">संचालक / ऑपरेटर</label>
+                  <label className="block text-stone-700 dark:text-slate-300 font-medium mb-1">संचालक / ऑपरेटर</label>
                   <input
                     type="text"
                     placeholder="उदा. सचिन सोनी"
                     value={operator}
                     onChange={(e) => setOperator(e.target.value)}
-                    className="w-full bg-white border border-stone-300 rounded-xl px-3 py-2 text-stone-900 text-sm"
+                    className="w-full bg-white dark:bg-slate-900 border border-stone-300 dark:border-slate-600 rounded-xl px-3 py-2 text-stone-900 dark:text-slate-100 text-sm focus:border-amber-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-stone-700 font-medium mb-1">मोबाइल नंबर</label>
+                  <label className="block text-stone-700 dark:text-slate-300 font-medium mb-1">मोबाइल नंबर</label>
                   <input
                     type="text"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    className="w-full bg-white border border-stone-300 rounded-xl px-3 py-2 text-stone-900 font-mono text-sm"
+                    className="w-full bg-white dark:bg-slate-900 border border-stone-300 dark:border-slate-600 rounded-xl px-3 py-2 text-stone-900 dark:text-slate-100 font-mono text-sm focus:border-amber-500 focus:outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-stone-700 font-medium mb-1">GSTIN नंबर (15 डिजिट)</label>
+                <label className="block text-stone-700 dark:text-slate-300 font-medium mb-1">GSTIN नंबर (15 डिजिट)</label>
                 <input
                   type="text"
                   value={gstin}
                   onChange={(e) => setGstin(e.target.value)}
                   placeholder="23AAMCS9202B1Z8"
-                  className="w-full bg-white border border-stone-300 rounded-xl px-3 py-2 text-stone-900 font-mono font-bold text-sm"
+                  className="w-full bg-white dark:bg-slate-900 border border-stone-300 dark:border-slate-600 rounded-xl px-3 py-2 text-stone-900 dark:text-slate-100 font-mono font-bold text-sm focus:border-amber-500 focus:outline-none"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-stone-200">
+              <div className="flex justify-end gap-2 pt-3 border-t border-stone-200 dark:border-slate-700">
                 <button
                   type="button"
                   onClick={handleResetForm}
-                  className="px-4 py-2 bg-stone-200 hover:bg-stone-300 text-stone-700 font-bold rounded-xl transition cursor-pointer"
+                  className="px-4 py-2 bg-stone-200 dark:bg-slate-700 hover:bg-stone-300 dark:hover:bg-slate-600 text-stone-800 dark:text-slate-200 font-bold rounded-xl transition cursor-pointer"
                 >
                   रद्द करें
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow transition cursor-pointer"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl shadow transition cursor-pointer"
                 >
                   {editingFirmId ? 'बदलाव सहेजें (Save Changes)' : 'फर्म जोड़ें (Add Firm)'}
                 </button>

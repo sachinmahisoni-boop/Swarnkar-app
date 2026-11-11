@@ -83,6 +83,21 @@ export default function App() {
     return localStorage.getItem('jewel_firm_confirmed') === 'true';
   });
 
+  // Light / Dark Theme State with local storage persistence
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('jewel_theme');
+    return (saved === 'dark' || saved === 'light') ? saved : 'light';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('jewel_theme', theme);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setIsAuthenticated(!!user);
@@ -876,7 +891,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50 text-slate-900 font-sans flex flex-col selection:bg-amber-500 selection:text-white">
+    <div className="min-h-screen bg-stone-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans flex flex-col selection:bg-amber-500 selection:text-white transition-colors duration-200">
       
       {/* Top Header Bar with Live Bullion Ticker & Live Cash/Bank Indicators */}
       <Header
@@ -897,6 +912,8 @@ export default function App() {
         onToggleDesktopSidebar={() => setIsSidebarCollapsed(prev => !prev)}
         isDesktopSidebarCollapsed={isSidebarCollapsed}
         onLogout={handleLogout}
+        theme={theme}
+        onToggleTheme={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
       />
 
       {/* Main ERP Layout: Left-Side Vertical Sidebar List + Right-Side Content Viewport */}
@@ -928,7 +945,7 @@ export default function App() {
         />
 
         {/* Right Main Screen Viewport */}
-        <main className="flex-1 min-w-0 overflow-y-auto px-3 sm:px-6 lg:px-8 py-5">
+        <main className="flex-1 min-w-0 overflow-y-auto px-2.5 sm:px-5 lg:px-7 py-3 sm:py-5 max-w-full">
         
         {/* TAB 0: Swarnkar Executive Dashboard [F1] */}
         {activeTab === 'dashboard' && (

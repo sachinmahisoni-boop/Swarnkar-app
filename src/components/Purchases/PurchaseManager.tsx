@@ -215,51 +215,51 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
       
       {/* Top Banner & Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg space-y-1">
-          <span className="text-xs text-slate-400 font-medium">Total Inward Purchases (खरीद)</span>
-          <p className="text-2xl font-black text-amber-300 font-mono">₹{totalPurchaseValue.toLocaleString('en-IN')}</p>
-          <span className="text-[10px] text-slate-500">{purchases.length} Inward Purchase Bills</span>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs dark:shadow-lg space-y-1 text-slate-900 dark:text-slate-100">
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Total Inward Purchases (खरीद)</span>
+          <p className="text-2xl font-black text-amber-800 dark:text-amber-300 font-mono">₹{totalPurchaseValue.toLocaleString('en-IN')}</p>
+          <span className="text-[10px] text-slate-500 dark:text-slate-400">{purchases.length} Inward Purchase Bills</span>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg space-y-1">
-          <span className="text-xs text-slate-400 font-medium">Total Gold Inward (सोने की आवक)</span>
-          <p className="text-2xl font-black text-amber-400 font-mono">{totalGoldGramsInward.toFixed(2)} g</p>
-          <span className="text-[10px] text-amber-500/80">({(totalGoldGramsInward / 10).toFixed(2)} Tolas)</span>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs dark:shadow-lg space-y-1 text-slate-900 dark:text-slate-100">
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Total Gold Inward (सोने की आवक)</span>
+          <p className="text-2xl font-black text-amber-700 dark:text-amber-400 font-mono">{totalGoldGramsInward.toFixed(2)} g</p>
+          <span className="text-[10px] text-amber-800/80 dark:text-amber-500/80 font-medium">({(totalGoldGramsInward / 10).toFixed(2)} Tolas)</span>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg space-y-1">
-          <span className="text-xs text-slate-400 font-medium">Total Silver Inward (चांदी की आवक)</span>
-          <p className="text-2xl font-black text-slate-200 font-mono">{totalSilverGramsInward.toFixed(2)} g</p>
-          <span className="text-[10px] text-slate-400">({(totalSilverGramsInward / 1000).toFixed(2)} Kg)</span>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs dark:shadow-lg space-y-1 text-slate-900 dark:text-slate-100">
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Total Silver Inward (चांदी की आवक)</span>
+          <p className="text-2xl font-black text-slate-800 dark:text-slate-200 font-mono">{totalSilverGramsInward.toFixed(2)} g</p>
+          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">({(totalSilverGramsInward / 1000).toFixed(2)} Kg)</span>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg space-y-1">
-          <span className="text-xs text-slate-400 font-medium">Vendor Purchase Dues (उधार)</span>
-          <p className="text-2xl font-black text-rose-400 font-mono">₹{totalPendingVendorDues.toLocaleString('en-IN')}</p>
-          <span className="text-[10px] text-rose-500/80">To be settled with suppliers</span>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs dark:shadow-lg space-y-1 text-slate-900 dark:text-slate-100">
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Vendor Purchase Dues (उधार)</span>
+          <p className="text-2xl font-black text-rose-700 dark:text-rose-400 font-mono">₹{totalPendingVendorDues.toLocaleString('en-IN')}</p>
+          <span className="text-[10px] text-rose-600 dark:text-rose-400 font-medium">To be settled with suppliers</span>
         </div>
       </div>
 
       {/* Control Bar: Subtabs & New Purchase Button */}
-      <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs dark:shadow-lg">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           {/* Subtab Switcher */}
-          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+          <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
             <button
               onClick={() => setActiveSubTab('bills')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition ${activeSubTab === 'bills' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+              className={`px-3 py-1.5 rounded-lg font-bold transition ${activeSubTab === 'bills' ? 'bg-amber-600 dark:bg-amber-500 text-white dark:text-slate-950 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
             >
               Purchase Bills (खरीद बिल रजिस्टर)
             </button>
             <button
               onClick={() => setActiveSubTab('supplierReport')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition ${activeSubTab === 'supplierReport' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+              className={`px-3 py-1.5 rounded-lg font-bold transition ${activeSubTab === 'supplierReport' ? 'bg-amber-600 dark:bg-amber-500 text-white dark:text-slate-950 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
             >
-              Vendor Supply Summary (किससे कितना माल आया)
+              Vendor Supply Summary (आवक रिपोर्ट)
             </button>
             <button
               onClick={() => setActiveSubTab('vendors')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition ${activeSubTab === 'vendors' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+              className={`px-3 py-1.5 rounded-lg font-bold transition ${activeSubTab === 'vendors' ? 'bg-amber-600 dark:bg-amber-500 text-white dark:text-slate-950 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
             >
               Manage Vendors (सप्लायर लिस्ट)
             </button>
@@ -270,7 +270,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
               <select
                 value={selectedVendorFilter}
                 onChange={(e) => setSelectedVendorFilter(e.target.value)}
-                className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-200 font-medium focus:outline-none focus:border-amber-500"
+                className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 font-medium focus:outline-none focus:border-amber-500"
               >
                 <option value="all">All Bullion Vendors</option>
                 {vendors.map(v => (
@@ -284,20 +284,20 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                   placeholder="Search bill no, item or vendor..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 w-56 focus:outline-none focus:border-amber-500"
+                  className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 w-48 sm:w-56 focus:outline-none focus:border-amber-500"
                 />
-                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-2.5" />
               </div>
             </>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setShowAddVendorModal(true)}
-            className="px-4 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-amber-400 font-bold text-xs rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-amber-900 dark:text-amber-400 font-bold text-xs rounded-xl flex items-center gap-1.5 transition cursor-pointer"
           >
-            <UserPlus className="w-4 h-4" />
+            <UserPlus className="w-4 h-4 text-amber-700 dark:text-amber-400" />
             + Add New Vendor (सप्लायर जोड़ें)
           </button>
           <button
@@ -305,7 +305,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
               setPurchaseBillNo(`PUR-2026-${String(purchases.length + 18).padStart(4, '0')}`);
               setShowNewPurchaseModal(true);
             }}
-            className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition cursor-pointer"
+            className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 dark:from-amber-500 dark:to-amber-600 dark:hover:from-amber-400 dark:hover:to-amber-500 text-white dark:text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 shadow-md transition cursor-pointer"
           >
             <PackagePlus className="w-4 h-4" />
             + Record Inward Purchase (नई खरीद दर्ज करें)
@@ -315,11 +315,11 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
 
       {/* Main Content: Bills Register OR Vendor Supply Report */}
       {activeSubTab === 'bills' ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs dark:shadow-xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-slate-800/80 border-b border-slate-700 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+                <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider">
                   <th className="py-3 px-4">Bill No & Date</th>
                   <th className="py-3 px-4">Vendor Firm (सप्लायर)</th>
                   <th className="py-3 px-4">Supplied Items</th>
@@ -331,7 +331,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                   <th className="py-3 px-4 text-right">View</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800 text-xs">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                 {filteredPurchases.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="py-12 text-center text-slate-500">
@@ -340,47 +340,47 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                   </tr>
                 ) : (
                   filteredPurchases.map(pur => (
-                    <tr key={pur.id} className="hover:bg-slate-800/40 transition">
+                    <tr key={pur.id} className="hover:bg-amber-50/30 dark:hover:bg-slate-800/40 transition">
                       <td className="py-3 px-4">
-                        <span className="font-mono font-bold text-amber-300 block">{pur.purchaseBillNo}</span>
+                        <span className="font-mono font-bold text-amber-800 dark:text-amber-300 block">{pur.purchaseBillNo}</span>
                         <span className="text-[10px] text-slate-500">{pur.date}</span>
                       </td>
 
                       <td className="py-3 px-4">
-                        <p className="font-bold text-slate-200">{pur.vendorFirm}</p>
-                        <span className="text-[10px] text-slate-400">{pur.vendorName}</span>
+                        <p className="font-bold text-slate-900 dark:text-slate-200">{pur.vendorFirm}</p>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">{pur.vendorName}</span>
                       </td>
 
                       <td className="py-3 px-4">
-                        <p className="font-medium text-slate-300 line-clamp-1">
+                        <p className="font-medium text-slate-800 dark:text-slate-300 line-clamp-1">
                           {pur.items.map(i => `${i.name} (${i.purity})`).join(', ')}
                         </p>
-                        <span className="text-[10px] text-amber-400 font-mono">
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-mono font-semibold">
                           {pur.items.length} item lots
                         </span>
                       </td>
 
-                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-100">
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
                         {pur.totalNetWeight.toFixed(2)} g
                       </td>
 
-                      <td className="py-3 px-4 text-right font-mono text-slate-300">
+                      <td className="py-3 px-4 text-right font-mono text-slate-800 dark:text-slate-300">
                         ₹{pur.subtotal.toLocaleString('en-IN')}
                       </td>
 
-                      <td className="py-3 px-4 text-right font-mono text-slate-400">
+                      <td className="py-3 px-4 text-right font-mono text-slate-600 dark:text-slate-400">
                         ₹{pur.gstAmount.toLocaleString('en-IN')}
                       </td>
 
-                      <td className="py-3 px-4 text-right font-mono font-bold text-amber-300">
+                      <td className="py-3 px-4 text-right font-mono font-bold text-amber-800 dark:text-amber-300">
                         ₹{pur.grandTotal.toLocaleString('en-IN')}
                       </td>
 
                       <td className="py-3 px-4 text-center">
                         <div className="font-mono text-[11px]">
-                          <span className="text-emerald-400 font-bold block">Paid: ₹{pur.amountPaid.toLocaleString('en-IN')}</span>
+                          <span className="text-emerald-700 dark:text-emerald-400 font-bold block">Paid: ₹{pur.amountPaid.toLocaleString('en-IN')}</span>
                           {pur.balanceDue > 0 ? (
-                            <span className="text-rose-400 text-[10px]">Due: ₹{pur.balanceDue.toLocaleString('en-IN')}</span>
+                            <span className="text-rose-600 dark:text-rose-400 text-[10px] font-bold">Due: ₹{pur.balanceDue.toLocaleString('en-IN')}</span>
                           ) : (
                             <span className="text-slate-500 text-[10px]">Fully Settled</span>
                           )}
@@ -390,7 +390,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                       <td className="py-3 px-4 text-right">
                         <button
                           onClick={() => setSelectedPurchaseDetails(pur)}
-                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+                          className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition"
                           title="View Bill Details"
                         >
                           <Eye className="w-3.5 h-3.5" />

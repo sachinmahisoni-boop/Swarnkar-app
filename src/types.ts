@@ -97,8 +97,8 @@ export interface JewelleryItem {
   gemLab?: string; // e.g. GTL Jaipur, IGI, GIA, IGL
   labCertNo?: string; // GIA, IGI, Govt Lab
   wastagePercentage: number; // % wastage/touch
-  makingChargeType: 'per_gram' | 'flat';
-  makingChargeRate: number; // ₹ per gram or flat ₹
+  makingChargeType: 'per_gram' | 'flat' | 'percentage';
+  makingChargeRate: number; // ₹ per gram, flat ₹, or % rate
   makingChargePerGram?: number;
   makingChargeFixed?: number;
   // Cost Price & Profit Analytics
@@ -137,7 +137,7 @@ export interface InvoiceItem {
   metalCost: number; // netWeight * rate
   wastagePercentage: number;
   wastageCost: number; // netWeight * (wastage % / 100) * rate
-  makingChargeType: 'per_gram' | 'flat';
+  makingChargeType: 'per_gram' | 'flat' | 'percentage';
   makingChargeRate: number;
   makingCharge: number; // total making charge
   huidCharge?: number; // Hallmarking charge (₹45 + tax)
