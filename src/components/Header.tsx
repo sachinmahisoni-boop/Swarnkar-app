@@ -19,6 +19,7 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   shopDetails: ShopDetails;
@@ -100,6 +101,8 @@ export const Header: React.FC<HeaderProps> = ({
               बदलें
             </span>
           </button>
+
+          <PWAInstallButton />
 
           {/* Live Cash Indicator */}
           <button

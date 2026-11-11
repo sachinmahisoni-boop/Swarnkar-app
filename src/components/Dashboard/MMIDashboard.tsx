@@ -181,7 +181,10 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
           {/* Top 4 Signature Colorful KPI Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
             {/* Card 1: Total No. of Invoices (Red) */}
-            <div className="bg-gradient-to-br from-[#dc2626] to-[#b91c1c] text-white p-3.5 rounded-xl shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[90px]">
+            <div 
+              onClick={() => onNavigateTab('invoices')}
+              className="bg-gradient-to-br from-[#dc2626] to-[#b91c1c] text-white p-3.5 rounded-xl shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[90px] cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform group"
+            >
               <div className="relative z-10">
                 <span className="text-3xl font-black font-mono tracking-tight leading-none block">
                   {totalInvoicesCount}
@@ -190,11 +193,17 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
                   Total No. of Invoices
                 </span>
               </div>
-              <ShoppingBag className="w-16 h-16 text-white/15 absolute right-2 bottom-1 pointer-events-none" />
+              <ShoppingBag className="w-16 h-16 text-white/15 absolute right-2 bottom-1 pointer-events-none group-hover:scale-110 transition-transform" />
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <ArrowUpRight className="w-4 h-4 text-white/50" />
+              </div>
             </div>
 
             {/* Card 2: Total Sales (Blue) */}
-            <div className="bg-gradient-to-br from-[#2563eb] to-[#1d4ed8] text-white p-3.5 rounded-xl shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[90px]">
+            <div 
+              onClick={() => onNavigateTab('invoices')}
+              className="bg-gradient-to-br from-[#2563eb] to-[#1d4ed8] text-white p-3.5 rounded-xl shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[90px] cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform group"
+            >
               <div className="relative z-10">
                 <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none block truncate">
                   ₹{(totalSalesAmount).toLocaleString('en-IN')}
@@ -203,11 +212,17 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
                   Total Sales
                 </span>
               </div>
-              <TrendingUp className="w-16 h-16 text-white/15 absolute right-2 bottom-1 pointer-events-none" />
+              <TrendingUp className="w-16 h-16 text-white/15 absolute right-2 bottom-1 pointer-events-none group-hover:scale-110 transition-transform" />
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <ArrowUpRight className="w-4 h-4 text-white/50" />
+              </div>
             </div>
 
             {/* Card 3: Total Labour / Making Charges (Orange) */}
-            <div className="bg-gradient-to-br from-[#ea580c] to-[#c2410c] text-white p-3.5 rounded-xl shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[90px]">
+            <div 
+              onClick={() => onNavigateTab('reports')}
+              className="bg-gradient-to-br from-[#ea580c] to-[#c2410c] text-white p-3.5 rounded-xl shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[90px] cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform group"
+            >
               <div className="relative z-10">
                 <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none block truncate">
                   ₹{(totalLabourAmount).toLocaleString('en-IN')}
@@ -216,11 +231,17 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
                   Total Labour (मेकिंग)
                 </span>
               </div>
-              <BarChart3 className="w-16 h-16 text-white/15 absolute right-2 bottom-1 pointer-events-none" />
+              <BarChart3 className="w-16 h-16 text-white/15 absolute right-2 bottom-1 pointer-events-none group-hover:scale-110 transition-transform" />
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <ArrowUpRight className="w-4 h-4 text-white/50" />
+              </div>
             </div>
 
             {/* Card 4: Total Discount (Green) */}
-            <div className="bg-gradient-to-br from-[#16a34a] to-[#15803d] text-white p-3.5 rounded-xl shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[90px]">
+            <div 
+              onClick={() => onNavigateTab('reports')}
+              className="bg-gradient-to-br from-[#16a34a] to-[#15803d] text-white p-3.5 rounded-xl shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[90px] cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform group"
+            >
               <div className="relative z-10">
                 <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none block truncate">
                   ₹{(totalDiscountAmount).toLocaleString('en-IN')}
@@ -229,7 +250,10 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
                   Total Discount (छूट)
                 </span>
               </div>
-              <Percent className="w-16 h-16 text-white/15 absolute right-2 bottom-1 pointer-events-none" />
+              <Percent className="w-16 h-16 text-white/15 absolute right-2 bottom-1 pointer-events-none group-hover:scale-110 transition-transform" />
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <ArrowUpRight className="w-4 h-4 text-white/50" />
+              </div>
             </div>
           </div>
 
@@ -293,39 +317,48 @@ export const MMIDashboard: React.FC<MMIDashboardProps> = ({
           {/* Bottom Split: Monthly Sales Graph (In Lakhs) + Live Voucher Register Table */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-1">
             
-            {/* Monthly Sales Graph (In Lakhs) - 4 cols */}
+            {/* Monthly Sales Bar Chart (In Lakhs) - 4 cols */}
             <div className="lg:col-span-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700/80 rounded-lg p-3 flex flex-col justify-between shadow-2xs">
               <div className="border-b border-slate-200 dark:border-slate-700 pb-1 mb-2 flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                  Monthly Sales Graph (In Lakhs)
+                  Monthly Sales Bar Chart (In Lakhs)
                 </span>
                 <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400 font-bold">2025-26</span>
               </div>
 
-              {/* Graphical Line Visualization */}
-              <div className="relative h-44 w-full flex items-end justify-between px-2 pt-4">
+              {/* Bar Chart Visualization */}
+              <div className="relative h-44 w-full flex items-end justify-between px-2 pt-4 gap-1.5">
                 {/* Y-Axis lines */}
                 <div className="absolute inset-x-0 top-0 border-b border-slate-200 dark:border-slate-700/60 text-[9px] text-slate-400 font-mono">300-</div>
                 <div className="absolute inset-x-0 top-1/4 border-b border-slate-200 dark:border-slate-700/60 text-[9px] text-slate-400 font-mono">250-</div>
                 <div className="absolute inset-x-0 top-2/4 border-b border-slate-200 dark:border-slate-700/60 text-[9px] text-slate-400 font-mono">200-</div>
                 <div className="absolute inset-x-0 top-3/4 border-b border-slate-200 dark:border-slate-700/60 text-[9px] text-slate-400 font-mono">100-</div>
 
-                {/* SVG Trend Line */}
-                <svg className="absolute inset-0 h-full w-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 100">
-                  <polyline
-                    fill="none"
-                    stroke="#f59e0b"
-                    strokeWidth="2.5"
-                    points="5,80 15,50 25,40 35,60 45,55 55,70 65,15 75,45 85,30 95,85"
-                  />
-                  {/* Data Points */}
-                  {[
-                    [5, 80], [15, 50], [25, 40], [35, 60], [45, 55],
-                    [55, 70], [65, 15], [75, 45], [85, 30], [95, 85]
-                  ].map(([x, y], i) => (
-                    <circle key={i} cx={x} cy={y} r="3" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5" />
-                  ))}
-                </svg>
+                {/* Bars */}
+                {[
+                  { h: '20%', label: 'Dec' },
+                  { h: '50%', label: 'Jan' },
+                  { h: '60%', label: 'Feb' },
+                  { h: '40%', label: 'Mar' },
+                  { h: '45%', label: 'Apr' },
+                  { h: '30%', label: 'May' },
+                  { h: '85%', label: 'Jun' },
+                  { h: '55%', label: 'Jul' },
+                  { h: '70%', label: 'Aug' },
+                  { h: '15%', label: 'Sep' }
+                ].map((bar, i) => (
+                  <div key={i} className="flex-1 flex flex-col justify-end group relative h-full">
+                    <div 
+                      style={{ height: bar.h }} 
+                      className="w-full bg-amber-500 rounded-t-sm group-hover:bg-amber-400 transition-colors shadow-2xs relative"
+                    >
+                      {/* Tooltip on hover */}
+                      <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20">
+                        {bar.h}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {/* Month X-Axis Labels */}
