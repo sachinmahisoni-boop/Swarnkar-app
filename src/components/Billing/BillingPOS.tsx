@@ -4,6 +4,7 @@ import { Search, Plus, Trash2, Calculator, ShoppingBag, Coins, Sparkles, Check, 
 import { calculateItemSubtotal, calculateOldMetalValue, getHsnAndGstRate, roundPaise, allocateBillDiscount } from '../../lib/pricing';
 import { calculateTaxBreakdown, isInterStateSupply, checkComplianceWarnings, validateGstin } from '../../lib/gst';
 import { checkStockAvailability } from '../../lib/stock';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface BillingPOSProps {
   inventory: JewelleryItem[];
@@ -113,7 +114,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
     pan: customerPANInput,
     totalPurchases: 0,
     outstandingBalance: 0,
-    createdAt: new Date().toISOString().split('T')[0]
+    createdAt: getISTDate().isoDateStr
   } : (customers.find(c => c.id === selectedCustomerId) || {
     id: selectedCustomerId,
     name: 'Walk-in / Cash Customer',
@@ -125,7 +126,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
     pan: customerPANInput,
     totalPurchases: 0,
     outstandingBalance: 0,
-    createdAt: new Date().toISOString().split('T')[0]
+    createdAt: getISTDate().isoDateStr
   });
 
   // Auto-detect Inter-state vs Intra-state supply
@@ -452,7 +453,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
       pan: newCustPAN.toUpperCase(),
       totalPurchases: 0,
       outstandingBalance: 0,
-      createdAt: new Date().toISOString().split('T')[0]
+      createdAt: getISTDate().isoDateStr
     };
 
     onAddCustomer(newCust);
@@ -498,7 +499,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
 
       const invoiceDraft: Omit<GSTInvoice, 'id' | 'invoiceNumber'> = {
         invoiceType,
-        date: new Date().toISOString().split('T')[0],
+        date: getISTDate().isoDateStr,
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         customerPhone: selectedCustomer.phone,

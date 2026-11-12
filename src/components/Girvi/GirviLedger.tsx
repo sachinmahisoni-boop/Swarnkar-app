@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { GirviLoan, PledgedItem, MetalType } from '../../types';
 import { ShreemLogo } from '../ShreemLogo';
 import { Landmark, Plus, Search, Calendar, Calculator, CheckCircle2, Clock, AlertTriangle, ShieldCheck, Printer, X, ArrowUpRight, Scale, Share2 } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface GirviLedgerProps {
   loans: GirviLoan[];
@@ -109,7 +110,7 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
     const newLoan: GirviLoan = {
       id: `grv-${Date.now()}`,
       loanNo: `GRV-2026-${String(loans.length + 36).padStart(3, '0')}`,
-      date: new Date().toISOString().split('T')[0],
+      date: getISTDate().isoDateStr,
       borrowerName: borrowerName.trim(),
       borrowerPhone: borrowerPhone.trim(),
       borrowerAddress: borrowerAddress.trim(),
@@ -150,7 +151,7 @@ export const GirviLedger: React.FC<GirviLedgerProps> = ({
       principalPaid: newPrincipalPaid,
       balanceDue: newBalance,
       status: newBalance <= 0 ? 'Redeemed' : 'Active',
-      redeemedDate: newBalance <= 0 ? new Date().toISOString().split('T')[0] : undefined
+      redeemedDate: newBalance <= 0 ? getISTDate().isoDateStr : undefined
     };
 
     onUpdateLoan(updated);

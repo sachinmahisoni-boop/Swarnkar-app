@@ -20,9 +20,13 @@ import {
   Moon,
   Cloud,
   CloudOff,
-  Database
+  Database,
+  ShieldAlert,
+  AlertTriangle
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
+
+export type SyncStatusType = 'synced' | 'offline' | 'permission-error' | 'syncing' | 'error';
 
 interface HeaderProps {
   shopDetails: ShopDetails;
@@ -46,6 +50,8 @@ interface HeaderProps {
   onToggleTheme?: () => void;
   isOnline?: boolean;
   isSynced?: boolean;
+  syncStatus?: SyncStatusType;
+  syncError?: string | null;
   onOpenBackupModal?: () => void;
 }
 
@@ -71,11 +77,17 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme,
   isOnline = true,
   isSynced = true,
+  syncStatus,
+  syncError,
   onOpenBackupModal
 }) => {
   const gold24k = rates.find(r => r.metal === 'Gold' && r.purity === '24K')?.ratePerGram || 0;
   const gold22k = rates.find(r => r.metal === 'Gold' && r.purity === '22K')?.ratePerGram || 0;
   const silver999 = rates.find(r => r.metal === 'Silver' && r.purity === '999 Fine')?.ratePerGram || 0;
+
+  const effectiveStatus: SyncStatusType = syncStatus
+    ? (!isOnline && syncStatus === 'synced' ? 'offline' : syncStatus)
+    : (!isOnline ? 'offline' : isSynced ? 'synced' : 'error');
 
   return (
     <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md text-stone-900 dark:text-slate-100 border-b border-stone-200 dark:border-slate-800 sticky top-0 z-30 font-sans shadow-xs transition-colors">
@@ -111,24 +123,51 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </button>
 
-          {/* Small Synced / Offline Indicator Badge */}
+          {/* Synced / Offline / Permission Error Indicator Badge */}
           <div 
             className={`flex items-center gap-1 px-2 py-0.5 rounded-xl border text-[10px] font-extrabold font-mono transition shadow-2xs ${
-              isOnline && isSynced 
-                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700/60' 
-                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
+              effectiveStatus === 'permission-error' || effectiveStatus === 'error'
+                ? 'bg-rose-50 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-700/60'
+                : effectiveStatus === 'offline'
+                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
+                  : effectiveStatus === 'syncing'
+                    ? 'bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-700/60'
+                    : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700/60'
             }`}
-            title={isOnline ? 'Firestore Live Synced' : 'Offline Mode - Local cache active'}
+            title={
+              syncError
+                ? syncError
+                : effectiveStatus === 'synced'
+                  ? 'Firestore Live Synced'
+                  : effectiveStatus === 'syncing'
+                    ? 'Initializing Firm & Syncing...'
+                    : 'Offline Mode - Local cache active'
+            }
           >
-            {isOnline ? (
+            {effectiveStatus === 'permission-error' ? (
               <>
-                <Cloud className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                <span>Synced</span>
+                <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                <span>Permission error</span>
               </>
-            ) : (
+            ) : effectiveStatus === 'error' ? (
+              <>
+                <AlertTriangle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                <span>Sync error</span>
+              </>
+            ) : effectiveStatus === 'offline' ? (
               <>
                 <CloudOff className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                 <span>Offline</span>
+              </>
+            ) : effectiveStatus === 'syncing' ? (
+              <>
+                <RefreshCw className="w-3 h-3 text-sky-600 dark:text-sky-400 animate-spin" />
+                <span>Syncing...</span>
+              </>
+            ) : (
+              <>
+                <Cloud className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                <span>Synced</span>
               </>
             )}
           </div>

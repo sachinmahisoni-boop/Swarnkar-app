@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Customer, GSTInvoice, ShopDetails } from '../../types';
 import { Users, Search, Plus, Phone, Mail, MapPin, Copy, Check, DollarSign, Send, FileText, Trash2, Edit3 } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface CustomerListProps {
   customers: Customer[];
@@ -61,7 +62,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
         gstin: formData.gstin || '',
         totalPurchases: 0,
         outstandingBalance: 0,
-        createdAt: new Date().toISOString().split('T')[0]
+        createdAt: getISTDate().isoDateStr
       };
       onAddCustomer(newCust);
     }

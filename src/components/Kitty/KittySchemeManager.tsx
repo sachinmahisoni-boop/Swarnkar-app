@@ -12,6 +12,7 @@ import {
   Gift, 
   FileText 
 } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 export interface KittyAccount {
   id: string;
@@ -97,7 +98,7 @@ export const KittySchemeManager: React.FC<KittySchemeManagerProps> = ({ customer
       tenureMonths: 11,
       monthsPaid: 1,
       totalPaidAmount: Number(newMonthlyAmt),
-      startDate: new Date().toISOString().split('T')[0],
+      startDate: getISTDate().isoDateStr,
       bonusAmount: bonus,
       maturityValue: maturity,
       status: 'Active'

@@ -38,7 +38,7 @@ import {
   defaultCity, 
   cityRatesPresets 
 } from './data/initialData';
-import { Header } from './components/Header';
+import { Header, SyncStatusType } from './components/Header';
 import { Navigation, TabType } from './components/Navigation';
 import { Sidebar } from './components/Sidebar';
 import { FirmManagerModal } from './components/FirmManagerModal';
@@ -72,16 +72,26 @@ import { KittySchemeManager } from './components/Kitty/KittySchemeManager';
 import { CRMManager } from './components/CRM/CRMManager';
 import { StaffPayrollManager } from './components/Payroll/StaffPayrollManager';
 import { DataBackupModal } from './components/DataBackupModal';
+import { LegacyMigrationModal } from './components/LegacyMigrationModal';
 import { FirebaseConfigMissingScreen } from './components/FirebaseConfigMissingScreen';
 import { auth, missingFirebaseEnvVars, firebaseConfigError } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
-  subscribeToFirmCollection, 
+  ensureFirmRootDoc,
+  clearFirmRootReady,
+  fetchUserFirms,
+  checkFirmHasFirestoreData,
+  getLegacyLocalStorageData,
+  subscribeToFirmCollection,
+  subscribeToFirmDoc,
   saveFirmDoc, 
   deleteFirmDoc, 
   createInvoiceAtomic, 
-  cancelInvoiceAtomic 
+  cancelInvoiceAtomic,
+  createPurchaseAtomic,
+  FirmDataSnapshot
 } from './lib/firestoreSync';
+import { getISTDate, formatSequentialNumber } from './lib/invoiceNumber';
 
 export default function App() {
   if (missingFirebaseEnvVars.length > 0) {
@@ -139,24 +149,44 @@ export default function App() {
   const [profiles, setProfiles] = useState<JewellerProfile[]>([]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    let cancelled = false;
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (cancelled) return;
       setIsLoading(false);
       if (user) {
         setCurrentUserId(user.uid);
         setIsDemoUser(false);
         setIsAuthenticated(true);
 
-        const userProfs = getUserProfiles(user.uid);
-        setProfiles(userProfs);
-        if (userProfs.length > 0) {
-          const savedActive = localStorage.getItem(`jewel_user_${user.uid}_active_profile`) || userProfs[0].id;
-          setActiveProfileId(savedActive);
+        const localProfs = getUserProfiles(user.uid);
+        let mergedProfs = [...localProfs];
+
+        try {
+          const cloudProfs = await fetchUserFirms(user.uid);
+          if (cancelled) return;
+          const byId = new Map<string, JewellerProfile>();
+          localProfs.forEach(p => byId.set(p.id, p));
+          cloudProfs.forEach(p => byId.set(p.id, { ...byId.get(p.id), ...p }));
+          mergedProfs = Array.from(byId.values());
+        } catch (err: any) {
+          if (!cancelled) {
+            handleFirestoreError(err);
+          }
+        }
+
+        setProfiles(mergedProfs);
+        if (mergedProfs.length > 0) {
+          const savedActive = localStorage.getItem(`jewel_user_${user.uid}_active_profile`);
+          const chosen = mergedProfs.some(p => p.id === savedActive) ? savedActive! : mergedProfs[0].id;
+          setActiveProfileId(chosen);
           setIsFirmActive(true);
         } else {
           setActiveProfileId('');
           setIsFirmActive(false);
         }
       } else if (!isDemoUser) {
+        clearFirmRootReady();
+        setIsFirmRootReady(false);
         setIsAuthenticated(false);
         setCurrentUserId('');
         setProfiles([]);
@@ -164,61 +194,31 @@ export default function App() {
         setIsFirmActive(false);
       }
     });
-    return unsubscribe;
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [isDemoUser]);
 
-  const getFirmStorageKey = (firmId: string, col: string) => `jewel_firm_${firmId}_${col}`;
-
-  const getFirmCollectionData = <T,>(firmId: string, col: string, legacyKey?: string, defaultData: T[] = []): T[] => {
-    if (!firmId) return [];
-    const scopedKey = getFirmStorageKey(firmId, col);
-    const saved = localStorage.getItem(scopedKey);
-    if (saved !== null) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return defaultData;
-      }
-    }
-    if ((firmId === 'prof-main' || firmId === 'firm-main') && legacyKey) {
-      const legacySaved = localStorage.getItem(legacyKey);
-      if (legacySaved !== null) {
-        try {
-          return JSON.parse(legacySaved);
-        } catch (e) {
-          return defaultData;
-        }
-      }
-      return defaultData;
-    }
-    return [];
-  };
-
-  const [shopDetails, setShopDetails] = useState<ShopDetails>(() => {
-    if (activeProfileId) {
-      const saved = localStorage.getItem(`jewel_firm_${activeProfileId}_shop_details`);
-      if (saved) {
-        try { return JSON.parse(saved); } catch (e) {}
-      }
-    }
-    return {
-      firmId: activeProfileId,
-      name: 'Swarnkar Jewellery Shop',
-      tagline: 'सराफा एवं आभूषण विक्रेता',
-      address: '',
-      cityStatePincode: '',
-      phone: '',
-      email: '',
-      gstin: 'URP-UNREGISTERED',
-      bisHallmarkRegNo: '',
-      panNo: '',
-      bankName: '',
-      accountNo: '',
-      ifscCode: '',
-      terms: ['बिक्री पर 3% GST लागू है।', 'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।'],
-      logoUrl: undefined
-    };
+  const buildDefaultShopDetails = (firmId: string, prof?: JewellerProfile): ShopDetails => ({
+    firmId,
+    name: prof?.name || 'Swarnkar Jewellery Shop',
+    tagline: 'सराफा एवं आभूषण विक्रेता',
+    address: '',
+    cityStatePincode: '',
+    phone: prof?.phone || '',
+    email: '',
+    gstin: prof?.gstin || 'URP-UNREGISTERED',
+    bisHallmarkRegNo: '',
+    panNo: '',
+    bankName: '',
+    accountNo: '',
+    ifscCode: '',
+    terms: ['बिक्री पर 3% GST लागू है।', 'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।'],
+    logoUrl: prof?.logoUrl || undefined
   });
+
+  const [shopDetails, setShopDetails] = useState<ShopDetails>(() => buildDefaultShopDetails(''));
 
   const [selectedCity, setSelectedCity] = useState<string>(() => {
     const saved = localStorage.getItem('jewel_selected_city');
@@ -238,95 +238,23 @@ export default function App() {
     return saved ? JSON.parse(saved) : initialCategories;
   });
 
-  const [inventory, setInventory] = useState<JewelleryItem[]>(() =>
-    getFirmCollectionData(activeProfileId, 'inventory', 'jewel_inventory', activeProfileId === 'prof-main' ? initialInventory : [])
-  );
-
-  const [customers, setCustomers] = useState<Customer[]>(() =>
-    getFirmCollectionData(activeProfileId, 'customers', 'jewel_customers', activeProfileId === 'prof-main' ? initialCustomers : [])
-  );
-
-  const [invoices, setInvoices] = useState<GSTInvoice[]>(() =>
-    getFirmCollectionData(activeProfileId, 'invoices', 'jewel_invoices', activeProfileId === 'prof-main' ? initialInvoices : [])
-  );
-
-  const [vendors, setVendors] = useState<Vendor[]>(() =>
-    getFirmCollectionData(activeProfileId, 'vendors', 'jewel_vendors', activeProfileId === 'prof-main' ? initialVendors : [])
-  );
-
-  const [purchases, setPurchases] = useState<PurchaseInvoice[]>(() =>
-    getFirmCollectionData(activeProfileId, 'purchases', 'jewel_purchases', activeProfileId === 'prof-main' ? initialPurchases : [])
-  );
-
-  const [expenses, setExpenses] = useState<ShopExpense[]>(() =>
-    getFirmCollectionData(activeProfileId, 'expenses', 'jewel_expenses', activeProfileId === 'prof-main' ? initialExpenses : [])
-  );
-
-  const [transfers, setTransfers] = useState<CashBankTransfer[]>(() =>
-    getFirmCollectionData(activeProfileId, 'transfers', 'jewel_transfers', activeProfileId === 'prof-main' ? initialTransfers : [])
-  );
-
-  const [karigars, setKarigars] = useState<Karigar[]>(() =>
-    getFirmCollectionData(activeProfileId, 'karigars', 'jewel_karigars', activeProfileId === 'prof-main' ? initialKarigars : [])
-  );
-
-  const [jobCards, setJobCards] = useState<KarigarJobCard[]>(() =>
-    getFirmCollectionData(activeProfileId, 'jobcards', 'jewel_jobcards', activeProfileId === 'prof-main' ? initialKarigarJobCards : [])
-  );
-
-  const [girviLoans, setGirviLoans] = useState<GirviLoan[]>(() =>
-    getFirmCollectionData(activeProfileId, 'girvi', 'jewel_girvi', activeProfileId === 'prof-main' ? initialGirviLoans : [])
-  );
-
-  const [gemstones, setGemstones] = useState<CertifiedGemstone[]>(() =>
-    getFirmCollectionData(activeProfileId, 'gemstones', 'jewel_gemstones_v1', activeProfileId === 'prof-main' ? initialGemstones : [])
-  );
+  // All firm collections start empty and are populated ONLY from Firestore (or Demo fixtures in-memory)
+  const [inventory, setInventory] = useState<JewelleryItem[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [invoices, setInvoices] = useState<GSTInvoice[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseInvoice[]>([]);
+  const [expenses, setExpenses] = useState<ShopExpense[]>([]);
+  const [transfers, setTransfers] = useState<CashBankTransfer[]>([]);
+  const [karigars, setKarigars] = useState<Karigar[]>([]);
+  const [jobCards, setJobCards] = useState<KarigarJobCard[]>([]);
+  const [girviLoans, setGirviLoans] = useState<GirviLoan[]>([]);
+  const [gemstones, setGemstones] = useState<CertifiedGemstone[]>([]);
 
   const [gemstoneRates, setGemstoneRates] = useState<GemstoneRate[]>(() => {
     const saved = localStorage.getItem('jewel_gemstone_rates_v1');
     return saved ? JSON.parse(saved) : initialGemstoneRates;
   });
-
-  // Reload collection state whenever active profile/firm changes
-  useEffect(() => {
-    if (activeProfileId) {
-      setInventory(getFirmCollectionData(activeProfileId, 'inventory', 'jewel_inventory', activeProfileId === 'prof-main' ? initialInventory : []));
-      setCustomers(getFirmCollectionData(activeProfileId, 'customers', 'jewel_customers', activeProfileId === 'prof-main' ? initialCustomers : []));
-      setInvoices(getFirmCollectionData(activeProfileId, 'invoices', 'jewel_invoices', activeProfileId === 'prof-main' ? initialInvoices : []));
-      setVendors(getFirmCollectionData(activeProfileId, 'vendors', 'jewel_vendors', activeProfileId === 'prof-main' ? initialVendors : []));
-      setPurchases(getFirmCollectionData(activeProfileId, 'purchases', 'jewel_purchases', activeProfileId === 'prof-main' ? initialPurchases : []));
-      setExpenses(getFirmCollectionData(activeProfileId, 'expenses', 'jewel_expenses', activeProfileId === 'prof-main' ? initialExpenses : []));
-      setTransfers(getFirmCollectionData(activeProfileId, 'transfers', 'jewel_transfers', activeProfileId === 'prof-main' ? initialTransfers : []));
-      setKarigars(getFirmCollectionData(activeProfileId, 'karigars', 'jewel_karigars', activeProfileId === 'prof-main' ? initialKarigars : []));
-      setJobCards(getFirmCollectionData(activeProfileId, 'jobcards', 'jewel_jobcards', activeProfileId === 'prof-main' ? initialKarigarJobCards : []));
-      setGirviLoans(getFirmCollectionData(activeProfileId, 'girvi', 'jewel_girvi', activeProfileId === 'prof-main' ? initialGirviLoans : []));
-      setGemstones(getFirmCollectionData(activeProfileId, 'gemstones', 'jewel_gemstones_v1', activeProfileId === 'prof-main' ? initialGemstones : []));
-
-      const savedShop = localStorage.getItem(getFirmStorageKey(activeProfileId, 'shop_details'));
-      if (savedShop) {
-        try { setShopDetails(JSON.parse(savedShop)); } catch (e) {}
-      } else if (activeProfileId !== 'prof-main' && activeProfileId !== 'firm-main') {
-        const firmProf = profiles.find(p => p.id === activeProfileId);
-        setShopDetails({
-          firmId: activeProfileId,
-          name: firmProf?.name || 'Swarnkar Jewellery Shop',
-          tagline: 'सराफा एवं आभूषण विक्रेता',
-          address: '',
-          cityStatePincode: '',
-          phone: firmProf?.phone || '',
-          email: '',
-          gstin: firmProf?.gstin || 'URP-UNREGISTERED',
-          bisHallmarkRegNo: '',
-          panNo: '',
-          bankName: '',
-          accountNo: '',
-          ifscCode: '',
-          terms: ['बिक्री पर 3% GST लागू है।', 'हॉलमार्क आभूषण की शुद्धता की 100% गारंटी है।'],
-          logoUrl: firmProf?.logoUrl || undefined
-        });
-      }
-    }
-  }, [activeProfileId]);
 
   // Navigation tab state
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -337,21 +265,60 @@ export default function App() {
   });
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
-  // Network & Sync State
+  // Network, Firm Root & Sync State
   const [isOnline, setIsOnline] = useState<boolean>(() => navigator.onLine);
   const [isSynced, setIsSynced] = useState<boolean>(true);
+  const [isFirmRootReady, setIsFirmRootReady] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusType>('synced');
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncRetryNonce, setSyncRetryNonce] = useState<number>(0);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
+  const [migrationPrompt, setMigrationPrompt] = useState<{
+    firmId: string;
+    counts: Record<string, number>;
+    totalCount: number;
+    snapshot: FirmDataSnapshot;
+  } | null>(null);
+
+  const handleFirestoreError = (err: any) => {
+    const code = err?.code || '';
+    const msg = err?.message || String(err);
+    console.error('Firestore error:', err);
+    if (code === 'permission-denied' || msg.toLowerCase().includes('permission')) {
+      setSyncStatus('permission-error');
+      setIsSynced(false);
+      setSyncError(`Firestore अनुमति त्रुटि (Permission Error): ${msg}`);
+    } else if (!navigator.onLine || code === 'unavailable') {
+      setSyncStatus('offline');
+      setIsSynced(false);
+      setSyncError(null);
+    } else {
+      setSyncStatus('error');
+      setIsSynced(false);
+      setSyncError(`Firestore सिंक त्रुटि: ${msg}`);
+    }
+  };
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (isFirmRootReady && !syncError) {
+        setSyncStatus('synced');
+      }
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      if (!syncError) {
+        setSyncStatus('offline');
+      }
+    };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [isFirmRootReady, syncError]);
 
   // Modals state
   const [isProfilesModalOpen, setIsProfilesModalOpen] = useState(false);
@@ -366,83 +333,181 @@ export default function App() {
 
   const [printingInvoices, setPrintingInvoices] = useState<GSTInvoice[] | null>(null);
 
-  // Firestore Realtime Subscriptions for Active Firm
+  // Step 1: Ensure `firms/{firmId}` root document exists BEFORE any subcollection read/write
   useEffect(() => {
-    if (!activeProfileId) return;
+    if (!isAuthenticated || isDemoUser || !activeProfileId || !isFirmActive || !currentUserId) {
+      clearFirmRootReady();
+      setIsFirmRootReady(false);
+      return;
+    }
 
-    setIsSynced(true);
+    let cancelled = false;
+    setIsFirmRootReady(false);
+    clearFirmRootReady(activeProfileId);
+    setSyncStatus('syncing');
+    setSyncError(null);
+
+    // Clear stale in-memory data from any previous firm before switching
+    setInventory([]);
+    setCustomers([]);
+    setInvoices([]);
+    setVendors([]);
+    setPurchases([]);
+    setExpenses([]);
+    setTransfers([]);
+    setKarigars([]);
+    setJobCards([]);
+    setGirviLoans([]);
+    setGemstones([]);
+
+    const prof = profiles.find(p => p.id === activeProfileId);
+    setShopDetails(buildDefaultShopDetails(activeProfileId, prof));
+
+    (async () => {
+      try {
+        await ensureFirmRootDoc(
+          activeProfileId,
+          {
+            name: prof?.name || 'Swarnkar Jewellery Shop',
+            gstin: prof?.gstin || '',
+            phone: prof?.phone || '',
+            code: prof?.code,
+            counterName: prof?.counterName,
+            counterType: prof?.counterType,
+            operatorName: prof?.operatorName
+          },
+          { uid: currentUserId }
+        );
+        if (cancelled) return;
+
+        setIsFirmRootReady(true);
+        setIsSynced(true);
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+
+        // Check one-time legacy localStorage migration ONLY if Firestore is empty and user hasn't migrated
+        const alreadyMigrated = localStorage.getItem(`jewel_migration_done_${activeProfileId}`);
+        if (!alreadyMigrated) {
+          const legacyCheck = getLegacyLocalStorageData(activeProfileId);
+          if (legacyCheck.hasData) {
+            const hasCloudData = await checkFirmHasFirestoreData(activeProfileId, { uid: currentUserId });
+            if (!cancelled && !hasCloudData) {
+              setMigrationPrompt({
+                firmId: activeProfileId,
+                counts: legacyCheck.counts,
+                totalCount: legacyCheck.totalCount,
+                snapshot: legacyCheck.snapshot
+              });
+            }
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setIsFirmRootReady(false);
+          handleFirestoreError(err);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, isDemoUser, activeProfileId, isFirmActive, currentUserId, syncRetryNonce]);
+
+  // Step 2: Firestore Realtime Subscriptions (blocked until firms/{firmId} root doc is ready)
+  useEffect(() => {
+    if (!activeProfileId || !isFirmRootReady || isDemoUser || !isAuthenticated) return;
+
+    const onSubError = (err: Error) => handleFirestoreError(err);
+    const markSynced = () => {
+      setIsSynced(true);
+      setSyncError(null);
+      setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+    };
+
     const unsubs: (() => void)[] = [];
 
+    unsubs.push(subscribeToFirmDoc<ShopDetails>(activeProfileId, 'shop_details', 'main', (docData) => {
+      markSynced();
+      if (docData) {
+        setShopDetails(docData);
+      }
+    }, onSubError));
+
     unsubs.push(subscribeToFirmCollection<JewelleryItem>(activeProfileId, 'inventory', (items) => {
+      markSynced();
       setInventory(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<Customer>(activeProfileId, 'customers', (items) => {
+      markSynced();
       setCustomers(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items) => {
+      markSynced();
       setInvoices(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<Vendor>(activeProfileId, 'vendors', (items) => {
+      markSynced();
       setVendors(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items) => {
+      markSynced();
       setPurchases(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<ShopExpense>(activeProfileId, 'expenses', (items) => {
+      markSynced();
       setExpenses(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<CashBankTransfer>(activeProfileId, 'transfers', (items) => {
+      markSynced();
       setTransfers(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<Karigar>(activeProfileId, 'karigars', (items) => {
+      markSynced();
       setKarigars(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards', (items) => {
+      markSynced();
       setJobCards(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<GirviLoan>(activeProfileId, 'girvi', (items) => {
+      markSynced();
       setGirviLoans(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     unsubs.push(subscribeToFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones', (items) => {
+      markSynced();
       setGemstones(items);
-    }, () => setIsSynced(false)));
+    }, onSubError));
 
     return () => {
       unsubs.forEach(unsub => unsub());
     };
-  }, [activeProfileId]);
+  }, [activeProfileId, isFirmRootReady, isDemoUser, isAuthenticated]);
 
-  // Sync to LocalStorage on state change (Firm Scoped)
+  // Persist ONLY UI preferences in localStorage (NEVER firm ERP collections)
   useEffect(() => {
     localStorage.setItem('jewel_sidebar_collapsed', String(isSidebarCollapsed));
   }, [isSidebarCollapsed]);
 
   useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'shop_details'), JSON.stringify(shopDetails));
-    }
-  }, [shopDetails, activeProfileId]);
-
-  useEffect(() => {
     const uid = getEffectiveUserId();
-    if (uid) {
+    if (uid && uid !== 'demo') {
       localStorage.setItem(`jewel_user_${uid}_profiles`, JSON.stringify(profiles));
     }
   }, [profiles, isDemoUser, currentUserId]);
 
   useEffect(() => {
     const uid = getEffectiveUserId();
-    if (uid && activeProfileId) {
+    if (uid && uid !== 'demo' && activeProfileId) {
       localStorage.setItem(`jewel_user_${uid}_active_profile`, activeProfileId);
     }
   }, [activeProfileId, isDemoUser, currentUserId]);
@@ -460,74 +525,27 @@ export default function App() {
   }, [categories]);
 
   useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'inventory'), JSON.stringify(inventory));
-    }
-  }, [inventory, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'customers'), JSON.stringify(customers));
-    }
-  }, [customers, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'invoices'), JSON.stringify(invoices));
-    }
-  }, [invoices, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'vendors'), JSON.stringify(vendors));
-    }
-  }, [vendors, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'purchases'), JSON.stringify(purchases));
-    }
-  }, [purchases, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'expenses'), JSON.stringify(expenses));
-    }
-  }, [expenses, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'transfers'), JSON.stringify(transfers));
-    }
-  }, [transfers, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'karigars'), JSON.stringify(karigars));
-    }
-  }, [karigars, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'jobcards'), JSON.stringify(jobCards));
-    }
-  }, [jobCards, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'girvi'), JSON.stringify(girviLoans));
-    }
-  }, [girviLoans, activeProfileId]);
-
-  useEffect(() => {
-    if (activeProfileId) {
-      localStorage.setItem(getFirmStorageKey(activeProfileId, 'gemstones'), JSON.stringify(gemstones));
-    }
-  }, [gemstones, activeProfileId]);
-
-  useEffect(() => {
     localStorage.setItem('jewel_gemstone_rates_v1', JSON.stringify(gemstoneRates));
   }, [gemstoneRates]);
+
+  // Helper wrappers for gated Firestore writes (never swallow errors)
+  const persistFirmDoc = <T extends { id: string }>(colName: string, data: T) => {
+    if (isDemoUser || !activeProfileId) return;
+    if (!isFirmRootReady) {
+      handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। सेव रोका गया।`));
+      return;
+    }
+    saveFirmDoc(activeProfileId, colName, data).catch(handleFirestoreError);
+  };
+
+  const removeFirmDoc = (colName: string, docId: string) => {
+    if (isDemoUser || !activeProfileId) return;
+    if (!isFirmRootReady) {
+      handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। डिलीट रोका गया।`));
+      return;
+    }
+    deleteFirmDoc(activeProfileId, colName, docId).catch(handleFirestoreError);
+  };
 
   // Global Keyboard Shortcuts (F1-F12 + Girvi)
   useEffect(() => {
@@ -634,8 +652,27 @@ export default function App() {
     }
   };
 
-  const handleAddProfile = (newProfile: JewellerProfile) => {
+  const handleAddProfile = async (newProfile: JewellerProfile) => {
     setProfiles(prev => [...prev, newProfile]);
+    if (!isDemoUser && currentUserId) {
+      try {
+        await ensureFirmRootDoc(
+          newProfile.id,
+          {
+            name: newProfile.name,
+            gstin: newProfile.gstin,
+            phone: newProfile.phone,
+            code: newProfile.code,
+            counterName: newProfile.counterName,
+            counterType: newProfile.counterType,
+            operatorName: newProfile.operatorName
+          },
+          { uid: currentUserId }
+        );
+      } catch (err: any) {
+        handleFirestoreError(err);
+      }
+    }
   };
 
   const handleUpdateProfile = (updatedProfile: JewellerProfile) => {
@@ -645,19 +682,19 @@ export default function App() {
   // Gemstone Handlers
   const handleAddGemstone = (newGem: CertifiedGemstone) => {
     const tagged = { ...newGem, firmId: activeProfileId };
-    setGemstones(prev => [tagged, ...prev]);
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'gemstones', tagged);
+    if (isDemoUser) setGemstones(prev => [tagged, ...prev]);
+    persistFirmDoc('gemstones', tagged);
   };
 
   const handleUpdateGemstone = (updatedGem: CertifiedGemstone) => {
     const tagged = { ...updatedGem, firmId: activeProfileId };
-    setGemstones(prev => prev.map(g => g.id === updatedGem.id ? tagged : g));
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'gemstones', tagged);
+    if (isDemoUser) setGemstones(prev => prev.map(g => g.id === updatedGem.id ? tagged : g));
+    persistFirmDoc('gemstones', tagged);
   };
 
   const handleDeleteGemstone = (id: string) => {
-    setGemstones(prev => prev.filter(g => g.id !== id));
-    if (activeProfileId) deleteFirmDoc(activeProfileId, 'gemstones', id);
+    if (isDemoUser) setGemstones(prev => prev.filter(g => g.id !== id));
+    removeFirmDoc('gemstones', id);
   };
 
   const handleUpdateGemstoneRates = (updatedRates: GemstoneRate[]) => {
@@ -675,19 +712,19 @@ export default function App() {
 
   const handleAddCustomer = (newCust: Customer) => {
     const tagged = { ...newCust, firmId: activeProfileId };
-    setCustomers(prev => [tagged, ...prev]);
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'customers', tagged);
+    if (isDemoUser) setCustomers(prev => [tagged, ...prev]);
+    persistFirmDoc('customers', tagged);
   };
 
   const handleUpdateCustomer = (updatedCust: Customer) => {
     const tagged = { ...updatedCust, firmId: activeProfileId };
-    setCustomers(prev => prev.map(c => c.id === updatedCust.id ? tagged : c));
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'customers', tagged);
+    if (isDemoUser) setCustomers(prev => prev.map(c => c.id === updatedCust.id ? tagged : c));
+    persistFirmDoc('customers', tagged);
   };
 
   const handleDeleteCustomer = (id: string) => {
-    setCustomers(prev => prev.filter(c => c.id !== id));
-    if (activeProfileId) deleteFirmDoc(activeProfileId, 'customers', id);
+    if (isDemoUser) setCustomers(prev => prev.filter(c => c.id !== id));
+    removeFirmDoc('customers', id);
   };
 
   // Sales Invoice Creation
@@ -699,6 +736,35 @@ export default function App() {
       alert('कोई फर्म सक्रिय नहीं है। कृपया पहले अपनी फर्म चुनें या रजिस्टर करें।');
       return;
     }
+
+    if (isDemoUser) {
+      const istInfo = getISTDate();
+      const seq = invoices.length + 1;
+      const demoInvoice: GSTInvoice = {
+        ...invoiceDraft,
+        id: `demo-inv-${Date.now()}`,
+        invoiceNumber: formatSequentialNumber(prefix, istInfo.financialYear.finYearStr, seq),
+        firmId: activeProfileId
+      };
+      setInvoices(prev => [demoInvoice, ...prev]);
+      setInventory(prev =>
+        prev.map(it => {
+          const soldQty = invoiceDraft.items
+            .filter(c => c.itemId === it.id)
+            .reduce((s, c) => s + (c.quantity || 1), 0);
+          return soldQty > 0 ? { ...it, quantity: Math.max(0, it.quantity - soldQty) } : it;
+        })
+      );
+      setPrintingInvoices([demoInvoice]);
+      return demoInvoice;
+    }
+
+    if (!isFirmRootReady) {
+      const msg = 'फर्म रूट डॉक्यूमेंट तैयार नहीं है। कृपया सिंक पूरा होने दें या Retry दबाएं।';
+      alert(msg);
+      throw new Error(msg);
+    }
+
     try {
       const createdInvoice = await createInvoiceAtomic(
         activeProfileId,
@@ -710,7 +776,7 @@ export default function App() {
       setPrintingInvoices([createdInvoice]);
       return createdInvoice;
     } catch (err: any) {
-      console.error('Invoice creation failed:', err);
+      handleFirestoreError(err);
       alert(`इनवॉइस बनाने में त्रुटि: ${err.message || err}`);
       throw err;
     }
@@ -734,55 +800,62 @@ export default function App() {
       },
       status
     };
-    setInvoices(prev => prev.map(i => i.id === id ? updated : i));
-    saveFirmDoc(activeProfileId, 'invoices', updated);
+    if (isDemoUser) setInvoices(prev => prev.map(i => i.id === id ? updated : i));
+    persistFirmDoc('invoices', updated);
   };
 
   // Inward Purchase Creation
-  const handleAddPurchase = (newPurchase: PurchaseInvoice, stockItemsToInsert: JewelleryItem[]) => {
+  const handleAddPurchase = async (newPurchase: PurchaseInvoice, stockItemsToInsert: JewelleryItem[]) => {
     if (!activeProfileId) return;
     const taggedPurchase = { ...newPurchase, firmId: activeProfileId };
-    setPurchases(prev => [taggedPurchase, ...prev]);
-    saveFirmDoc(activeProfileId, 'purchases', taggedPurchase);
-
-    // Update vendor dues & purchases count
+    const taggedItems = stockItemsToInsert.map(it => ({ ...it, firmId: activeProfileId }));
     const vendor = vendors.find(v => v.id === newPurchase.vendorId);
-    if (vendor) {
-      const updatedVendor: Vendor = {
-        ...vendor,
-        cashBalanceDue: vendor.cashBalanceDue + newPurchase.balanceDue,
-        totalPurchasesAmount: vendor.totalPurchasesAmount + newPurchase.grandTotal
-      };
-      setVendors(prev => prev.map(v => v.id === vendor.id ? updatedVendor : v));
-      saveFirmDoc(activeProfileId, 'vendors', updatedVendor);
+
+    if (isDemoUser) {
+      setPurchases(prev => [taggedPurchase, ...prev]);
+      if (vendor) {
+        const updatedVendor: Vendor = {
+          ...vendor,
+          cashBalanceDue: vendor.cashBalanceDue + newPurchase.balanceDue,
+          totalPurchasesAmount: vendor.totalPurchasesAmount + newPurchase.grandTotal
+        };
+        setVendors(prev => prev.map(v => v.id === vendor.id ? updatedVendor : v));
+      }
+      if (taggedItems.length > 0) {
+        setInventory(prev => [...taggedItems, ...prev]);
+      }
+      return;
     }
 
-    // If stock items were marked for insertion, add them directly to inventory!
-    if (stockItemsToInsert.length > 0) {
-      stockItemsToInsert.forEach(item => {
-        const tagged = { ...item, firmId: activeProfileId };
-        setInventory(prev => [tagged, ...prev]);
-        saveFirmDoc(activeProfileId, 'inventory', tagged);
-      });
+    if (!isFirmRootReady) {
+      handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। खरीद सेव रोकी गई।`));
+      return;
+    }
+
+    try {
+      await createPurchaseAtomic(activeProfileId, taggedPurchase, taggedItems, vendor);
+    } catch (err: any) {
+      handleFirestoreError(err);
+      alert(`खरीद बिल सेव करने में त्रुटि: ${err?.message || err}`);
     }
   };
 
   // Vendors Handlers
   const handleAddVendor = (newVendor: Vendor) => {
     const tagged = { ...newVendor, firmId: activeProfileId };
-    setVendors(prev => [tagged, ...prev]);
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'vendors', tagged);
+    if (isDemoUser) setVendors(prev => [tagged, ...prev]);
+    persistFirmDoc('vendors', tagged);
   };
 
   const handleUpdateVendor = (updatedVendor: Vendor) => {
     const tagged = { ...updatedVendor, firmId: activeProfileId };
-    setVendors(prev => prev.map(v => v.id === updatedVendor.id ? tagged : v));
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'vendors', tagged);
+    if (isDemoUser) setVendors(prev => prev.map(v => v.id === updatedVendor.id ? tagged : v));
+    persistFirmDoc('vendors', tagged);
   };
 
   const handleDeleteVendor = (id: string) => {
-    setVendors(prev => prev.filter(v => v.id !== id));
-    if (activeProfileId) deleteFirmDoc(activeProfileId, 'vendors', id);
+    if (isDemoUser) setVendors(prev => prev.filter(v => v.id !== id));
+    removeFirmDoc('vendors', id);
   };
 
   const handleUpdateVendorBalance = (vendorId: string, cashDelta: number, goldDelta: number) => {
@@ -793,28 +866,28 @@ export default function App() {
         cashBalanceDue: vendor.cashBalanceDue + cashDelta,
         goldBalanceOwed: vendor.goldBalanceOwed + goldDelta
       };
-      setVendors(prev => prev.map(v => v.id === vendorId ? updated : v));
-      saveFirmDoc(activeProfileId, 'vendors', updated);
+      if (isDemoUser) setVendors(prev => prev.map(v => v.id === vendorId ? updated : v));
+      persistFirmDoc('vendors', updated);
     }
   };
 
   // Expenses Handlers
   const handleAddExpense = (newExpense: ShopExpense) => {
     const tagged = { ...newExpense, firmId: activeProfileId };
-    setExpenses(prev => [tagged, ...prev]);
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'expenses', tagged);
+    if (isDemoUser) setExpenses(prev => [tagged, ...prev]);
+    persistFirmDoc('expenses', tagged);
   };
 
   const handleDeleteExpense = (id: string) => {
-    setExpenses(prev => prev.filter(e => e.id !== id));
-    if (activeProfileId) deleteFirmDoc(activeProfileId, 'expenses', id);
+    if (isDemoUser) setExpenses(prev => prev.filter(e => e.id !== id));
+    removeFirmDoc('expenses', id);
   };
 
   // Contra Transfer Handlers
   const handleAddTransfer = (newTransfer: CashBankTransfer) => {
     const tagged = { ...newTransfer, firmId: activeProfileId };
-    setTransfers(prev => [tagged, ...prev]);
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'transfers', tagged);
+    if (isDemoUser) setTransfers(prev => [tagged, ...prev]);
+    persistFirmDoc('transfers', tagged);
   };
 
   // Inventory Handlers
@@ -823,39 +896,38 @@ export default function App() {
     if (!item || !activeProfileId) return;
     const newQty = qtyDeltaOrNewValue < 0 ? Math.max(0, item.quantity + qtyDeltaOrNewValue) : qtyDeltaOrNewValue;
     const updated = { ...item, quantity: newQty, firmId: activeProfileId };
-    setInventory(prev => prev.map(i => i.id === itemId ? updated : i));
-    saveFirmDoc(activeProfileId, 'inventory', updated);
+    if (isDemoUser) setInventory(prev => prev.map(i => i.id === itemId ? updated : i));
+    persistFirmDoc('inventory', updated);
   };
 
   const handleSaveInventoryItem = (item: JewelleryItem) => {
     const tagged = { ...item, firmId: activeProfileId };
-    setInventory(prev => {
-      const exists = prev.some(i => i.id === item.id);
-      if (exists) {
-        return prev.map(i => i.id === item.id ? tagged : i);
-      }
-      return [tagged, ...prev];
-    });
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'inventory', tagged);
+    if (isDemoUser) {
+      setInventory(prev => {
+        const exists = prev.some(i => i.id === item.id);
+        return exists ? prev.map(i => i.id === item.id ? tagged : i) : [tagged, ...prev];
+      });
+    }
+    persistFirmDoc('inventory', tagged);
   };
 
   const handleItemGenerated = (newItem: JewelleryItem) => {
     const tagged = { ...newItem, firmId: activeProfileId };
-    setInventory(prev => [tagged, ...prev]);
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'inventory', tagged);
+    if (isDemoUser) setInventory(prev => [tagged, ...prev]);
+    persistFirmDoc('inventory', tagged);
   };
 
   const handleDeleteInventoryItem = (id: string) => {
-    setInventory(prev => prev.filter(i => i.id !== id));
-    if (activeProfileId) deleteFirmDoc(activeProfileId, 'inventory', id);
+    if (isDemoUser) setInventory(prev => prev.filter(i => i.id !== id));
+    removeFirmDoc('inventory', id);
   };
 
   // Karigar Handlers
   const handleAddJobCard = (card: KarigarJobCard) => {
     if (!activeProfileId) return;
     const tagged = { ...card, firmId: activeProfileId };
-    setJobCards(prev => [tagged, ...prev]);
-    saveFirmDoc(activeProfileId, 'jobcards', tagged);
+    if (isDemoUser) setJobCards(prev => [tagged, ...prev]);
+    persistFirmDoc('jobcards', tagged);
 
     const karigar = karigars.find(k => k.id === card.karigarId);
     if (karigar) {
@@ -865,16 +937,16 @@ export default function App() {
         silverBalanceGram: card.metal === 'Silver' ? karigar.silverBalanceGram + card.rawMetalIssuedWeight : karigar.silverBalanceGram,
         activeJobsCount: karigar.activeJobsCount + 1,
       };
-      setKarigars(prev => prev.map(k => k.id === karigar.id ? updatedK : k));
-      saveFirmDoc(activeProfileId, 'karigars', updatedK);
+      if (isDemoUser) setKarigars(prev => prev.map(k => k.id === karigar.id ? updatedK : k));
+      persistFirmDoc('karigars', updatedK);
     }
   };
 
   const handleUpdateJobCard = (updatedCard: KarigarJobCard) => {
     if (!activeProfileId) return;
     const tagged = { ...updatedCard, firmId: activeProfileId };
-    setJobCards(prev => prev.map(c => c.id === updatedCard.id ? tagged : c));
-    saveFirmDoc(activeProfileId, 'jobcards', tagged);
+    if (isDemoUser) setJobCards(prev => prev.map(c => c.id === updatedCard.id ? tagged : c));
+    persistFirmDoc('jobcards', tagged);
 
     if (updatedCard.status === 'Received') {
       const karigar = karigars.find(k => k.id === updatedCard.karigarId);
@@ -885,32 +957,32 @@ export default function App() {
           goldBalanceGram: Math.max(0, karigar.goldBalanceGram - goldRet),
           activeJobsCount: Math.max(0, karigar.activeJobsCount - 1),
         };
-        setKarigars(prev => prev.map(k => k.id === karigar.id ? updatedK : k));
-        saveFirmDoc(activeProfileId, 'karigars', updatedK);
+        if (isDemoUser) setKarigars(prev => prev.map(k => k.id === karigar.id ? updatedK : k));
+        persistFirmDoc('karigars', updatedK);
       }
     }
   };
 
   const handleAddKarigar = (newKg: Karigar) => {
     const tagged = { ...newKg, firmId: activeProfileId };
-    setKarigars(prev => [...prev, tagged]);
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'karigars', tagged);
+    if (isDemoUser) setKarigars(prev => [...prev, tagged]);
+    persistFirmDoc('karigars', tagged);
   };
 
   // Girvi Handlers
   const handleAddGirviLoan = (newLoan: GirviLoan) => {
     const tagged = { ...newLoan, firmId: activeProfileId };
-    setGirviLoans(prev => [tagged, ...prev]);
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'girvi', tagged);
+    if (isDemoUser) setGirviLoans(prev => [tagged, ...prev]);
+    persistFirmDoc('girvi', tagged);
   };
 
   const handleUpdateGirviLoan = (updatedLoan: GirviLoan) => {
     const tagged = { ...updatedLoan, firmId: activeProfileId };
-    setGirviLoans(prev => prev.map(l => l.id === updatedLoan.id ? tagged : l));
-    if (activeProfileId) saveFirmDoc(activeProfileId, 'girvi', tagged);
+    if (isDemoUser) setGirviLoans(prev => prev.map(l => l.id === updatedLoan.id ? tagged : l));
+    persistFirmDoc('girvi', tagged);
   };
 
-  const handleRegisterFirmFromScreen = (newProfile: JewellerProfile, shopUpdate?: Partial<ShopDetails>) => {
+  const handleRegisterFirmFromScreen = async (newProfile: JewellerProfile, shopUpdate?: Partial<ShopDetails>) => {
     const uid = getEffectiveUserId();
     const newFirmId = newProfile.id;
     newProfile.firmId = newFirmId;
@@ -937,26 +1009,32 @@ export default function App() {
       logoUrl: shopUpdate?.logoUrl || undefined
     };
 
-    // Save firm shop_details to Firestore
-    saveFirmDoc(newFirmId, 'shop_details', { id: 'main', ...newShopDetails });
-
-    // Store empty array defaults for the new firm
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'inventory'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'customers'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'invoices'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'vendors'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'purchases'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'expenses'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'transfers'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'karigars'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'jobcards'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'girvi'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'gemstones'), JSON.stringify([]));
-    localStorage.setItem(getFirmStorageKey(newFirmId, 'shop_details'), JSON.stringify(newShopDetails));
+    if (!isDemoUser && uid) {
+      try {
+        await ensureFirmRootDoc(
+          newFirmId,
+          {
+            name: newProfile.name,
+            gstin: newProfile.gstin,
+            phone: newProfile.phone || shopUpdate?.phone || '',
+            code: newProfile.code,
+            counterName: newProfile.counterName,
+            counterType: newProfile.counterType,
+            operatorName: newProfile.operatorName
+          },
+          { uid }
+        );
+        await saveFirmDoc(newFirmId, 'shop_details', { id: 'main', ...newShopDetails }, { uid });
+      } catch (err: any) {
+        handleFirestoreError(err);
+        alert(`फर्म रजिस्ट्रेशन त्रुटि: ${err?.message || err}`);
+        return;
+      }
+    }
 
     const updatedProfiles = [newProfile, ...profiles];
     setProfiles(updatedProfiles);
-    if (uid) {
+    if (uid && uid !== 'demo') {
       localStorage.setItem(`jewel_user_${uid}_profiles`, JSON.stringify(updatedProfiles));
       localStorage.setItem(`jewel_user_${uid}_active_profile`, newFirmId);
       localStorage.setItem(`jewel_user_${uid}_firm_confirmed`, 'true');
@@ -985,7 +1063,7 @@ export default function App() {
     const uid = getEffectiveUserId();
     setActiveProfileId(firmId);
     setIsFirmActive(true);
-    if (uid) {
+    if (uid && uid !== 'demo') {
       localStorage.setItem(`jewel_user_${uid}_firm_confirmed`, 'true');
       localStorage.setItem(`jewel_user_${uid}_active_profile`, firmId);
     }
@@ -993,9 +1071,12 @@ export default function App() {
 
   const handleLogout = () => {
     const uid = getEffectiveUserId();
-    if (uid) {
+    if (uid && uid !== 'demo') {
       localStorage.removeItem(`jewel_user_${uid}_firm_confirmed`);
     }
+    clearFirmRootReady();
+    setIsFirmRootReady(false);
+    setSyncError(null);
     setIsFirmActive(false);
     setActiveProfileId('');
     setIsDemoUser(false);
@@ -1025,15 +1106,9 @@ export default function App() {
     const uid = getEffectiveUserId();
     const updatedProfiles = profiles.filter(p => p.id !== firmIdToDelete);
     setProfiles(updatedProfiles);
-    if (uid) {
+    if (uid && uid !== 'demo') {
       localStorage.setItem(`jewel_user_${uid}_profiles`, JSON.stringify(updatedProfiles));
     }
-
-    // Clear local storage keys for this firm
-    const collections = ['shop_details', 'inventory', 'customers', 'invoices', 'vendors', 'purchases', 'expenses', 'transfers', 'karigars', 'jobcards', 'girvi', 'gemstones'];
-    collections.forEach(col => {
-      localStorage.removeItem(getFirmStorageKey(firmIdToDelete, col));
-    });
 
     if (activeProfileId === firmIdToDelete) {
       if (updatedProfiles.length > 0) {
@@ -1059,6 +1134,18 @@ export default function App() {
             const demoProfs = getUserProfiles('demo');
             setProfiles(demoProfs);
             setActiveProfileId(demoProfs[0]?.id || 'prof-main');
+            setShopDetails(initialShopDetails);
+            setInventory(initialInventory);
+            setCustomers(initialCustomers);
+            setInvoices(initialInvoices);
+            setVendors(initialVendors);
+            setPurchases(initialPurchases);
+            setExpenses(initialExpenses);
+            setTransfers(initialTransfers);
+            setKarigars(initialKarigars);
+            setJobCards(initialKarigarJobCards);
+            setGirviLoans(initialGirviLoans);
+            setGemstones(initialGemstones);
             setIsFirmActive(true);
             return;
           }
@@ -1120,8 +1207,33 @@ export default function App() {
         onToggleTheme={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
         isOnline={isOnline}
         isSynced={isSynced}
+        syncStatus={syncStatus}
+        syncError={syncError}
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
       />
+
+      {/* Surfaced Firestore Sync / Permission Error Banner */}
+      {syncError && (
+        <div className="bg-rose-50 dark:bg-rose-950/80 border-b border-rose-300 dark:border-rose-800 px-4 py-2 text-xs font-bold text-rose-800 dark:text-rose-200 flex flex-wrap items-center justify-between gap-2">
+          <span>⚠️ {syncError}</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSyncRetryNonce(n => n + 1)}
+              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+            >
+              Retry Sync
+            </button>
+            <button
+              type="button"
+              onClick={() => setSyncError(null)}
+              className="px-2 py-1 text-rose-700 dark:text-rose-300 hover:underline text-[11px] cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main ERP Layout: Left-Side Vertical Sidebar List + Right-Side Content Viewport */}
       <div className="flex-1 flex w-full relative min-h-[calc(100vh-100px)] overflow-hidden">
@@ -1226,7 +1338,10 @@ export default function App() {
             onOpenQuickGenerate={() => setIsQuickGenerateOpen(true)}
             onBulkAddItems={(newItems) => {
               const taggedItems = newItems.map(it => ({ ...it, firmId: activeProfileId }));
-              setInventory(prev => [...taggedItems, ...prev]);
+              if (isDemoUser) {
+                setInventory(prev => [...taggedItems, ...prev]);
+              }
+              taggedItems.forEach(it => persistFirmDoc('inventory', it));
             }}
           />
         )}
@@ -1241,17 +1356,19 @@ export default function App() {
             onDeleteGemstone={handleDeleteGemstone}
             onUpdateGemstoneRates={handleUpdateGemstoneRates}
             onSellInPOS={(gemItem) => {
-              setInventory(prev => {
-                if (prev.some(i => i.id === gemItem.id)) return prev;
-                return [gemItem, ...prev];
-              });
+              const tagged = { ...gemItem, firmId: activeProfileId };
+              if (!inventory.some(i => i.id === tagged.id)) {
+                if (isDemoUser) setInventory(prev => [tagged, ...prev]);
+                persistFirmDoc('inventory', tagged);
+              }
               setActiveTab('pos');
             }}
             onPrintTag={(gemItem) => {
-              setInventory(prev => {
-                if (prev.some(i => i.id === gemItem.id)) return prev;
-                return [gemItem, ...prev];
-              });
+              const tagged = { ...gemItem, firmId: activeProfileId };
+              if (!inventory.some(i => i.id === tagged.id)) {
+                if (isDemoUser) setInventory(prev => [tagged, ...prev]);
+                persistFirmDoc('inventory', tagged);
+              }
               setActiveTab('barcode');
             }}
           />
@@ -1331,24 +1448,40 @@ export default function App() {
             onViewPrintInvoice={(inv) => setPrintingInvoices([inv])}
             onBatchPrintInvoices={(invs) => setPrintingInvoices(invs)}
             onDeleteInvoice={handleDeleteInvoice}
-            onCancelInvoice={(inv, reason) => {
-              // Atomically cancel invoice and restore stock/customer ledger
-              cancelInvoiceAtomic(activeProfileId, inv, reason, shopDetails.name || 'Owner')
-                .catch(err => console.warn('Cancel invoice sync error:', err));
-              
-              // In-memory update
-              setInvoices(prev => prev.map(i => i.id === inv.id ? {
-                ...i,
-                status: 'Cancelled',
-                cancelReason: reason,
-                cancelledBy: shopDetails.name || 'Owner',
-                cancelledAt: new Date().toISOString()
-              } : i));
+            onCancelInvoice={async (inv, reason) => {
+              if (isDemoUser) {
+                setInvoices(prev => prev.map(i => i.id === inv.id ? {
+                  ...i,
+                  status: 'Cancelled',
+                  cancelReason: reason,
+                  cancelledBy: shopDetails.name || 'Owner',
+                  cancelledAt: getISTDate().isoDateStr
+                } : i));
+                setInventory(prev =>
+                  prev.map(it => {
+                    const restoreQty = inv.items
+                      .filter(c => c.itemId === it.id)
+                      .reduce((s, c) => s + (c.quantity || 1), 0);
+                    return restoreQty > 0 ? { ...it, quantity: it.quantity + restoreQty } : it;
+                  })
+                );
+                return;
+              }
 
-              // Restore stock
-              inv.items.forEach(it => {
-                if (it.itemId) handleUpdateInventoryQty(it.itemId, it.quantity || 1);
-              });
+              if (!activeProfileId || !isFirmRootReady) {
+                const msg = 'फर्म रूट डॉक्यूमेंट तैयार नहीं है। इनवॉइस रद्द नहीं किया जा सकता।';
+                alert(msg);
+                throw new Error(msg);
+              }
+
+              try {
+                // Only call cancelInvoiceAtomic and await it; UI updates from Firestore snapshot
+                await cancelInvoiceAtomic(activeProfileId, inv, reason, shopDetails.name || 'Owner');
+              } catch (err: any) {
+                handleFirestoreError(err);
+                alert(`इनवॉइस रद्द करने में त्रुटि: ${err?.message || err}`);
+                throw err;
+              }
             }}
             onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
           />
@@ -1474,7 +1607,7 @@ export default function App() {
         shopDetails={shopDetails}
         onSaveShopDetails={(updated) => {
           setShopDetails(updated);
-          if (activeProfileId) saveFirmDoc(activeProfileId, 'shop_details', { id: 'main', ...updated });
+          persistFirmDoc('shop_details', { id: 'main', ...updated });
         }}
       />
 
@@ -1521,20 +1654,50 @@ export default function App() {
           profiles
         }}
         onRestoreData={(restored) => {
-          if (restored.inventory) setInventory(restored.inventory);
-          if (restored.customers) setCustomers(restored.customers);
-          if (restored.invoices) setInvoices(restored.invoices);
-          if (restored.vendors) setVendors(restored.vendors);
-          if (restored.purchases) setPurchases(restored.purchases);
-          if (restored.expenses) setExpenses(restored.expenses);
-          if (restored.transfers) setTransfers(restored.transfers);
-          if (restored.karigars) setKarigars(restored.karigars);
-          if (restored.jobCards) setJobCards(restored.jobCards);
-          if (restored.girviLoans) setGirviLoans(restored.girviLoans);
-          if (restored.gemstones) setGemstones(restored.gemstones);
-          if (restored.shopDetails) setShopDetails(restored.shopDetails);
+          if (isDemoUser) {
+            if (restored.inventory) setInventory(restored.inventory);
+            if (restored.customers) setCustomers(restored.customers);
+            if (restored.invoices) setInvoices(restored.invoices);
+            if (restored.vendors) setVendors(restored.vendors);
+            if (restored.purchases) setPurchases(restored.purchases);
+            if (restored.expenses) setExpenses(restored.expenses);
+            if (restored.transfers) setTransfers(restored.transfers);
+            if (restored.karigars) setKarigars(restored.karigars);
+            if (restored.jobCards) setJobCards(restored.jobCards);
+            if (restored.girviLoans) setGirviLoans(restored.girviLoans);
+            if (restored.gemstones) setGemstones(restored.gemstones);
+            if (restored.shopDetails) setShopDetails(restored.shopDetails);
+            return;
+          }
+          // Upload restored collections to Firestore
+          if (restored.shopDetails) persistFirmDoc('shop_details', { id: 'main', ...restored.shopDetails });
+          (restored.inventory || []).forEach((it: JewelleryItem) => persistFirmDoc('inventory', { ...it, firmId: activeProfileId }));
+          (restored.customers || []).forEach((c: Customer) => persistFirmDoc('customers', { ...c, firmId: activeProfileId }));
+          (restored.invoices || []).forEach((inv: GSTInvoice) => persistFirmDoc('invoices', { ...inv, firmId: activeProfileId }));
+          (restored.vendors || []).forEach((v: Vendor) => persistFirmDoc('vendors', { ...v, firmId: activeProfileId }));
+          (restored.purchases || []).forEach((p: PurchaseInvoice) => persistFirmDoc('purchases', { ...p, firmId: activeProfileId }));
+          (restored.expenses || []).forEach((ex: ShopExpense) => persistFirmDoc('expenses', { ...ex, firmId: activeProfileId }));
+          (restored.transfers || []).forEach((tr: CashBankTransfer) => persistFirmDoc('transfers', { ...tr, firmId: activeProfileId }));
+          (restored.karigars || []).forEach((k: Karigar) => persistFirmDoc('karigars', { ...k, firmId: activeProfileId }));
+          (restored.jobCards || []).forEach((j: KarigarJobCard) => persistFirmDoc('jobcards', { ...j, firmId: activeProfileId }));
+          (restored.girviLoans || []).forEach((g: GirviLoan) => persistFirmDoc('girvi', { ...g, firmId: activeProfileId }));
+          (restored.gemstones || []).forEach((gm: CertifiedGemstone) => persistFirmDoc('gemstones', { ...gm, firmId: activeProfileId }));
         }}
       />
+
+      {/* First-load Legacy localStorage -> Firestore Migration Modal */}
+      {migrationPrompt && (
+        <LegacyMigrationModal
+          isOpen={true}
+          firmId={migrationPrompt.firmId}
+          firmName={activeProfile?.name || shopDetails.name}
+          counts={migrationPrompt.counts}
+          totalCount={migrationPrompt.totalCount}
+          legacySnapshot={migrationPrompt.snapshot}
+          onComplete={() => setMigrationPrompt(null)}
+          onSkip={() => setMigrationPrompt(null)}
+        />
+      )}
 
     </div>
   );

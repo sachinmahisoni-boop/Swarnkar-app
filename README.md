@@ -66,6 +66,10 @@ npm run dev
 # Run unit tests
 npm test
 
+# Run Firebase Firestore Emulator security rules & transaction integration tests
+# (Requires Java JRE 17+ and firebase-tools installed)
+npm run test:emulator
+
 # Lint & build
 npm run lint
 npm run build

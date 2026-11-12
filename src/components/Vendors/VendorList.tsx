@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Vendor } from '../../types';
 import { Building2, Plus, Search, Phone, Mail, MapPin, Scale, DollarSign, Edit3, Trash2, X, Check, ShieldCheck } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface VendorListProps {
   vendors: Vendor[];
@@ -114,7 +115,7 @@ export const VendorList: React.FC<VendorListProps> = ({
         silverBalanceOwed: Number(silverBalanceOwed) || 0,
         cashBalanceDue: Number(cashBalanceDue) || 0,
         totalPurchasesAmount: 0,
-        createdAt: new Date().toISOString().split('T')[0]
+        createdAt: getISTDate().isoDateStr
       };
       onAddVendor(newV);
     }

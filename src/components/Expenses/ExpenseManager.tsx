@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShopExpense, ExpenseCategory } from '../../types';
 import { ReceiptText, Plus, Search, Calendar, DollarSign, Wallet, Building2, Trash2, X, PieChart, Sparkles } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface ExpenseManagerProps {
   expenses: ShopExpense[];
@@ -20,7 +21,7 @@ export const ExpenseManager: React.FC<ExpenseManagerProps> = ({
 
   // Form State
   const [voucherNo, setVoucherNo] = useState(`EXP-2026-${String(expenses.length + 45).padStart(4, '0')}`);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(getISTDate().isoDateStr);
   const [category, setCategory] = useState<ExpenseCategory>('Tea & Refreshment (चाय-नाश्ता)');
   const [amount, setAmount] = useState<number>(500);
   const [paymentSource, setPaymentSource] = useState<'Cash in Hand' | 'Bank Account'>('Cash in Hand');

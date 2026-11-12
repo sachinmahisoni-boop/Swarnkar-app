@@ -12,6 +12,7 @@ import {
   FileText, 
   RefreshCw 
 } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 export interface BullionSauda {
   id: string;
@@ -106,8 +107,8 @@ export const BullionTradingDesk: React.FC<BullionTradingDeskProps> = ({ rates })
       quantityGrams: Number(qty),
       ratePerGram: Number(saudaRate),
       totalAmount: total,
-      tradeDate: new Date().toISOString().split('T')[0],
-      deliveryDate: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
+      tradeDate: getISTDate().isoDateStr,
+      deliveryDate: getISTDate(new Date(Date.now() + 2 * 86400000)).isoDateStr,
       badlaChargesPerGram: Number(badla),
       status: 'Open / Pending'
     };

@@ -3,6 +3,7 @@ import { PurchaseInvoice, PurchaseItem, Vendor, MetalRate, JewelleryItem, MetalT
 import { Truck, Plus, Search, Calendar, Scale, Coins, ShieldCheck, CheckCircle2, DollarSign, X, PackagePlus, Eye, Printer, Building2, ArrowDownRight, UserPlus, Receipt } from 'lucide-react';
 import { AddVendorModal } from '../Vendors/AddVendorModal';
 import { VendorList } from '../Vendors/VendorList';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface PurchaseManagerProps {
   purchases: PurchaseInvoice[];
@@ -39,7 +40,7 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
   // New Purchase Form State
   const [vendorId, setVendorId] = useState(vendors[0]?.id || '');
   const [purchaseBillNo, setPurchaseBillNo] = useState(`PUR-2026-${String(purchases.length + 18).padStart(4, '0')}`);
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [purchaseDate, setPurchaseDate] = useState(getISTDate().isoDateStr);
   const [purchaseType, setPurchaseType] = useState<'GST_INVOICE' | 'ESTIMATE_BILL'>('GST_INVOICE');
   const [paymentMode, setPaymentMode] = useState<PurchaseInvoice['paymentMode']>('Bank Transfer');
   const [amountPaid, setAmountPaid] = useState<number>(0);

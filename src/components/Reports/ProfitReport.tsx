@@ -37,6 +37,7 @@ import {
   Eye
 } from 'lucide-react';
 import { ShreemLogo } from '../ShreemLogo';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface ProfitReportProps {
   invoices: GSTInvoice[];
@@ -132,11 +133,10 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
     return Math.round(metalCost + wastageCost + makingCharge + (item.stoneValue || 0) + huidFee);
   };
 
-  // Date filtering logic for invoices
-  const todayStr = new Date().toISOString().split('T')[0];
-  const yesterdayDate = new Date();
-  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-  const yesterdayStr = yesterdayDate.toISOString().split('T')[0];
+  // Date filtering logic for invoices (IST)
+  const todayStr = getISTDate().isoDateStr;
+  const yesterdayStr = getISTDate(new Date(Date.now() - 86400000)).isoDateStr;
+  const weekAgoStr = getISTDate(new Date(Date.now() - 7 * 86400000)).isoDateStr;
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter(inv => {
@@ -147,9 +147,7 @@ export const ProfitReport: React.FC<ProfitReportProps> = ({
         return inv.date === yesterdayStr;
       }
       if (dateRangePreset === 'week') {
-        const weekAgo = new Date();
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        return new Date(inv.date) >= weekAgo;
+        return inv.date >= weekAgoStr;
       }
       if (dateRangePreset === 'month') {
         const currentMonth = todayStr.substring(0, 7);

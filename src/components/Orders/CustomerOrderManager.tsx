@@ -21,6 +21,7 @@ import {
   X, 
   Edit3 
 } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 export interface CustomerOrder {
   id: string;
@@ -183,8 +184,8 @@ export const CustomerOrderManager: React.FC<CustomerOrderManagerProps> = ({
     const newOrd: CustomerOrder = {
       id: `ord-${Date.now()}`,
       orderNo: `ORD-2026-0${Math.floor(83 + Math.random() * 90)}`,
-      orderDate: new Date().toISOString().split('T')[0],
-      deliveryDate: newDeliveryDate || new Date(Date.now() + 10 * 86400000).toISOString().split('T')[0],
+      orderDate: getISTDate().isoDateStr,
+      deliveryDate: newDeliveryDate || getISTDate(new Date(Date.now() + 10 * 86400000)).isoDateStr,
       customerId: `cust-${Date.now()}`,
       customerName: newCustName,
       customerPhone: newCustPhone,

@@ -18,20 +18,24 @@ service cloud.firestore {
     function isFirmMember(firmData) {
       return isSignedIn() && (
         firmData.ownerUid == request.auth.uid ||
-        ('staff' in firmData && request.auth.uid in firmData.staff)
+        ('staff' in firmData && firmData.staff is map && request.auth.uid in firmData.staff)
       );
     }
 
     function isCashierRole(firmData) {
-      return isFirmMember(firmData) && 
-        ('staff' in firmData) && 
+      return isFirmMember(firmData) &&
+        ('staff' in firmData) &&
+        firmData.staff is map &&
+        (request.auth.uid in firmData.staff) &&
         firmData.staff[request.auth.uid] == 'cashier';
     }
 
     // Firm Root Collection
     match /firms/{firmId} {
-      // Firm Document
-      allow read: if isSignedIn() && isFirmMember(resource.data);
+      // Allow get when document doesn't exist yet (resource == null) so owner can safely check before create;
+      // once created, only owner or listed staff can read.
+      allow get: if isSignedIn() && (resource == null || isFirmMember(resource.data));
+      allow list: if isSignedIn() && isFirmMember(resource.data);
       allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
       allow update: if isSignedIn() && (
         isFirmOwner(resource.data) || (
@@ -49,7 +53,12 @@ service cloud.firestore {
         allow delete: if isSignedIn() && 
           isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data) &&
           collectionName != 'invoices' && 
-          collectionName != 'purchases';
+          collectionName != 'purchases' &&
+          (!isCashierRole(get(/databases/$(database)/documents/firms/$(firmId)).data) || (
+            collectionName != 'rates' &&
+            collectionName != 'shop_details' &&
+            collectionName != 'sequence_counters'
+          ));
 
         allow create: if isSignedIn() && 
           isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data) && (
@@ -75,7 +84,10 @@ service cloud.firestore {
               )
             )
           ) && (
-            collectionName != 'sequence_counters' || request.resource.data.currentVal == resource.data.currentVal + 1
+            collectionName != 'sequence_counters' || (
+              resource.data.currentVal is int &&
+              request.resource.data.currentVal == resource.data.currentVal + 1
+            )
           );
       }
     }

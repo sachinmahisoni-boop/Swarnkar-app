@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { GSTInvoice, PurchaseInvoice, ShopExpense, CashBankTransfer, GirviLoan } from '../../types';
 import { Wallet, Landmark, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, Plus, History, CheckCircle2, DollarSign, Calendar, TrendingUp } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface CashBankDashboardProps {
   initialCash: number;
@@ -77,7 +78,7 @@ export const CashBankDashboard: React.FC<CashBankDashboardProps> = ({
 
     const newTransfer: CashBankTransfer = {
       id: `trf-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
+      date: getISTDate().isoDateStr,
       type: transferType,
       amount: Number(transferAmount),
       description: transferDesc.trim() || (transferType === 'DEPOSIT_TO_BANK' ? 'Cash deposited to bank' : 'Cash withdrawn from bank')

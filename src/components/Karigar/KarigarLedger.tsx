@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Karigar, KarigarJobCard, MetalType } from '../../types';
 import { ShreemLogo } from '../ShreemLogo';
 import { Hammer, Plus, Search, Calendar, Scale, CheckCircle2, Clock, AlertCircle, FileText, UserCheck, ArrowRight, Printer, X, Share2 } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface KarigarLedgerProps {
   karigars: Karigar[];
@@ -37,7 +38,7 @@ export const KarigarLedger: React.FC<KarigarLedgerProps> = ({
   const [formLossPercent, setFormLossPercent] = useState<number>(2.5); // 2.5% wastage allowance
   const [formItemDesc, setFormItemDesc] = useState('');
   const [formDeliveryDate, setFormDeliveryDate] = useState(
-    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    getISTDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)).isoDateStr
   );
   const [formLaborRate, setFormLaborRate] = useState<number>(450);
   const [formAdvanceLabor, setFormAdvanceLabor] = useState<number>(0);
@@ -87,7 +88,7 @@ export const KarigarLedger: React.FC<KarigarLedgerProps> = ({
       jobNo: `KJB-2026-${String(jobCards.length + 20).padStart(3, '0')}`,
       karigarId: kg.id,
       karigarName: kg.name,
-      issueDate: new Date().toISOString().split('T')[0],
+      issueDate: getISTDate().isoDateStr,
       expectedDeliveryDate: formDeliveryDate,
       status: 'Issued',
       metal: formMetal,
@@ -120,7 +121,7 @@ export const KarigarLedger: React.FC<KarigarLedgerProps> = ({
     const updatedJob: KarigarJobCard = {
       ...selectedJobForReceive,
       status: 'Received',
-      receivedDate: new Date().toISOString().split('T')[0],
+      receivedDate: getISTDate().isoDateStr,
       finishedOrnamentWeight: Number(rcvGrossWeight),
       stoneWeightAdded: Number(rcvStonesWeight),
       scrapReturnedWeight: Number(rcvScrapWeight),

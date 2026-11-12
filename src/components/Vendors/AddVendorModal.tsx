@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Vendor } from '../../types';
 import { X, UserPlus, Building2, Phone, MapPin, ShieldCheck } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface AddVendorModalProps {
   isOpen: boolean;
@@ -33,7 +34,7 @@ export const AddVendorModal: React.FC<AddVendorModalProps> = ({ isOpen, onClose,
       silverBalanceOwed: 0,
       cashBalanceDue: 0,
       totalPurchasesAmount: 0,
-      createdAt: new Date().toISOString()
+      createdAt: getISTDate().isoDateStr
     };
     onAddVendor(newVendor);
     onClose();

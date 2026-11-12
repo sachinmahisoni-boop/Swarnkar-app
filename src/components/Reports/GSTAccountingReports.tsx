@@ -20,6 +20,7 @@ import {
   Layers,
   Printer
 } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 export type AccountingView = 
   | 'daily' 
@@ -47,7 +48,7 @@ export const GSTAccountingReports: React.FC<GSTAccountingReportsProps> = ({
   onNavigateToProfit,
 }) => {
   const [reportView, setReportView] = useState<AccountingView>('daily');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(getISTDate().isoDateStr);
   const [selectedMonth, setSelectedMonth] = useState('All');
 
   // Filter invoices for Daily view or Monthly view
@@ -114,7 +115,7 @@ export const GSTAccountingReports: React.FC<GSTAccountingReportsProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Swarnkar_Jwelly_Report_${reportView}_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `Swarnkar_Jwelly_Report_${reportView}_${getISTDate().isoDateStr}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

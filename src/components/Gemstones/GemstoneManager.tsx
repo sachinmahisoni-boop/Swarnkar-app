@@ -7,6 +7,7 @@ import {
   Customer,
   InvoiceItem
 } from '../../types';
+import { getISTDate } from '../../lib/invoiceNumber';
 import { 
   Sparkles, 
   Gem, 
@@ -1034,7 +1035,7 @@ const GemstoneFormModal: React.FC<GemstoneFormModalProps> = ({
       sellingPrice: 39375,
       costPrice: 25500,
       stockStatus: 'In Stock',
-      dateAdded: new Date().toISOString().split('T')[0],
+      dateAdded: getISTDate().isoDateStr,
       description: 'Astrological quality unheated natural gemstone with Govt Gemological Lab certificate.'
     };
   });
@@ -1099,7 +1100,7 @@ const GemstoneFormModal: React.FC<GemstoneFormModalProps> = ({
       sellingPrice: Number(formData.sellingPrice) || 10000,
       costPrice: Number(formData.costPrice) || 6500,
       stockStatus: formData.stockStatus || 'In Stock',
-      dateAdded: formData.dateAdded || new Date().toISOString().split('T')[0],
+      dateAdded: formData.dateAdded || getISTDate().isoDateStr,
       description: formData.description || ''
     };
 

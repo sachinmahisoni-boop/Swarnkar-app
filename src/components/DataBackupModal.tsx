@@ -4,18 +4,22 @@ import {
   Download, 
   Upload, 
   X, 
-  CheckCircle2, 
-  AlertTriangle, 
   FileSpreadsheet, 
   FileJson, 
   CloudUpload,
-  RefreshCw
+  RefreshCw,
+  Trash2,
+  CheckCircle2
 } from 'lucide-react';
 import { 
   downloadJSONFile, 
   downloadCSVFile, 
-  uploadLocalStorageToFirestore 
+  uploadLocalStorageToFirestore,
+  getLegacyLocalStorageData,
+  clearLegacyLocalStorageKeys,
+  MigrationProgress
 } from '../lib/firestoreSync';
+import { getISTDate } from '../lib/invoiceNumber';
 import { GSTInvoice, JewelleryItem, Customer, ShopDetails } from '../types';
 
 interface DataBackupModalProps {
@@ -50,13 +54,18 @@ export const DataBackupModal: React.FC<DataBackupModalProps> = ({
   onRestoreData
 }) => {
   const [migrating, setMigrating] = useState(false);
+  const [progress, setProgress] = useState<MigrationProgress | null>(null);
   const [message, setMessage] = useState('');
+  const [canCleanupLegacy, setCanCleanupLegacy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
+  const todayIst = getISTDate().isoDateStr;
+  const legacyCheck = getLegacyLocalStorageData(firmId);
+
   const handleDownloadJSON = () => {
-    const filename = `Swarnkar_Backup_${firmName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
+    const filename = `Swarnkar_Backup_${firmName.replace(/\s+/g, '_')}_${todayIst}.json`;
     downloadJSONFile(allFirmData, filename);
     setMessage('✅ Full JSON Backup Downloaded Successfully!');
   };
@@ -85,7 +94,7 @@ export const DataBackupModal: React.FC<DataBackupModalProps> = ({
       Status: inv.status
     }));
 
-    downloadCSVFile(rows, `Invoices_${firmName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`);
+    downloadCSVFile(rows, `Invoices_${firmName.replace(/\s+/g, '_')}_${todayIst}.csv`);
     setMessage('✅ Invoices CSV Exported Successfully!');
   };
 
@@ -112,25 +121,44 @@ export const DataBackupModal: React.FC<DataBackupModalProps> = ({
       Barcode: item.barcode
     }));
 
-    downloadCSVFile(rows, `Stock_Inventory_${firmName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`);
+    downloadCSVFile(rows, `Stock_Inventory_${firmName.replace(/\s+/g, '_')}_${todayIst}.csv`);
     setMessage('✅ Stock Inventory CSV Exported Successfully!');
   };
 
   const handleMigrateToFirestore = async () => {
-    if (!window.confirm('क्या आप इस लोकल डेटा को Firestore क्लाउड में सुरक्षित अपलोड करना चाहते हैं? (Current Local Storage will be backed up)')) {
+    const sourceData = legacyCheck.hasData ? legacyCheck.snapshot : allFirmData;
+    if (!window.confirm('पहले सुरक्षा के लिए JSON बैकअप डाउनलोड होगा, उसके बाद डेटा Firestore क्लाउड में अपलोड होगा। जारी रखें?')) {
       return;
     }
+
+    // Force JSON backup download before migration
+    const filename = `Swarnkar_PreSync_Backup_${firmName.replace(/\s+/g, '_')}_${todayIst}.json`;
+    downloadJSONFile(sourceData, filename);
 
     setMigrating(true);
     setMessage('');
     try {
-      await uploadLocalStorageToFirestore(firmId, allFirmData);
-      setMessage('🎉 डेटा सफलता-पूर्वक Firestore क्लाउड में अपलोड व सिंक हो गया है!');
+      const res = await uploadLocalStorageToFirestore(firmId, sourceData, {
+        onProgress: (prog) => setProgress(prog),
+        resume: true
+      });
+      setMessage(`🎉 डेटा सफलता-पूर्वक Firestore क्लाउड में अपलोड हो गया (${res.uploadedDocs} records)!`);
+      localStorage.setItem(`jewel_migration_done_${firmId}`, todayIst);
+      if (legacyCheck.hasData) {
+        setCanCleanupLegacy(true);
+      }
     } catch (err: any) {
-      console.error(err);
-      setMessage(`❌ Migration Error: ${err.message || String(err)}`);
+      setMessage(`❌ Migration Error: ${err?.message || String(err)}`);
     } finally {
       setMigrating(false);
+    }
+  };
+
+  const handleCleanupLegacy = () => {
+    if (window.confirm('क्या आप सुनिश्चित हैं कि आप पुराने ब्राउज़र localStorage कीज़ को हटाना चाहते हैं?')) {
+      clearLegacyLocalStorageKeys(firmId);
+      setCanCleanupLegacy(false);
+      setMessage('✅ Legacy localStorage keys removed cleanly.');
     }
   };
 
@@ -194,20 +222,48 @@ export const DataBackupModal: React.FC<DataBackupModalProps> = ({
               Firestore Cloud Real-Time Migration
             </span>
             <span className="text-[10px] bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded-full font-bold">
-              Automatic Multi-Device Sync
+              Chunked & Resumable
             </span>
           </div>
           <p className="text-xs text-stone-600 dark:text-slate-300 leading-relaxed">
-            लोकल ब्राउज़र मेमोरी से समस्त रिकॉर्ड्स (स्टॉक, इनवॉइस, ग्राहक खाते, उधारी) को Firestore क्लाउड में 1-क्लिक अपलोड करें ताकि मोबाइल या अन्य पीसी बदलने पर डेटा सुरक्षित रहे।
+            लोकल ब्राउज़र मेमोरी से समस्त रिकॉर्ड्स (स्टॉक, इनवॉइस, ग्राहक खाते, उधारी) को Firestore क्लाउड में सुरक्षित अपलोड करें। अपलोड से पहले JSON बैकअप स्वतः डाउनलोड होगा।
           </p>
-          <button
-            onClick={handleMigrateToFirestore}
-            disabled={migrating}
-            className="w-full sm:w-auto px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-xs rounded-xl shadow transition cursor-pointer flex items-center justify-center gap-2"
-          >
-            {migrating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
-            <span>{migrating ? 'Firestore सिंक हो रहा है...' : 'लोकल डेटा Firestore क्लाउड में अपलोड करें'}</span>
-          </button>
+
+          {progress && (
+            <div className="text-xs space-y-1.5">
+              <div className="flex justify-between font-bold">
+                <span>{progress.lastMessage}</span>
+                <span className="font-mono">{progress.uploadedDocs}/{progress.totalDocs}</span>
+              </div>
+              <div className="w-full h-2 bg-amber-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all ${progress.phase === 'failed' ? 'bg-rose-500' : 'bg-emerald-500'}`}
+                  style={{ width: `${progress.totalDocs > 0 ? Math.round((progress.uploadedDocs / progress.totalDocs) * 100) : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleMigrateToFirestore}
+              disabled={migrating}
+              className="w-full sm:w-auto px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-xs rounded-xl shadow transition cursor-pointer flex items-center justify-center gap-2"
+            >
+              {migrating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
+              <span>{migrating ? 'Firestore सिंक हो रहा है...' : 'Backup व Cloud अपलोड करें'}</span>
+            </button>
+
+            {canCleanupLegacy && (
+              <button
+                onClick={handleCleanupLegacy}
+                className="px-4 py-2.5 bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear Legacy LocalStorage</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Download Backup Files */}

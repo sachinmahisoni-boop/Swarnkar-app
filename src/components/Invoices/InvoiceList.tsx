@@ -24,13 +24,14 @@ import {
   CreditCard,
   X
 } from 'lucide-react';
+import { getISTDate } from '../../lib/invoiceNumber';
 
 interface InvoiceListProps {
   invoices: GSTInvoice[];
   onViewPrintInvoice: (invoice: GSTInvoice) => void;
   onBatchPrintInvoices?: (invoices: GSTInvoice[]) => void;
   onDeleteInvoice: (id: string) => void;
-  onCancelInvoice?: (invoice: GSTInvoice, reason: string) => void;
+  onCancelInvoice?: (invoice: GSTInvoice, reason: string) => Promise<void> | void;
   onUpdateInvoiceStatus: (id: string, paidAmount: number) => void;
 }
 
@@ -48,6 +49,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   const [dateFilter, setDateFilter] = useState<'All' | 'Today' | 'Week' | 'Month'>('All');
   const [counterFilter, setCounterFilter] = useState<string>('All');
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Quick Payment Update Modal State
   const [paymentModalInvoice, setPaymentModalInvoice] = useState<GSTInvoice | null>(null);
@@ -56,7 +58,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   // Unique counters
   const counters = Array.from(new Set(invoices.map(i => i.counterName || 'Main Showroom Counter')));
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getISTDate().isoDateStr;
 
   // Deep Search & Filters
   const filteredInvoices = invoices.filter(inv => {
@@ -90,12 +92,10 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
     if (dateFilter === 'Today') {
       matchesDateRange = inv.date === todayStr;
     } else if (dateFilter === 'Week') {
-      const now = new Date();
-      const pastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const pastWeek = getISTDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).isoDateStr;
       matchesDateRange = inv.date >= pastWeek;
     } else if (dateFilter === 'Month') {
-      const now = new Date();
-      const pastMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const pastMonth = getISTDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).isoDateStr;
       matchesDateRange = inv.date >= pastMonth;
     }
 
@@ -580,17 +580,25 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                           {/* Cancel Invoice Button */}
                           {inv.status !== 'Cancelled' && (
                             <button
-                              onClick={() => {
+                              disabled={cancellingId === inv.id}
+                              onClick={async () => {
                                 const reason = prompt(`इनवॉइस ${inv.invoiceNumber} निरस्त (Cancel) करने का कारण दर्ज करें:`);
                                 if (reason && reason.trim()) {
                                   if (onCancelInvoice) {
-                                    onCancelInvoice(inv, reason.trim());
+                                    setCancellingId(inv.id);
+                                    try {
+                                      await onCancelInvoice(inv, reason.trim());
+                                    } catch {
+                                      // Error already surfaced to user by parent handler
+                                    } finally {
+                                      setCancellingId(null);
+                                    }
                                   } else {
                                     onDeleteInvoice(inv.id);
                                   }
                                 }
                               }}
-                              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer disabled:opacity-50"
                               title="Cancel Invoice & Restore Stock"
                             >
                               <X className="w-3.5 h-3.5 text-rose-400" />
