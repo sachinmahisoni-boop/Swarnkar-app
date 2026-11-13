@@ -151,6 +151,7 @@ export async function ensureFirmRootDoc(
     counterName?: string;
     counterType?: string;
     operatorName?: string;
+    logoUrl?: string;
   },
   opts?: FirestoreOpts
 ): Promise<void> {
@@ -177,6 +178,7 @@ export async function ensureFirmRootDoc(
           counterName: firmMeta.counterName || 'Main Showroom Counter',
           counterType: firmMeta.counterType || 'Main Showroom',
           operatorName: firmMeta.operatorName || 'Owner',
+          logoUrl: firmMeta.logoUrl || undefined,
           staff: {},
           createdAt: getISTDate().isoDateStr
         })

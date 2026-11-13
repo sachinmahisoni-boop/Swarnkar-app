@@ -9,21 +9,27 @@ import {
   ShieldCheck, 
   MapPin, 
   Upload, 
-  Sparkles, 
   CheckCircle2, 
   ArrowRight,
   PlusCircle,
-  RotateCcw
+  RotateCcw,
+  ImagePlus
 } from 'lucide-react';
 
 interface FirmRegistrationScreenProps {
   existingFirms: JewellerProfile[];
-  onRegisterFirm: (firm: JewellerProfile, shopDetails?: Partial<ShopDetails>) => void;
+  initialFirmName?: string;
+  initialOwnerName?: string;
+  initialPhone?: string;
+  onRegisterFirm: (firm: JewellerProfile, shopDetails?: Partial<ShopDetails>) => Promise<string | void> | void;
   onSelectExistingFirm: (firmId: string) => void;
 }
 
 export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
   existingFirms,
+  initialFirmName = '',
+  initialOwnerName = '',
+  initialPhone = '',
   onRegisterFirm,
   onSelectExistingFirm,
 }) => {
@@ -37,25 +43,28 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
     }
   }, [existingFirms.length]);
 
-  // Form State
-  const [firmName, setFirmName] = useState('');
+  // Form State (Logo always starts completely blank so the user can upload their own)
+  const [firmName, setFirmName] = useState(initialFirmName);
   const [tagline, setTagline] = useState('सराफा एवं आभूषण विक्रेता (Gold, Silver & Diamond)');
   const [counterName, setCounterName] = useState('Main Showroom Counter');
   const [counterType, setCounterType] = useState<JewellerProfile['counterType']>('Main Showroom');
-  const [operatorName, setOperatorName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [operatorName, setOperatorName] = useState(initialOwnerName);
+  const [phone, setPhone] = useState(initialPhone);
   const [gstin, setGstin] = useState('');
   const [cityStatePincode, setCityStatePincode] = useState('');
   const [address, setAddress] = useState('');
   const [logoUrl, setLogoUrl] = useState<string>('');
+  const [formError, setFormError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    setFormError('');
     if (file) {
       if (file.size > 2 * 1024 * 1024) {
-        alert('कृपया 2MB से कम साइज का लोगो चुनें (Please select image under 2MB).');
+        setFormError('कृपया 2MB से कम साइज का लोगो चुनें (Please select an image under 2MB).');
         return;
       }
       const reader = new FileReader();
@@ -68,10 +77,11 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError('');
     if (!firmName.trim()) {
-      alert('कृपया फर्म / दुकान का नाम दर्ज करें');
+      setFormError('कृपया फर्म / दुकान का नाम दर्ज करें (Please enter your Firm / Store Name).');
       return;
     }
 
@@ -112,7 +122,17 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
       logoUrl: logoUrl || undefined,
     };
 
-    onRegisterFirm(newProfile, shopDetailsUpdate);
+    setIsSubmitting(true);
+    try {
+      const errMsg = await onRegisterFirm(newProfile, shopDetailsUpdate);
+      if (typeof errMsg === 'string' && errMsg) {
+        setFormError(errMsg);
+      }
+    } catch (err: any) {
+      setFormError(err?.message || 'फर्म रजिस्ट्रेशन में त्रुटि हुई। कृपया पुनः प्रयास करें।');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -126,7 +146,15 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
           <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-52 h-52 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
           <div className="flex justify-center mb-3">
-            <ShreemLogo size="lg" showText={false} customLogo={logoUrl} transparentBg={true} />
+            {logoUrl ? (
+              <div className="w-16 h-16 rounded-2xl bg-white/95 border border-amber-400/50 p-1.5 flex items-center justify-center shadow-lg">
+                <img src={logoUrl} alt="Firm Logo" className="w-full h-full object-contain rounded-lg" />
+              </div>
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-stone-800/80 border border-dashed border-amber-400/50 flex items-center justify-center text-amber-300/80">
+                <Building2 className="w-7 h-7" />
+              </div>
+            )}
           </div>
 
           <span className="inline-block bg-amber-500/20 text-amber-300 text-xs font-bold px-3 py-1 rounded-full border border-amber-500/30 mb-2 font-mono tracking-wide uppercase">
@@ -245,13 +273,23 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
               </p>
 
               <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
-                <div className="w-20 h-20 rounded-2xl bg-white border border-amber-300 p-2 flex items-center justify-center shrink-0 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-20 h-20 rounded-2xl bg-white border-2 border-dashed border-amber-300 hover:border-amber-500 p-2 flex flex-col items-center justify-center shrink-0 shadow-sm cursor-pointer transition group"
+                  title="लोगो अपलोड करने के लिए क्लिक करें"
+                >
                   {logoUrl ? (
                     <img src={logoUrl} alt="Firm Logo" className="w-full h-full object-contain" />
                   ) : (
-                    <ShreemLogo size="sm" showText={false} transparentBg={true} />
+                    <>
+                      <ImagePlus className="w-6 h-6 text-stone-400 group-hover:text-amber-600 transition" />
+                      <span className="text-[9px] font-bold text-stone-400 group-hover:text-amber-700 mt-1 text-center leading-tight">
+                        Blank Logo
+                      </span>
+                    </>
                   )}
-                </div>
+                </button>
 
                 <div className="flex-1 space-y-2 w-full">
                   <input
@@ -269,26 +307,18 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
                       className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition cursor-pointer"
                     >
                       <Upload className="w-3.5 h-3.5" />
-                      <span>नया लोगो अपलोड करें (Upload Logo)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setLogoUrl('/assets/aistudio/Shreem_Mahal_LOGO_355a8e42.png')}
-                      className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                      <span>गोल्डन "श्रीः" लोगो रखें</span>
+                      <span>अपना लोगो अपलोड करें (Upload Logo)</span>
                     </button>
 
                     {logoUrl && (
                       <button
                         type="button"
                         onClick={() => setLogoUrl('')}
-                        className="p-2 bg-stone-100 hover:bg-rose-100 text-stone-500 hover:text-rose-600 rounded-xl transition cursor-pointer"
-                        title="हटाएं"
+                        className="px-3 py-2 bg-stone-100 hover:bg-rose-100 text-stone-600 hover:text-rose-700 rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                        title="लोगो हटाएं (Blank रखें)"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
+                        <span>हटाएं (Keep Blank)</span>
                       </button>
                     )}
                   </div>
@@ -456,6 +486,15 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
               </div>
             </div>
 
+            {formError && (
+              <div
+                data-testid="firm-registration-error"
+                className="p-3 bg-rose-50 border border-rose-300 rounded-2xl text-xs font-bold text-rose-800"
+              >
+                {formError}
+              </div>
+            )}
+
             {/* Submit Action */}
             <div className="pt-4 border-t border-stone-200 flex flex-col sm:flex-row items-center justify-between gap-3">
               {existingFirms.length > 0 ? (
@@ -470,10 +509,15 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
 
               <button
                 type="submit"
-                className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-extrabold text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 transition cursor-pointer"
+                disabled={isSubmitting}
+                className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 disabled:opacity-60 text-white font-extrabold text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <CheckCircle2 className="w-5 h-5" />
-                <span>फर्म रजिस्टर करें व ERP प्रारंभ करें (Register & Open ERP)</span>
+                <span>
+                  {isSubmitting
+                    ? 'फर्म सेव हो रही है... (Opening Dashboard)'
+                    : 'फर्म रजिस्टर करें व ERP प्रारंभ करें (Register & Open ERP)'}
+                </span>
                 <ArrowRight className="w-4 h-4 ml-1" />
               </button>
             </div>

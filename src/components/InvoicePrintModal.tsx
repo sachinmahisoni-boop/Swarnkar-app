@@ -817,7 +817,7 @@ Mobile: ${shopDetails.phone}`;
                           >
                             {/* Shop Header */}
                             <div className="text-center border-b border-dashed border-slate-400 pb-2 mb-2">
-                              {preferences.showLogo && (
+                              {preferences.showLogo && (customLogo || shopDetails.logoUrl) && (
                                 <div className="flex justify-center mb-1">
                                   <ShreemLogo
                                     size="sm"
@@ -1036,7 +1036,7 @@ Mobile: ${shopDetails.phone}`;
                             >
                               <div className="flex flex-row items-start justify-between gap-3">
                                 <div className="flex items-center gap-2.5 min-w-0">
-                                  {preferences.showLogo && (
+                                  {preferences.showLogo && (customLogo || shopDetails.logoUrl) && (
                                     <ShreemLogo
                                       size={isA5 ? 'sm' : 'lg'}
                                       showText={false}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface ShreemLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -18,6 +18,10 @@ export const ShreemLogo: React.FC<ShreemLogoProps> = ({
   transparentBg = false,
 }) => {
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [customLogo]);
 
   const sizeMap = {
     sm: { img: 'w-9 h-9', icon: 36, text: 'text-sm', sub: 'text-[9px]' },

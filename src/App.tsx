@@ -85,6 +85,7 @@ import { auth, db, firestoreDatabaseId, missingFirebaseEnvVars, firebaseConfigEr
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
   ensureFirmRootDoc,
+  isFirmRootReady as isFirmRootReadyFn,
   clearFirmRootReady,
   fetchUserFirms,
   fetchAllFirmsForMaster,
@@ -105,6 +106,7 @@ import {
   updateFirmStaffPermissions,
   removeFirmStaffMember,
   claimStaffInvitesForUser,
+  updateFirmMetaByMaster,
   saveFirmDoc, 
   deleteFirmDoc, 
   createInvoiceAtomic, 
@@ -341,6 +343,45 @@ export default function App() {
     return () => unsub();
   }, [isAuthenticated, isDemoUser, currentUserId, userAccessRefreshNonce]);
 
+  // If a pending user gets approved in real-time while logged in, load their firms & staff invites immediately
+  const prevApprovedRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (!isAuthenticated || isDemoUser || !currentUserId) {
+      prevApprovedRef.current = false;
+      return;
+    }
+    const approvedNow = canUserAccessApp(userAccess, isPlatformAdmin).allowed;
+    const wasApproved = prevApprovedRef.current;
+    prevApprovedRef.current = approvedNow;
+    if (!wasApproved && approvedNow && profiles.length === 0) {
+      let cancelled = false;
+      (async () => {
+        try {
+          if (!isPlatformAdmin && auth.currentUser) {
+            await claimStaffInvitesForUser(auth.currentUser);
+          }
+          const cloudProfs = isPlatformAdmin
+            ? await fetchAllFirmsForMaster()
+            : await fetchUserFirms(currentUserId);
+          if (cancelled) return;
+          if (cloudProfs.length > 0) {
+            setProfiles(cloudProfs);
+            const savedActive = localStorage.getItem(`jewel_user_${currentUserId}_active_profile`);
+            const chosen = cloudProfs.some(p => p.id === savedActive) ? savedActive! : cloudProfs[0].id;
+            setActiveProfileId(chosen);
+            setIsFirmActive(true);
+            setActiveTab(isPlatformAdmin ? 'master_control' : 'dashboard');
+          }
+        } catch {
+          // Non-fatal background sync on approval transition
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [isAuthenticated, isDemoUser, currentUserId, userAccess, isPlatformAdmin, profiles.length]);
+
   const buildDefaultShopDetails = (firmId: string, prof?: JewellerProfile): ShopDetails => ({
     firmId,
     name: prof?.name || 'Swarnkar Jewellery Shop',
@@ -539,6 +580,22 @@ export default function App() {
     }
 
     let cancelled = false;
+    const prof = profiles.find(p => p.id === activeProfileId);
+    setShopDetails((prev) =>
+      prev.firmId === activeProfileId ? prev : buildDefaultShopDetails(activeProfileId, prof)
+    );
+
+    if (isFirmRootReadyFn(activeProfileId, currentUserId)) {
+      setIsFirmRootReady(true);
+      setIsSynced(true);
+      setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      setSyncSource(navigator.onLine ? 'cloud' : 'cache');
+      setLastSyncedAt(Date.now());
+      setLastSyncEventLabel('Firm workspace connected');
+      setSyncPulseKey(k => k + 1);
+      return;
+    }
+
     setIsFirmRootReady(false);
     clearFirmRootReady(activeProfileId);
     setSyncStatus('syncing');
@@ -557,9 +614,6 @@ export default function App() {
     setGirviLoans([]);
     setGemstones([]);
 
-    const prof = profiles.find(p => p.id === activeProfileId);
-    setShopDetails(buildDefaultShopDetails(activeProfileId, prof));
-
     (async () => {
       try {
         await ensureFirmRootDoc(
@@ -571,7 +625,8 @@ export default function App() {
             code: prof?.code,
             counterName: prof?.counterName,
             counterType: prof?.counterType,
-            operatorName: prof?.operatorName
+            operatorName: prof?.operatorName,
+            logoUrl: prof?.logoUrl || undefined
           },
           { uid: currentUserId, isMasterAdmin }
         );
@@ -1065,30 +1120,60 @@ export default function App() {
   };
 
   const handleAddProfile = async (newProfile: JewellerProfile) => {
-    setProfiles(prev => [...prev, newProfile]);
-    if (!isDemoUser && currentUserId) {
+    const uid = getEffectiveUserId();
+    const enriched: JewellerProfile = {
+      ...newProfile,
+      firmId: newProfile.id,
+      userId: uid,
+      ownerUid: uid || newProfile.ownerUid
+    };
+    setProfiles(prev => [...prev, enriched]);
+    if (!isDemoUser && uid) {
       try {
         await ensureFirmRootDoc(
-          newProfile.id,
+          enriched.id,
           {
-            name: newProfile.name,
-            gstin: newProfile.gstin,
-            phone: newProfile.phone,
-            code: newProfile.code,
-            counterName: newProfile.counterName,
-            counterType: newProfile.counterType,
-            operatorName: newProfile.operatorName
+            name: enriched.name,
+            gstin: enriched.gstin,
+            phone: enriched.phone,
+            code: enriched.code,
+            counterName: enriched.counterName,
+            counterType: enriched.counterType,
+            operatorName: enriched.operatorName,
+            logoUrl: enriched.logoUrl || undefined
           },
-          { uid: currentUserId }
+          { uid, isMasterAdmin }
         );
       } catch (err: any) {
         handleFirestoreError(err);
       }
     }
+    setActiveTab(isMasterAdmin ? 'master_control' : 'dashboard');
+    setIsFirmActive(true);
   };
 
   const handleUpdateProfile = (updatedProfile: JewellerProfile) => {
     setProfiles(prev => prev.map(p => p.id === updatedProfile.id ? updatedProfile : p));
+    if (updatedProfile.id === activeProfileId) {
+      setShopDetails(prev => ({
+        ...prev,
+        name: updatedProfile.name,
+        gstin: updatedProfile.gstin,
+        phone: updatedProfile.phone,
+        logoUrl: updatedProfile.logoUrl || ''
+      }));
+    }
+    if (!isDemoUser && currentUserId) {
+      updateFirmMetaByMaster(updatedProfile.id, {
+        name: updatedProfile.name,
+        counterName: updatedProfile.counterName,
+        counterType: updatedProfile.counterType,
+        operatorName: updatedProfile.operatorName,
+        gstin: updatedProfile.gstin,
+        phone: updatedProfile.phone,
+        logoUrl: updatedProfile.logoUrl || ''
+      }).catch((err) => handleFirestoreError(err));
+    }
   };
 
   // Gemstone Handlers
@@ -1443,11 +1528,12 @@ export default function App() {
     persistFirmDoc('girvi', tagged);
   };
 
-  const handleRegisterFirmFromScreen = async (newProfile: JewellerProfile, shopUpdate?: Partial<ShopDetails>) => {
+  const handleRegisterFirmFromScreen = async (newProfile: JewellerProfile, shopUpdate?: Partial<ShopDetails>): Promise<string | void> => {
     const uid = getEffectiveUserId();
     const newFirmId = newProfile.id;
     newProfile.firmId = newFirmId;
     newProfile.userId = uid;
+    newProfile.ownerUid = uid || newProfile.ownerUid;
 
     const newShopDetails: ShopDetails = {
       firmId: newFirmId,
@@ -1481,15 +1567,15 @@ export default function App() {
             code: newProfile.code,
             counterName: newProfile.counterName,
             counterType: newProfile.counterType,
-            operatorName: newProfile.operatorName
+            operatorName: newProfile.operatorName,
+            logoUrl: newProfile.logoUrl || undefined
           },
-          { uid }
+          { uid, isMasterAdmin }
         );
         await saveFirmDoc(newFirmId, 'shop_details', { id: 'main', ...newShopDetails }, { uid });
       } catch (err: any) {
         handleFirestoreError(err);
-        alert(`फर्म रजिस्ट्रेशन त्रुटि: ${err?.message || err}`);
-        return;
+        return `फर्म रजिस्ट्रेशन त्रुटि: ${err?.message || err}`;
       }
     }
 
@@ -1501,6 +1587,7 @@ export default function App() {
       localStorage.setItem(`jewel_user_${uid}_firm_confirmed`, 'true');
     }
 
+    setSyncError(null);
     setActiveProfileId(newFirmId);
     setShopDetails(newShopDetails);
 
@@ -1517,12 +1604,16 @@ export default function App() {
     setGirviLoans([]);
     setGemstones([]);
 
+    setIsFirmRootReady(true);
+    setActiveTab('dashboard');
     setIsFirmActive(true);
   };
 
   const handleSelectExistingFirmFromScreen = (firmId: string) => {
     const uid = getEffectiveUserId();
+    setSyncError(null);
     setActiveProfileId(firmId);
+    setActiveTab('dashboard');
     setIsFirmActive(true);
     if (uid && uid !== 'demo') {
       localStorage.setItem(`jewel_user_${uid}_firm_confirmed`, 'true');
@@ -1538,6 +1629,7 @@ export default function App() {
     clearFirmRootReady();
     setIsFirmRootReady(false);
     setSyncError(null);
+    setActiveTab('dashboard');
     setIsFirmActive(false);
     setActiveProfileId('');
     setIsDemoUser(false);
@@ -1672,6 +1764,9 @@ export default function App() {
     return (
       <FirmRegistrationScreen
         existingFirms={profiles}
+        initialFirmName={userAccess?.firmName || ''}
+        initialOwnerName={userAccess?.displayName || ''}
+        initialPhone={userAccess?.phone || ''}
         onRegisterFirm={handleRegisterFirmFromScreen}
         onSelectExistingFirm={handleSelectExistingFirmFromScreen}
       />
@@ -2396,6 +2491,20 @@ export default function App() {
         onSaveShopDetails={(updated) => {
           setShopDetails(updated);
           persistFirmDoc('shop_details', { id: 'main', ...updated });
+          if (activeProfileId) {
+            setProfiles(prev =>
+              prev.map(p =>
+                p.id === activeProfileId
+                  ? { ...p, logoUrl: updated.logoUrl || undefined }
+                  : p
+              )
+            );
+            if (!isDemoUser && currentUserId) {
+              updateFirmMetaByMaster(activeProfileId, {
+                logoUrl: updated.logoUrl || ''
+              }).catch(() => {});
+            }
+          }
         }}
       />
 

@@ -11,10 +11,10 @@ import {
   Upload, 
   Image as ImageIcon, 
   RotateCcw, 
-  Sparkles,
   Printer,
   Receipt,
-  CheckCircle2
+  CheckCircle2,
+  ImagePlus
 } from 'lucide-react';
 
 interface ShopSettingsModalProps {
@@ -31,10 +31,12 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
   onSaveShopDetails,
 }) => {
   const [formData, setFormData] = useState<ShopDetails>(shopDetails);
+  const [logoError, setLogoError] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
+      setLogoError('');
       setFormData({
         ...shopDetails,
         defaultInvoiceLayout: shopDetails.defaultInvoiceLayout || 'A4',
@@ -50,9 +52,10 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    setLogoError('');
     if (file) {
       if (file.size > 2 * 1024 * 1024) {
-        alert('Please choose an image file under 2MB.');
+        setLogoError('Please choose an image file under 2MB.');
         return;
       }
       const reader = new FileReader();
@@ -108,7 +111,12 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
             </p>
 
             <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
-              <div className="w-20 h-20 rounded-2xl bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-600 p-2 flex items-center justify-center shrink-0 shadow-sm">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-20 h-20 rounded-2xl bg-white dark:bg-slate-800 border-2 border-dashed border-amber-300 dark:border-amber-600 p-2 flex flex-col items-center justify-center shrink-0 shadow-sm cursor-pointer hover:border-amber-500 transition"
+                title="Upload your firm logo"
+              >
                 {formData.logoUrl ? (
                   <img 
                     src={formData.logoUrl} 
@@ -116,9 +124,14 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
                     className="w-full h-full object-contain drop-shadow" 
                   />
                 ) : (
-                  <ShreemLogo size="sm" showText={false} transparentBg={true} />
+                  <>
+                    <ImagePlus className="w-5 h-5 text-slate-400" />
+                    <span className="text-[9px] font-bold text-slate-400 mt-1 text-center leading-tight">
+                      Blank Logo
+                    </span>
+                  </>
                 )}
-              </div>
+              </button>
 
               <div className="flex-1 space-y-2 w-full">
                 <input
@@ -139,26 +152,22 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
                     <span>Upload New Logo (नया लोगो अपलोड करें)</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleChange('logoUrl', '/assets/aistudio/Shreem_Mahal_LOGO_355a8e42.png')}
-                    className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-600 rounded-xl flex items-center gap-1.5 font-bold transition cursor-pointer shadow-xs"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    <span>Default Golden "श्रीः" Logo</span>
-                  </button>
-
                   {formData.logoUrl && (
                     <button
                       type="button"
                       onClick={() => handleChange('logoUrl', '')}
-                      className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-rose-100 dark:hover:bg-rose-900/30 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl transition cursor-pointer"
-                      title="Reset to default logo"
+                      className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-rose-100 dark:hover:bg-rose-900/30 text-slate-600 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl flex items-center gap-1 text-[11px] font-bold transition cursor-pointer"
+                      title="Remove logo (keep blank)"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Remove</span>
                     </button>
                   )}
                 </div>
+
+                {logoError && (
+                  <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400">{logoError}</p>
+                )}
 
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
                   Supports PNG, JPG, WebP & SVG with transparent backgrounds.

@@ -19,7 +19,7 @@ import {
   Upload,
   RotateCcw,
   Edit3,
-  Sparkles,
+  ImagePlus,
   Store,
   Trash2,
   Users,
@@ -428,13 +428,23 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                 {logoError && <p className="text-[11px] font-bold text-rose-600">{logoError}</p>}
 
                 <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
-                  <div className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 p-2 flex items-center justify-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-slate-800 border-2 border-dashed border-stone-300 dark:border-slate-600 hover:border-amber-500 p-2 flex flex-col items-center justify-center shrink-0 cursor-pointer transition"
+                    title="लोगो अपलोड करें"
+                  >
                     {logoUrl ? (
                       <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" />
                     ) : (
-                      <ShreemLogo size="sm" showText={false} transparentBg={true} />
+                      <>
+                        <ImagePlus className="w-5 h-5 text-stone-400" />
+                        <span className="text-[8px] font-bold text-stone-400 mt-0.5 text-center leading-tight">
+                          Blank
+                        </span>
+                      </>
                     )}
-                  </div>
+                  </button>
 
                   <div className="flex-1 space-y-2 w-full">
                     <input
@@ -453,15 +463,6 @@ export const FirmManagerModal: React.FC<FirmManagerModalProps> = ({
                       >
                         <Upload className="w-3.5 h-3.5" />
                         <span>लोगो अपलोड करें</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setLogoUrl('/assets/aistudio/Shreem_Mahal_LOGO_355a8e42.png')}
-                        className="px-3 py-1.5 bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-700 dark:text-slate-300 border border-stone-300 dark:border-slate-600 rounded-xl flex items-center gap-1 transition cursor-pointer"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                        <span>डिफ़ॉल्ट लोगो</span>
                       </button>
 
                       {logoUrl && (
