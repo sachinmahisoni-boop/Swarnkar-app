@@ -115,6 +115,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
   const [customerPANInput, setCustomerPANInput] = useState('');
   const [hallmarkCertified, setHallmarkCertified] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Selected Customer Resolution
   const selectedCustomer: Customer = selectedCustomerId === 'walkin' ? {
@@ -482,30 +483,31 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
 
   // Finalize Invoice Creation
   const handleGenerateInvoice = async () => {
+    setSubmitError(null);
     if (!canCreateInvoice || (invoiceQuotaStatus && !invoiceQuotaStatus.allowed)) {
-      alert(invoiceQuotaStatus?.reason || 'नया बिल बनाने की अनुमति नहीं है या ट्रायल सीमा समाप्त हो गई है।');
+      setSubmitError(invoiceQuotaStatus?.reason || 'नया बिल बनाने की अनुमति नहीं है या ट्रायल सीमा समाप्त हो गई है।');
       return;
     }
     if (cartItems.length === 0) {
-      alert("कृपया बिल में कम से कम एक आभूषण आइटम जोड़ें।");
+      setSubmitError("कृपया बिल में कम से कम एक आभूषण आइटम जोड़ें।");
       return;
     }
 
     // Verify stock availability
     const stockCheck = checkStockAvailability(cartItems, inventory);
     if (!stockCheck.canFulfill) {
-      const msgs = stockCheck.issues.map(i => i.error).join('\n');
-      alert(`स्टॉक में कमी:\n${msgs}`);
+      const msgs = stockCheck.issues.map(i => i.error).join(' • ');
+      setSubmitError(`स्टॉक में कमी: ${msgs}`);
       return;
     }
 
     if (compliance.panMissing) {
-      alert(compliance.message || '₹2 लाख से अधिक के बिल हेतु PAN नंबर आवश्यक है।');
+      setSubmitError(compliance.message || '₹2 लाख से अधिक के बिल हेतु PAN नंबर आवश्यक है।');
       return;
     }
 
     if (amountPaid > grandTotal) {
-      alert(`प्राप्त राशि (₹${amountPaid}) कुल बिल राशि (₹${grandTotal}) से अधिक नहीं हो सकती।`);
+      setSubmitError(`प्राप्त राशि (₹${amountPaid}) कुल बिल राशि (₹${grandTotal}) से अधिक नहीं हो सकती।`);
       return;
     }
 
@@ -557,6 +559,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
       await onCreateInvoice(invoiceDraft, prefix);
 
       // Reset POS cart
+      setSubmitError(null);
       setCartItems([]);
       setDiscountAmount(0);
       setNotes('');
@@ -565,7 +568,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
       setCustomerPANInput('');
     } catch (err: any) {
       console.error(err);
-      alert(`इनवॉइस बनाने में त्रुटि: ${err.message || String(err)}`);
+      setSubmitError(err?.message || String(err) || 'इनवॉइस बनाने में त्रुटि हुई।');
     } finally {
       setIsSubmitting(false);
     }
@@ -1353,6 +1356,28 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
                     </span>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* Inline Submission / Sync / Permission Error Banner */}
+            {submitError && (
+              <div
+                role="alert"
+                data-testid="pos-submit-error"
+                className="p-3 rounded-xl border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950/70 text-rose-900 dark:text-rose-200 text-xs font-bold flex items-start justify-between gap-2 shadow-xs"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+                  <span>{submitError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSubmitError(null)}
+                  className="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer shrink-0"
+                  aria-label="Dismiss invoice error"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
             )}
 

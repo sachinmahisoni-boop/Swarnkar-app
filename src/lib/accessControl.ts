@@ -205,7 +205,7 @@ export function resolveEffectivePermissions(params: {
     return { ...RESTRICTED_PERMISSIONS };
   }
 
-  const userPerms = normalizePermissions(userAccess.permissions, FULL_PERMISSIONS);
+  const userPerms = normalizePermissions(userAccess.permissions, RESTRICTED_PERMISSIONS);
   if (!firmProfile || !uid) return userPerms;
 
   const isOwner = firmProfile.ownerUid === uid;
@@ -214,7 +214,7 @@ export function resolveEffectivePermissions(params: {
   // Staff member: intersect staff firm permissions, user's own permissions, and owner's permissions
   const firmStaffPerms = firmProfile.staffPermissions?.[uid];
   const ownerPerms = ownerAccess
-    ? normalizePermissions(ownerAccess.permissions, FULL_PERMISSIONS)
+    ? normalizePermissions(ownerAccess.permissions, RESTRICTED_PERMISSIONS)
     : FULL_PERMISSIONS;
   const staffRole = firmProfile.staff?.[uid];
   const roleDefault =
@@ -232,6 +232,78 @@ export function resolveEffectivePermissions(params: {
     capStaffPermissionsToOwner(effectiveStaffPerms, userPerms),
     ownerPerms
   );
+}
+
+/**
+ * Validates that a user access record satisfies every requirement checked by firestore.rules
+ * before executing an invoice or operational write transaction.
+ */
+export function validateTrialFirestoreReadiness(
+  record?: AppUserAccessRecord | null,
+  nowMs: number = Date.now()
+): {
+  valid: boolean;
+  reason?: string;
+} {
+  if (!record) {
+    return {
+      valid: false,
+      reason: 'यूज़र एक्सेस प्रोफ़ाइल लोड नहीं हुई है। कृपया पेज रिफ्रेश करें।'
+    };
+  }
+  const perms = normalizePermissions(record.permissions, RESTRICTED_PERMISSIONS);
+  if (record.status === 'active') {
+    if (!perms.billing && !perms.estimates) {
+      return {
+        valid: false,
+        reason: 'आपके खाते के लिए Billing या Estimates अनुमति चालू नहीं है। कृपया Master Control में Permissions सेव करें।'
+      };
+    }
+    return { valid: true };
+  }
+  if (record.status !== 'trial') {
+    return {
+      valid: false,
+      reason: `आपका खाता अभी "${record.status}" स्थिति में है। बिलिंग के लिए Master Admin स्वीकृति आवश्यक है।`
+    };
+  }
+  if (
+    typeof record.trialInvoiceLimit !== 'number' ||
+    !Number.isInteger(record.trialInvoiceLimit) ||
+    record.trialInvoiceLimit <= 0
+  ) {
+    return {
+      valid: false,
+      reason: 'ट्रायल बिल सीमा (Trial Invoice Limit) सेट नहीं है। कृपया Master Control में Permissions & Trial सेव करें।'
+    };
+  }
+  const endsAtMs = toEpochMs(record.trialEndsAt);
+  const isTimestampLike =
+    record.trialEndsAt !== null &&
+    record.trialEndsAt !== undefined &&
+    typeof record.trialEndsAt === 'object' &&
+    (typeof (record.trialEndsAt as any).toMillis === 'function' ||
+      typeof (record.trialEndsAt as any).seconds === 'number');
+
+  if (endsAtMs === null || !isTimestampLike) {
+    return {
+      valid: false,
+      reason: 'ट्रायल समाप्ति तिथि (trialEndsAt) मान्य Timestamp के रूप में सेट नहीं है। कृपया Master Control में Permissions & Trial खोलकर Save करें।'
+    };
+  }
+  if (nowMs >= endsAtMs) {
+    return {
+      valid: false,
+      reason: 'ट्रायल अवधि समाप्त हो गई है (Trial period expired)। कृपया Master Admin से संपर्क करें।'
+    };
+  }
+  if (!perms.billing && !perms.estimates) {
+    return {
+      valid: false,
+      reason: 'ट्रायल खाते के लिए Billing/Estimates अनुमति चालू नहीं है। कृपया Master Control में Permissions सेव करें।'
+    };
+  }
+  return { valid: true };
 }
 
 export function canUserAccessApp(

@@ -463,6 +463,8 @@ export default function App() {
   const [syncPulseKey, setSyncPulseKey] = useState<number>(0);
   const inFlightWritesRef = useRef<number>(0);
   const pendingCollectionsRef = useRef<Set<string>>(new Set());
+  const syncStatusRef = useRef<SyncStatusType>('synced');
+  const syncErrorRef = useRef<string | null>(null);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
   const [migrationPrompt, setMigrationPrompt] = useState<{
     firmId: string;
@@ -470,6 +472,16 @@ export default function App() {
     totalCount: number;
     snapshot: FirmDataSnapshot;
   } | null>(null);
+
+  const updateSyncStatus = (next: SyncStatusType) => {
+    syncStatusRef.current = next;
+    setSyncStatus(next);
+  };
+
+  const updateSyncError = (next: string | null) => {
+    syncErrorRef.current = next;
+    setSyncError(next);
+  };
 
   const recomputeSyncCounts = () => {
     const totalPending = inFlightWritesRef.current + pendingCollectionsRef.current.size;
@@ -481,19 +493,21 @@ export default function App() {
     inFlightWritesRef.current += 1;
     recomputeSyncCounts();
     setLastSyncEventLabel(label);
-    setSyncStatus(navigator.onLine ? 'syncing' : 'offline');
+    updateSyncStatus(navigator.onLine ? 'syncing' : 'offline');
   };
 
   const endSyncWrite = (label: string, success: boolean) => {
     inFlightWritesRef.current = Math.max(0, inFlightWritesRef.current - 1);
     const remaining = recomputeSyncCounts();
     if (success) {
+      updateSyncError(null);
+      setIsSynced(true);
       setLastSyncedAt(Date.now());
       setSyncSource(navigator.onLine ? 'cloud' : 'cache');
       setLastSyncEventLabel(label);
       setSyncPulseKey(k => k + 1);
       if (remaining === 0) {
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+        updateSyncStatus(navigator.onLine ? 'synced' : 'offline');
       }
     }
   };
@@ -503,18 +517,18 @@ export default function App() {
     const msg = err?.message || String(err);
     console.error('Firestore error:', err);
     if (code === 'permission-denied' || msg.toLowerCase().includes('permission')) {
-      setSyncStatus('permission-error');
+      updateSyncStatus('permission-error');
       setIsSynced(false);
-      setSyncError(`Firestore अनुमति त्रुटि (Permission Error): ${msg}`);
+      updateSyncError(`Firestore अनुमति त्रुटि (Permission Error): ${msg}`);
     } else if (!navigator.onLine || code === 'unavailable') {
-      setSyncStatus('offline');
+      updateSyncStatus('offline');
       setIsSynced(false);
       setSyncSource('cache');
-      setSyncError(null);
+      updateSyncError(null);
     } else {
-      setSyncStatus('error');
+      updateSyncStatus('error');
       setIsSynced(false);
-      setSyncError(`Firestore सिंक त्रुटि: ${msg}`);
+      updateSyncError(`Firestore सिंक त्रुटि: ${msg}`);
     }
   };
 
@@ -522,17 +536,17 @@ export default function App() {
     const handleOnline = () => {
       setIsOnline(true);
       setSyncSource('cloud');
-      if (isFirmRootReady && !syncError) {
+      if (isFirmRootReady && !syncErrorRef.current) {
         const pending = inFlightWritesRef.current + pendingCollectionsRef.current.size;
-        setSyncStatus(pending > 0 ? 'syncing' : 'synced');
+        updateSyncStatus(pending > 0 ? 'syncing' : 'synced');
         setSyncPulseKey(k => k + 1);
       }
     };
     const handleOffline = () => {
       setIsOnline(false);
       setSyncSource('cache');
-      if (!syncError) {
-        setSyncStatus('offline');
+      if (!syncErrorRef.current) {
+        updateSyncStatus('offline');
         setLastSyncEventLabel('Offline - Local cache active');
       }
     };
@@ -542,7 +556,7 @@ export default function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [isFirmRootReady, syncError]);
+  }, [isFirmRootReady]);
 
   // Modals state
   const [isProfilesModalOpen, setIsProfilesModalOpen] = useState(false);
@@ -588,7 +602,7 @@ export default function App() {
     if (isFirmRootReadyFn(activeProfileId, currentUserId)) {
       setIsFirmRootReady(true);
       setIsSynced(true);
-      setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      updateSyncStatus(navigator.onLine ? 'synced' : 'offline');
       setSyncSource(navigator.onLine ? 'cloud' : 'cache');
       setLastSyncedAt(Date.now());
       setLastSyncEventLabel('Firm workspace connected');
@@ -598,8 +612,8 @@ export default function App() {
 
     setIsFirmRootReady(false);
     clearFirmRootReady(activeProfileId);
-    setSyncStatus('syncing');
-    setSyncError(null);
+    updateSyncStatus('syncing');
+    updateSyncError(null);
 
     // Clear stale in-memory data from any previous firm before switching
     setInventory([]);
@@ -634,7 +648,7 @@ export default function App() {
 
         setIsFirmRootReady(true);
         setIsSynced(true);
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+        updateSyncStatus(navigator.onLine ? 'synced' : 'offline');
         setSyncSource(navigator.onLine ? 'cloud' : 'cache');
         setLastSyncedAt(Date.now());
         setLastSyncEventLabel('Firm workspace connected');
@@ -675,10 +689,15 @@ export default function App() {
 
     pendingCollectionsRef.current.clear();
     recomputeSyncCounts();
-    setSyncStatus(navigator.onLine ? 'syncing' : 'offline');
+    updateSyncStatus(navigator.onLine ? 'syncing' : 'offline');
     setLastSyncEventLabel(navigator.onLine ? 'Syncing cloud records...' : 'Offline - Local cache active');
 
     const onSubError = (err: Error) => handleFirestoreError(err);
+    const hasActiveError = () =>
+      Boolean(syncErrorRef.current) ||
+      syncStatusRef.current === 'permission-error' ||
+      syncStatusRef.current === 'error';
+
     const markSynced = (colName: string, meta?: SnapshotMetadataInfo) => {
       if (meta?.hasPendingWrites) {
         pendingCollectionsRef.current.add(colName);
@@ -690,20 +709,27 @@ export default function App() {
       setSyncSource(fromCache ? 'cache' : 'cloud');
 
       if (!navigator.onLine) {
-        setSyncStatus('offline');
-        setLastSyncEventLabel(`Offline cache (${colName})`);
+        if (!hasActiveError()) {
+          updateSyncStatus('offline');
+          setLastSyncEventLabel(`Offline cache (${colName})`);
+        }
         return;
       }
 
       if (totalPending > 0) {
-        setSyncStatus('syncing');
-        setLastSyncEventLabel(`Syncing ${colName}...`);
+        if (!hasActiveError()) {
+          updateSyncStatus('syncing');
+          setLastSyncEventLabel(`Syncing ${colName}...`);
+        }
+        return;
+      }
+
+      if (hasActiveError()) {
         return;
       }
 
       setIsSynced(true);
-      setSyncError(null);
-      setSyncStatus('synced');
+      updateSyncStatus('synced');
       setLastSyncedAt(Date.now());
       setLastSyncEventLabel(fromCache ? `Cached (${colName})` : `Synced ${colName}`);
       setSyncPulseKey(k => k + 1);
@@ -715,13 +741,14 @@ export default function App() {
       subscribeToSnapshotsInSync(() => {
         const remaining = recomputeSyncCounts();
         if (!navigator.onLine) {
-          setSyncStatus('offline');
+          if (!hasActiveError()) {
+            updateSyncStatus('offline');
+          }
           return;
         }
-        if (remaining === 0) {
+        if (remaining === 0 && !hasActiveError()) {
           setIsSynced(true);
-          setSyncError(null);
-          setSyncStatus('synced');
+          updateSyncStatus('synced');
           setSyncSource('cloud');
           setLastSyncedAt(Date.now());
           setSyncPulseKey(k => k + 1);
@@ -913,6 +940,15 @@ export default function App() {
       handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। सेव रोका गया।`));
       return;
     }
+    if (!navigator.onLine) {
+      setSyncSource('cache');
+      updateSyncStatus('offline');
+      setLastSyncEventLabel(`Queued offline (${colName})`);
+      saveFirmDoc(activeProfileId, colName, data).catch((err) => {
+        handleFirestoreError(err);
+      });
+      return;
+    }
     beginSyncWrite(`Saving ${colName}...`);
     saveFirmDoc(activeProfileId, colName, data)
       .then(() => endSyncWrite(`Saved ${colName}`, true))
@@ -932,6 +968,15 @@ export default function App() {
     if (!activeProfileId) return;
     if (!isFirmRootReady) {
       handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। डिलीट रोका गया।`));
+      return;
+    }
+    if (!navigator.onLine) {
+      setSyncSource('cache');
+      updateSyncStatus('offline');
+      setLastSyncEventLabel(`Queued offline delete (${colName})`);
+      deleteFirmDoc(activeProfileId, colName, docId).catch((err) => {
+        handleFirestoreError(err);
+      });
       return;
     }
     beginSyncWrite(`Removing from ${colName}...`);
@@ -1254,13 +1299,11 @@ export default function App() {
     prefix: string = 'SMJ'
   ): Promise<GSTInvoice | undefined> => {
     if (!activeProfileId) {
-      alert('कोई फर्म सक्रिय नहीं है। कृपया पहले अपनी फर्म चुनें या रजिस्टर करें।');
-      return;
+      throw new Error('कोई फर्म सक्रिय नहीं है। कृपया पहले अपनी फर्म चुनें या रजिस्टर करें।');
     }
 
     if (invoiceQuotaStatus && !invoiceQuotaStatus.allowed) {
       const msg = invoiceQuotaStatus.reason || 'इनवॉइस बनाने की अनुमति नहीं है।';
-      alert(msg);
       throw new Error(msg);
     }
 
@@ -1287,11 +1330,15 @@ export default function App() {
     }
 
     if (!isFirmRootReady) {
-      const msg = 'फर्म रूट डॉक्यूमेंट तैयार नहीं है। कृपया सिंक पूरा होने दें या Retry दबाएं।';
-      alert(msg);
-      throw new Error(msg);
+      throw new Error('फर्म रूट डॉक्यूमेंट तैयार नहीं है। कृपया सिंक पूरा होने दें या ऊपर Retry Sync दबाएं।');
     }
 
+    if (!navigator.onLine) {
+      updateSyncStatus('offline');
+      throw new Error('इंटरनेट ऑफ़लाइन है। पक्का बिल / इनवॉइस नंबर ऑनलाइन सर्वर से ही जनरेट होता है — कृपया नेटवर्क चालू करके पुनः प्रयास करें।');
+    }
+
+    updateSyncError(null);
     beginSyncWrite('Saving invoice...');
     try {
       const createdInvoice = await createInvoiceAtomic(
@@ -1308,7 +1355,6 @@ export default function App() {
     } catch (err: any) {
       endSyncWrite('Invoice sync failed', false);
       handleFirestoreError(err);
-      alert(`इनवॉइस बनाने में त्रुटि: ${err.message || err}`);
       throw err;
     }
   };

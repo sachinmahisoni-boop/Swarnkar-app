@@ -42,6 +42,7 @@ import {
   RESTRICTED_PERMISSIONS,
   getTrialDaysRemaining,
   normalizePermissions,
+  validateTrialFirestoreReadiness,
   toEpochMs
 } from '../../lib/accessControl';
 import {
@@ -337,7 +338,10 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
         editingUser.uid,
         {
           status: editStatus,
-          trialInvoiceLimit: Math.max(0, Math.floor(editTrialLimit)),
+          trialInvoiceLimit:
+            editStatus === 'trial'
+              ? Math.max(1, Math.floor(editTrialLimit || 1))
+              : Math.max(0, Math.floor(editTrialLimit)),
           trialEndsAt: Timestamp.fromMillis(endMs),
           adminNotes: editNotes.trim(),
           permissions: editPermissions
@@ -384,14 +388,26 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
         updates.trialInvoiceLimit = limit;
         updates.trialEndsAt = Timestamp.fromMillis(endMs);
         updates.adminNotes = noteOverride ?? '';
-        if (user.status === 'pending' || !user.permissions) {
-          updates.permissions = { ...MANAGER_PERMISSIONS };
-        }
+        const existingNormalized = user.permissions
+          ? normalizePermissions(user.permissions, RESTRICTED_PERMISSIONS)
+          : null;
+        const hasBillingAccess = Boolean(
+          existingNormalized && (existingNormalized.billing || existingNormalized.estimates)
+        );
+        updates.permissions =
+          user.status === 'pending' || !existingNormalized || !hasBillingAccess
+            ? { ...MANAGER_PERMISSIONS }
+            : existingNormalized;
       } else if (nextStatus === 'active') {
         updates.adminNotes = noteOverride ?? '';
-        if (user.status === 'pending' || !user.permissions) {
-          updates.permissions = { ...FULL_PERMISSIONS };
-        }
+        const existingNormalized = user.permissions
+          ? normalizePermissions(user.permissions, RESTRICTED_PERMISSIONS)
+          : null;
+        const hasAnyPerm = Boolean(existingNormalized && Object.values(existingNormalized).some(Boolean));
+        updates.permissions =
+          user.status === 'pending' || !existingNormalized || !hasAnyPerm
+            ? { ...FULL_PERMISSIONS }
+            : existingNormalized;
       } else if (nextStatus === 'suspended' && noteOverride !== undefined) {
         updates.adminNotes = noteOverride;
       }
@@ -812,6 +828,11 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
                           }`}>
                             <Clock className="w-3 h-3" />
                             {daysLeft === 0 ? 'Trial Expired' : `${daysLeft}d left (${formatReadableDate(u.trialEndsAt)})`}
+                          </span>
+                        )}
+                        {u.status === 'trial' && !validateTrialFirestoreReadiness(u).valid && (
+                          <span className="font-bold px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                            Trial Config Incomplete — Click Permissions &amp; Trial &gt; Save
                           </span>
                         )}
                         <span className="font-bold text-stone-600 dark:text-slate-400">

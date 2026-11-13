@@ -141,7 +141,8 @@ service cloud.firestore {
     function usageCounterIncrementedAndAllowed(firmId, firmData, docId) {
       let usagePath = /databases/$(database)/documents/users/$(firmData.ownerUid)/usage/invoices;
       let afterUsage = getAfter(usagePath);
-      return ('series' in request.resource.data) &&
+      return existsAfter(usagePath) &&
+        ('series' in request.resource.data) &&
         request.resource.data.series in ['GST_INVOICE', 'ESTIMATE_BILL'] &&
         ('invoiceType' in request.resource.data) &&
         request.resource.data.invoiceType == request.resource.data.series &&
@@ -157,6 +158,22 @@ service cloud.firestore {
           (exists(usagePath) && ('count' in get(usagePath).data) && get(usagePath).data.count is int && afterUsage.data.count == get(usagePath).data.count + 1)
         ) &&
         withinTrialQuotaIfTrial(firmData.ownerUid, afterUsage.data.count);
+    }
+
+    // Allows a cashier to create/increment sequence_counters ONLY atomically inside createInvoiceAtomic
+    function isCashierSequenceIncrementInInvoiceTx(firmId, firmData) {
+      let usagePath = /databases/$(database)/documents/users/$(firmData.ownerUid)/usage/invoices;
+      return existsAfter(usagePath) &&
+        ('lastFirmId' in getAfter(usagePath).data) &&
+        getAfter(usagePath).data.lastFirmId == firmId &&
+        ('lastInvoiceId' in getAfter(usagePath).data) &&
+        getAfter(usagePath).data.lastInvoiceId is string &&
+        ('count' in getAfter(usagePath).data) &&
+        getAfter(usagePath).data.count is int &&
+        (
+          (!exists(usagePath) && getAfter(usagePath).data.count == 1) ||
+          (exists(usagePath) && ('count' in get(usagePath).data) && get(usagePath).data.count is int && getAfter(usagePath).data.count == get(usagePath).data.count + 1)
+        );
     }
 
     // Verifies that an active cancelInvoiceAtomic transaction is cancelling an uncancelled invoice
@@ -175,7 +192,8 @@ service cloud.firestore {
     function isOngoingInvoiceCancelInTx(firmId, firmData) {
       let usagePath = /databases/$(database)/documents/users/$(firmData.ownerUid)/usage/invoices;
       let afterUsage = getAfter(usagePath);
-      return ('lastCancelledInvoiceId' in afterUsage.data) &&
+      return existsAfter(usagePath) &&
+        ('lastCancelledInvoiceId' in afterUsage.data) &&
         afterUsage.data.lastCancelledInvoiceId is string &&
         ('lastFirmId' in afterUsage.data) &&
         afterUsage.data.lastFirmId == firmId &&
@@ -564,7 +582,10 @@ service cloud.firestore {
               !isCashierRole(getFirmData(firmId)) || (
                 collectionName != 'rates' &&
                 collectionName != 'shop_details' &&
-                collectionName != 'sequence_counters'
+                (
+                  collectionName != 'sequence_counters' ||
+                  isCashierSequenceIncrementInInvoiceTx(firmId, getFirmData(firmId))
+                )
               )
             ) &&
             (
@@ -588,7 +609,10 @@ service cloud.firestore {
               !isCashierRole(getFirmData(firmId)) || (
                 collectionName != 'rates' &&
                 collectionName != 'shop_details' &&
-                collectionName != 'sequence_counters' && (
+                (
+                  collectionName != 'sequence_counters' ||
+                  isCashierSequenceIncrementInInvoiceTx(firmId, getFirmData(firmId))
+                ) && (
                   collectionName != 'invoices' ||
                   request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                     'status', 'cancelReason', 'cancelledBy', 'cancelledAt', 'payment', 'paidAmount', 'dueAmount'

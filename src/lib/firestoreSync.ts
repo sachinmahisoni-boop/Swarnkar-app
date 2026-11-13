@@ -49,6 +49,9 @@ import {
   capStaffPermissionsToOwner,
   canUserAccessApp,
   canUserCreateInvoice,
+  normalizePermissions,
+  resolveEffectivePermissions,
+  validateTrialFirestoreReadiness,
   toEpochMs
 } from './accessControl';
 
@@ -546,6 +549,22 @@ export async function fetchUserInvoiceUsage(
  * Invoice docId is derived strictly as `${series}_${nextUsageCount}` to prevent batch bypasses.
  * Executes ALL transaction.get() calls BEFORE any writes.
  */
+function formatTransactionErrorMessage(err: any): string {
+  const code = String(err?.code || '').toLowerCase();
+  const raw = String(err?.message || err || '');
+  const lower = raw.toLowerCase();
+  if (code === 'permission-denied' || lower.includes('missing or insufficient permissions')) {
+    return 'Firestore अनुमति अस्वीकृत (Missing or insufficient permissions): कृपया जाँचें कि आपका खाता Master Control में Trial/Active स्वीकृत है, Billing अनुमति चालू है, Trial समाप्ति तिथि सेट है और नवीनतम firestore.rules प्रकाशित हैं।';
+  }
+  if (code === 'unavailable' || lower.includes('network') || lower.includes('offline')) {
+    return 'इंटरनेट कनेक्शन या Firestore सर्वर उपलब्ध नहीं है। कृपया नेटवर्क जाँचकर पुनः प्रयास करें।';
+  }
+  if (code === 'deadline-exceeded' || code === 'aborted') {
+    return 'इनवॉइस ट्रांज़ैक्शन समय पर पूरा नहीं हो सका। कृपया पुनः प्रयास करें।';
+  }
+  return raw || 'इनवॉइस सेव करने में अज्ञात त्रुटि हुई।';
+}
+
 export async function createInvoiceAtomic(
   firmId: string,
   invoiceDraft: Omit<GSTInvoice, 'id' | 'invoiceNumber'>,
@@ -554,6 +573,10 @@ export async function createInvoiceAtomic(
   prefix: string = 'SMJ',
   opts?: FirestoreOpts
 ): Promise<GSTInvoice> {
+  if (!opts?.db && typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('इंटरनेट ऑफ़लाइन है। पक्का बिल / इनवॉइस नंबर ऑनलाइन सर्वर से ही जनरेट होता है — कृपया इंटरनेट चालू करके पुनः प्रयास करें।');
+  }
+
   const targetDb = opts?.db || db;
   const uid = opts?.uid || auth?.currentUser?.uid;
   const istInfo = getISTDate();
@@ -585,7 +608,8 @@ export async function createInvoiceAtomic(
     }
   }
 
-  const createdInvoice = await runTransaction(targetDb, async (transaction) => {
+  try {
+    const createdInvoice = await runTransaction(targetDb, async (transaction) => {
     // === 1. ALL READS FIRST ===
     const firmSnap = await transaction.get(firmRef);
     const firmData = firmSnap.exists() ? firmSnap.data() : null;
@@ -623,17 +647,43 @@ export async function createInvoiceAtomic(
     const nextUsageCount = currentUsageCount + 1;
     const invoiceId = `${series}_${nextUsageCount}`;
 
-    if (!opts?.isMasterAdmin && ownerSnap.exists()) {
+    if (!opts?.isMasterAdmin) {
+      if (!ownerSnap.exists()) {
+        throw new Error('फर्म स्वामी (Owner) का एक्सेस रिकॉर्ड नहीं मिला। कृपया Master Admin से संपर्क करें।');
+      }
       const ownerAccess = { uid: ownerSnap.id, ...ownerSnap.data() } as AppUserAccessRecord;
-      const quotaCheck = canUserCreateInvoice(ownerAccess, currentUsageCount, Date.now(), false, FULL_PERMISSIONS);
+      const ownerPerms = normalizePermissions(ownerAccess.permissions, RESTRICTED_PERMISSIONS);
+      const quotaCheck = canUserCreateInvoice(ownerAccess, currentUsageCount, Date.now(), false, ownerPerms);
       if (!quotaCheck.allowed) {
         throw new Error(quotaCheck.reason || 'इनवॉइस बनाने की अनुमति नहीं है।');
       }
-      if (actorSnap && actorSnap.exists()) {
+      if (ownerAccess.status === 'trial') {
+        const trialReadiness = validateTrialFirestoreReadiness(ownerAccess);
+        if (!trialReadiness.valid) {
+          throw new Error(trialReadiness.reason || 'ट्रायल सेटिंग्स अपूर्ण हैं।');
+        }
+      }
+      if (actorSnap) {
+        if (!actorSnap.exists()) {
+          throw new Error('आपका यूज़र एक्सेस रिकॉर्ड नहीं मिला। कृपया Master Admin से संपर्क करें।');
+        }
         const actorAccess = { uid: actorSnap.id, ...actorSnap.data() } as AppUserAccessRecord;
         const actorCheck = canUserAccessApp(actorAccess, false);
         if (!actorCheck.allowed) {
           throw new Error(actorCheck.message || 'आपका खाता सक्रिय नहीं है।');
+        }
+        const firmProfileLike = firmData
+          ? ({ id: firmId, ...firmData } as unknown as JewellerProfile)
+          : undefined;
+        const actorPerms = resolveEffectivePermissions({
+          isPlatformAdmin: false,
+          userAccess: actorAccess,
+          firmProfile: firmProfileLike,
+          uid,
+          ownerAccess
+        });
+        if (!actorPerms.billing && !actorPerms.estimates) {
+          throw new Error('आपके खाते या स्टाफ रोल के लिए Billing / Estimates अनुमति बंद है।');
         }
       }
     }
@@ -716,9 +766,15 @@ export async function createInvoiceAtomic(
     transaction.set(invRef, finalInvoice);
 
     return finalInvoice;
-  });
+    });
 
-  return createdInvoice;
+    return createdInvoice;
+  } catch (err: any) {
+    const friendly = formatTransactionErrorMessage(err);
+    const wrapped = new Error(friendly);
+    (wrapped as any).code = err?.code;
+    throw wrapped;
+  }
 }
 
 /**
@@ -1485,6 +1541,20 @@ export async function updateUserAccessByMaster(
     if (ms !== null) {
       payload.trialEndsAt = Timestamp.fromMillis(ms);
     }
+  }
+  if (updates.status === 'trial') {
+    if (updates.trialInvoiceLimit !== undefined) {
+      payload.trialInvoiceLimit = Math.max(1, Math.floor(Number(updates.trialInvoiceLimit) || 1));
+    }
+    if (!payload.trialEndsAt) {
+      const ms = toEpochMs(updates.trialEndsAt);
+      payload.trialEndsAt = Timestamp.fromMillis(
+        ms !== null ? ms : Date.now() + DEFAULT_TRIAL_DAYS * 86400000
+      );
+    }
+  }
+  if (updates.permissions) {
+    payload.permissions = normalizePermissions(updates.permissions, RESTRICTED_PERMISSIONS);
   }
   if (updates.status === 'active' || updates.status === 'trial') {
     payload.approvedAt = nowIso;
