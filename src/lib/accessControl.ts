@@ -251,7 +251,7 @@ export function validateTrialFirestoreReadiness(
       reason: 'यूज़र एक्सेस प्रोफ़ाइल लोड नहीं हुई है। कृपया पेज रिफ्रेश करें।'
     };
   }
-  const perms = normalizePermissions(record.permissions, RESTRICTED_PERMISSIONS);
+  const perms = normalizePermissions(record.permissions, record.status === 'active' ? FULL_PERMISSIONS : RESTRICTED_PERMISSIONS);
   if (record.status === 'active') {
     if (!perms.billing && !perms.estimates) {
       return {
@@ -400,7 +400,7 @@ export function canUserCreateInvoice(
     };
   }
 
-  const perms = effectivePerms || normalizePermissions(record.permissions, RESTRICTED_PERMISSIONS);
+  const perms = effectivePerms || normalizePermissions(record.permissions, record.status === 'active' ? FULL_PERMISSIONS : RESTRICTED_PERMISSIONS);
   if (!perms.billing && !perms.estimates) {
     return {
       allowed: false,

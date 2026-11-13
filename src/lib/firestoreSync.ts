@@ -652,7 +652,7 @@ export async function createInvoiceAtomic(
         throw new Error('फर्म स्वामी (Owner) का एक्सेस रिकॉर्ड नहीं मिला। कृपया Master Admin से संपर्क करें।');
       }
       const ownerAccess = { uid: ownerSnap.id, ...ownerSnap.data() } as AppUserAccessRecord;
-      const ownerPerms = normalizePermissions(ownerAccess.permissions, RESTRICTED_PERMISSIONS);
+      const ownerPerms = normalizePermissions(ownerAccess.permissions, ownerAccess.status === 'active' ? FULL_PERMISSIONS : RESTRICTED_PERMISSIONS);
       const quotaCheck = canUserCreateInvoice(ownerAccess, currentUsageCount, Date.now(), false, ownerPerms);
       if (!quotaCheck.allowed) {
         throw new Error(quotaCheck.reason || 'इनवॉइस बनाने की अनुमति नहीं है।');
