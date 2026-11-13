@@ -1572,10 +1572,16 @@ export default function App() {
           },
           { uid, isMasterAdmin }
         );
-        await saveFirmDoc(newFirmId, 'shop_details', { id: 'main', ...newShopDetails }, { uid });
       } catch (err: any) {
         handleFirestoreError(err);
         return `फर्म रजिस्ट्रेशन त्रुटि: ${err?.message || err}`;
+      }
+
+      try {
+        await saveFirmDoc(newFirmId, 'shop_details', { id: 'main', ...newShopDetails }, { uid });
+      } catch (err: any) {
+        // Non-fatal if firm root exists (e.g. trial expired/quota reached); allow user onto Dashboard / Trial screen
+        console.warn('Initial shop_details write deferred:', err);
       }
     }
 
@@ -1767,6 +1773,14 @@ export default function App() {
         initialFirmName={userAccess?.firmName || ''}
         initialOwnerName={userAccess?.displayName || ''}
         initialPhone={userAccess?.phone || ''}
+        userEmail={auth.currentUser?.email || userAccess?.email}
+        accountStatus={userAccess?.status}
+        syncError={syncError}
+        onRetryLoad={() => {
+          setSyncError(null);
+          setUserAccessRefreshNonce(n => n + 1);
+        }}
+        onLogout={handleLogout}
         onRegisterFirm={handleRegisterFirmFromScreen}
         onSelectExistingFirm={handleSelectExistingFirmFromScreen}
       />
