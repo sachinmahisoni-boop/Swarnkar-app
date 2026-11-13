@@ -69,6 +69,9 @@ export const FirebaseConfigMissingScreen: React.FC<Props> = ({ missingVars, erro
               </li>
               <li>Trigger a <strong>Redeploy</strong> in Vercel (environment variables take effect only on new builds).</li>
             </ol>
+            <p className="text-[11px] text-stone-400 pt-1 leading-relaxed">
+              <strong>Local / Preview:</strong> Copy <code className="text-amber-300 font-mono">.env.example</code> to <code className="text-amber-300 font-mono">.env</code> and fill in your Firebase project keys, then restart the dev server.
+            </p>
           </div>
 
           {/* Action button */}

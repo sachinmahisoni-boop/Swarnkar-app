@@ -33,6 +33,7 @@ interface InvoiceListProps {
   onDeleteInvoice: (id: string) => void;
   onCancelInvoice?: (invoice: GSTInvoice, reason: string) => Promise<void> | void;
   onUpdateInvoiceStatus: (id: string, paidAmount: number) => void;
+  canCancelInvoice?: boolean;
 }
 
 export const InvoiceList: React.FC<InvoiceListProps> = ({
@@ -42,6 +43,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   onDeleteInvoice,
   onCancelInvoice,
   onUpdateInvoiceStatus,
+  canCancelInvoice = true,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Partial' | 'Unpaid'>('All');
@@ -578,7 +580,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                           )}
 
                           {/* Cancel Invoice Button */}
-                          {inv.status !== 'Cancelled' && (
+                          {inv.status !== 'Cancelled' && canCancelInvoice && (
                             <button
                               disabled={cancellingId === inv.id}
                               onClick={async () => {

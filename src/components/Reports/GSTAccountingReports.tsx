@@ -21,6 +21,7 @@ import {
   Printer
 } from 'lucide-react';
 import { getISTDate } from '../../lib/invoiceNumber';
+import { HSNSummaryReport } from './HSNSummaryReport';
 
 export type AccountingView = 
   | 'daily' 
@@ -51,9 +52,10 @@ export const GSTAccountingReports: React.FC<GSTAccountingReportsProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>(getISTDate().isoDateStr);
   const [selectedMonth, setSelectedMonth] = useState('All');
 
-  // Filter invoices for Daily view or Monthly view
+  // Filter invoices for Daily view or Monthly view (exclude Cancelled from GSTR-1/monthly metrics)
   const dailyInvoices = invoices.filter(inv => inv.date === selectedDate);
   const monthlyInvoices = invoices.filter(inv => {
+    if (inv.status === 'Cancelled') return false;
     if (selectedMonth === 'All') return true;
     return inv.date.startsWith(selectedMonth);
   });
@@ -300,6 +302,8 @@ export const GSTAccountingReports: React.FC<GSTAccountingReportsProps> = ({
               <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">Total 3% Tax to Deposit</span>
             </div>
           </div>
+
+          <HSNSummaryReport invoices={invoices} initialMonth={selectedMonth} />
         </div>
       )}
 

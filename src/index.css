@@ -1,2 +1,15 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
+
+@keyframes sync-pulse-halo {
+  0%, 100% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+.animate-sync-halo {
+  animation: sync-pulse-halo 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

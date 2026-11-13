@@ -21,7 +21,8 @@ export type TabType =
   | 'invoices' 
   | 'customers' 
   | 'reports'
-  | 'profit';
+  | 'profit'
+  | 'master_control';
 
 export { Sidebar as Navigation };
 export { Sidebar };

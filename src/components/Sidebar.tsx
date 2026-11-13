@@ -22,10 +22,13 @@ import {
   Gem,
   Coins,
   X,
-  LogOut
+  LogOut,
+  ShieldCheck
 } from 'lucide-react';
 import { TabType } from './Navigation';
 import { ShreemLogo } from './ShreemLogo';
+import { AppUserAccessRecord, UserPermissions } from '../types';
+import { canUserAccessTab } from '../lib/accessControl';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -46,6 +49,9 @@ interface SidebarProps {
   onOpenCategoryModal?: () => void;
   customLogo?: string;
   onLogout?: () => void;
+  userAccess?: AppUserAccessRecord | null;
+  effectivePermissions?: UserPermissions | null;
+  isMasterAdmin?: boolean;
 }
 
 interface NavItem {
@@ -84,9 +90,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenCategoryModal,
   customLogo,
   onLogout,
+  userAccess,
+  effectivePermissions,
+  isMasterAdmin = false,
 }) => {
 
-  const sections: NavSection[] = [
+  const masterSections: NavSection[] = isMasterAdmin
+    ? [
+        {
+          title: 'Super Admin',
+          hindiTitle: 'मास्टर नियंत्रण',
+          items: [
+            {
+              id: 'master_control',
+              label: 'Master Control Panel',
+              hindiLabel: 'यूज़र, ट्रायल व फर्म कंट्रोल',
+              icon: ShieldCheck,
+              badge: null
+            }
+          ]
+        }
+      ]
+    : [];
+
+  const rawSections: NavSection[] = [
+    ...masterSections,
     {
       title: 'Executive Desk',
       hindiTitle: 'मुख्य कार्यपालक डेस्क',
@@ -281,6 +309,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   ];
 
+  const isDemoMode = !userAccess && !isMasterAdmin;
+  const sections: NavSection[] = isDemoMode
+    ? rawSections
+    : rawSections
+        .map((sec) => ({
+          ...sec,
+          items: sec.items.filter((item) =>
+            canUserAccessTab(userAccess, item.id, effectivePermissions, isMasterAdmin)
+          )
+        }))
+        .filter((sec) => sec.items.length > 0);
+
+  const canViewCashBank =
+    isDemoMode || canUserAccessTab(userAccess, 'cashbank', effectivePermissions, isMasterAdmin);
+
   const handleItemClick = (id: TabType) => {
     onSelectTab(id);
     if (isMobileOpen) {
@@ -438,28 +481,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
 
               {/* Cash in Hand & Bank Mini Pill */}
-              <div 
-                onClick={() => handleItemClick('cashbank')}
-                className="bg-white dark:bg-slate-800 border border-stone-200 dark:border-slate-700 hover:border-amber-400 rounded-xl p-2.5 transition cursor-pointer group shadow-xs"
-                title="Click to view Cash & Bank Dashboard"
-              >
-                <div className="flex items-center justify-between text-[11px] mb-1">
-                  <span className="text-stone-500 dark:text-slate-400 flex items-center gap-1 font-medium">
-                    <Wallet className="w-3 h-3 text-amber-600 dark:text-amber-400" /> Cash:
-                  </span>
-                  <span className="font-mono font-bold text-stone-900 dark:text-slate-100 group-hover:text-amber-700 dark:group-hover:text-amber-400">
-                    ₹{cashInHand.toLocaleString('en-IN')}
-                  </span>
+              {canViewCashBank && (
+                <div 
+                  onClick={() => handleItemClick('cashbank')}
+                  className="bg-white dark:bg-slate-800 border border-stone-200 dark:border-slate-700 hover:border-amber-400 rounded-xl p-2.5 transition cursor-pointer group shadow-xs"
+                  title="Click to view Cash & Bank Dashboard"
+                >
+                  <div className="flex items-center justify-between text-[11px] mb-1">
+                    <span className="text-stone-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                      <Wallet className="w-3 h-3 text-amber-600 dark:text-amber-400" /> Cash:
+                    </span>
+                    <span className="font-mono font-bold text-stone-900 dark:text-slate-100 group-hover:text-amber-700 dark:group-hover:text-amber-400">
+                      ₹{cashInHand.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-stone-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                      <Landmark className="w-3 h-3 text-blue-600 dark:text-blue-400" /> Bank:
+                    </span>
+                    <span className="font-mono font-bold text-stone-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                      ₹{bankBalance.toLocaleString('en-IN')}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-stone-500 dark:text-slate-400 flex items-center gap-1 font-medium">
-                    <Landmark className="w-3 h-3 text-blue-600 dark:text-blue-400" /> Bank:
-                  </span>
-                  <span className="font-mono font-bold text-stone-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                    ₹{bankBalance.toLocaleString('en-IN')}
-                  </span>
-                </div>
-              </div>
+              )}
               {/* Logout Button */}
               {onLogout && (
                 <button
@@ -474,13 +519,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </>
           ) : (
             <div className="flex flex-col items-center space-y-2">
-              <button
-                onClick={() => handleItemClick('cashbank')}
-                className="p-2 rounded-xl bg-stone-100 border border-stone-200 hover:border-amber-300 text-stone-600 hover:text-amber-700 transition cursor-pointer"
-                title={`Cash: ₹${cashInHand.toLocaleString('en-IN')} | Bank: ₹${bankBalance.toLocaleString('en-IN')}`}
-              >
-                <Wallet className="w-4 h-4" />
-              </button>
+              {canViewCashBank && (
+                <button
+                  onClick={() => handleItemClick('cashbank')}
+                  className="p-2 rounded-xl bg-stone-100 border border-stone-200 hover:border-amber-300 text-stone-600 hover:text-amber-700 transition cursor-pointer"
+                  title={`Cash: ₹${cashInHand.toLocaleString('en-IN')} | Bank: ₹${bankBalance.toLocaleString('en-IN')}`}
+                >
+                  <Wallet className="w-4 h-4" />
+                </button>
+              )}
 
               {onLogout && (
                 <button

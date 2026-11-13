@@ -6,12 +6,13 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "ownerUid": { "type": "string" },
         "name": { "type": "string" },
         "gstin": { "type": "string" },
         "address": { "type": "string" },
         "logoUrl": { "type": "string" }
       },
-      "required": ["id", "name"]
+      "required": ["id", "ownerUid", "name"]
     },
     "Invoice": {
       "title": "Invoice",
@@ -25,6 +26,49 @@
         "date": { "type": "string" }
       },
       "required": ["id", "invoiceNumber", "firmId"]
+    },
+    "UserAccess": {
+      "title": "User Access & RBAC",
+      "description": "Tracks registered users, approval status, trial invoice limits, and granular module permissions",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "phone": { "type": "string" },
+        "firmName": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "trialInvoiceLimit": { "type": "number" },
+        "invoicesCreatedCount": { "type": "number" },
+        "permissions": { "type": "object" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "role", "status", "trialInvoiceLimit", "invoicesCreatedCount"]
+    },
+    "AdminUser": {
+      "title": "Master Admin Marker",
+      "description": "Verified Master Admin UID registry",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "MasterControlSettings": {
+      "title": "Master Control Settings",
+      "description": "Global trial defaults and master username alias",
+      "type": "object",
+      "properties": {
+        "masterUsername": { "type": "string" },
+        "masterEmail": { "type": "string" },
+        "defaultTrialInvoiceLimit": { "type": "number" },
+        "requireApprovalForNewSignups": { "type": "boolean" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["masterUsername", "masterEmail", "defaultTrialInvoiceLimit"]
     }
   },
   "firestore": {
@@ -35,6 +79,18 @@
     "/firms/{firmId}/invoices/{invoiceId}": {
       "schema": "Invoice",
       "description": "Invoices per firm"
+    },
+    "/users/{uid}": {
+      "schema": "UserAccess",
+      "description": "Registered user access profiles, trial quotas, and module permissions"
+    },
+    "/admins/{uid}": {
+      "schema": "AdminUser",
+      "description": "Verified master administrators"
+    },
+    "/system_config/{docId}": {
+      "schema": "MasterControlSettings",
+      "description": "Global system configuration managed by Master Admin"
     }
   }
 }

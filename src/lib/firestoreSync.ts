@@ -1,15 +1,22 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
+  onSnapshotsInSync,
   query,
   where,
   limit,
   setDoc,
+  updateDoc,
   deleteDoc,
   runTransaction,
   writeBatch,
+  orderBy,
+  addDoc,
+  deleteField,
+  Timestamp,
   Firestore
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
@@ -20,9 +27,27 @@ import {
   ShopDetails,
   JewellerProfile,
   PurchaseInvoice,
-  Vendor
+  Vendor,
+  AppUserAccessRecord,
+  MasterControlSettings,
+  FirmUsageInvoicesDoc,
+  StaffInviteRecord,
+  AuditLogEntry,
+  PublicSupportConfig,
+  UserPermissions,
+  StaffMemberMeta
 } from '../types';
 import { getISTDate, formatSequentialNumber } from './invoiceNumber';
+import {
+  DEFAULT_TRIAL_INVOICE_LIMIT,
+  DEFAULT_TRIAL_DAYS,
+  FULL_PERMISSIONS,
+  RESTRICTED_PERMISSIONS,
+  capStaffPermissionsToOwner,
+  canUserAccessApp,
+  canUserCreateInvoice,
+  toEpochMs
+} from './accessControl';
 
 export interface FirmDataSnapshot {
   shopDetails?: ShopDetails;
@@ -43,6 +68,7 @@ export interface FirmDataSnapshot {
 export interface FirestoreOpts {
   db?: Firestore;
   uid?: string;
+  isMasterAdmin?: boolean;
 }
 
 export interface MigrationProgress {
@@ -70,6 +96,13 @@ const verifiedFirmRoots = new Map<string, string>();
  */
 export function stripUndefined<T>(value: T): T {
   if (value === null || value === undefined) return value;
+  if (
+    value instanceof Date ||
+    (typeof Timestamp === 'function' && value instanceof Timestamp) ||
+    (typeof value === 'object' && typeof (value as any).toMillis === 'function' && typeof (value as any).toDate === 'function')
+  ) {
+    return value;
+  }
   if (Array.isArray(value)) {
     return value.map(item => stripUndefined(item)) as unknown as T;
   }
@@ -148,7 +181,7 @@ export async function ensureFirmRootDoc(
       const data = firmSnap.data();
       const isOwner = data?.ownerUid === uid;
       const isStaff = Boolean(data?.staff && typeof data.staff === 'object' && uid in data.staff);
-      if (!isOwner && !isStaff) {
+      if (!isOwner && !isStaff && !opts?.isMasterAdmin) {
         throw new Error('इस फर्म तक पहुँचने की अनुमति नहीं है (Permission denied).');
       }
     }
@@ -157,34 +190,71 @@ export async function ensureFirmRootDoc(
   verifiedFirmRoots.set(firmId, uid);
 }
 
+function mapFirmDocToProfile(id: string, data: any, uid: string): JewellerProfile {
+  return {
+    id,
+    firmId: id,
+    userId: uid,
+    ownerUid: data.ownerUid,
+    staff: data.staff || {},
+    staffPermissions: data.staffPermissions || {},
+    staffMembers: data.staffMembers || {},
+    code: data.code || 'FIRM-01',
+    name: data.name || 'Jewellery Firm',
+    counterName: data.counterName || 'Main Showroom Counter',
+    counterType: data.counterType || 'Main Showroom',
+    operatorName: data.operatorName || 'Owner',
+    gstin: data.gstin || 'URP-UNREGISTERED',
+    phone: data.phone || '',
+    logoUrl: data.logoUrl,
+    isDefault: data.ownerUid === uid
+  } as JewellerProfile;
+}
+
 /**
- * Fetches all firms owned by a signed-in user from Firestore
+ * Fetches all firms owned by or shared (via staff invite) with a signed-in user from Firestore
  */
 export async function fetchUserFirms(
   uid: string,
   targetDb: Firestore = db
 ): Promise<JewellerProfile[]> {
   if (!uid) return [];
-  const q = query(collection(targetDb, 'firms'), where('ownerUid', '==', uid));
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => {
-    const data = d.data();
-    return {
-      id: d.id,
-      firmId: d.id,
-      userId: uid,
-      ownerUid: data.ownerUid,
-      staff: data.staff || {},
-      code: data.code || 'FIRM-01',
-      name: data.name || 'Jewellery Firm',
-      counterName: data.counterName || 'Main Showroom Counter',
-      counterType: data.counterType || 'Main Showroom',
-      operatorName: data.operatorName || 'Owner',
-      gstin: data.gstin || 'URP-UNREGISTERED',
-      phone: data.phone || '',
-      isDefault: true
-    } as JewellerProfile;
+  const byId = new Map<string, JewellerProfile>();
+
+  const ownedQuery = query(collection(targetDb, 'firms'), where('ownerUid', '==', uid));
+  const ownedSnap = await getDocs(ownedQuery);
+  ownedSnap.docs.forEach((d) => {
+    byId.set(d.id, mapFirmDocToProfile(d.id, d.data(), uid));
   });
+
+  // Also include firms where this user has accepted staff membership
+  try {
+    const staffInvitesQuery = query(
+      collection(targetDb, 'staff_invites'),
+      where('acceptedUid', '==', uid)
+    );
+    const inviteSnap = await getDocs(staffInvitesQuery);
+    for (const invDoc of inviteSnap.docs) {
+      const inv = invDoc.data() as StaffInviteRecord;
+      if (inv.firmId && !byId.has(inv.firmId)) {
+        try {
+          const fSnap = await getDoc(doc(targetDb, 'firms', inv.firmId));
+          if (fSnap.exists()) {
+            const fData = fSnap.data();
+            if (fData?.staff && uid in fData.staff) {
+              byId.set(fSnap.id, mapFirmDocToProfile(fSnap.id, fData, uid));
+            }
+          }
+        } catch {
+          // Ignore firms whose owner was suspended or removed
+        }
+      }
+    }
+  } catch {
+    // Non-fatal if staff_invites query has no matches
+  }
+
+  return Array.from(byId.values());
 }
 
 /**
@@ -209,6 +279,11 @@ export async function checkFirmHasFirestoreData(
   return false;
 }
 
+export interface SnapshotMetadataInfo {
+  fromCache: boolean;
+  hasPendingWrites: boolean;
+}
+
 /**
  * Subscribes to a real-time Firestore collection for a specific firm.
  * Blocked until `firms/{firmId}` root doc is verified/created.
@@ -216,7 +291,7 @@ export async function checkFirmHasFirestoreData(
 export function subscribeToFirmCollection<T>(
   firmId: string,
   collectionName: string,
-  onUpdate: (items: T[]) => void,
+  onUpdate: (items: T[], meta?: SnapshotMetadataInfo) => void,
   onError: (err: Error) => void,
   opts?: FirestoreOpts
 ) {
@@ -232,9 +307,13 @@ export function subscribeToFirmCollection<T>(
   const colRef = collection(targetDb, 'firms', firmId, collectionName);
   return onSnapshot(
     colRef,
+    { includeMetadataChanges: true },
     (snapshot) => {
       const items: T[] = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as T));
-      onUpdate(items);
+      onUpdate(items, {
+        fromCache: snapshot.metadata.fromCache,
+        hasPendingWrites: snapshot.metadata.hasPendingWrites
+      });
     },
     (err) => {
       onError(err);
@@ -250,7 +329,7 @@ export function subscribeToFirmDoc<T>(
   firmId: string,
   collectionName: string,
   docId: string,
-  onUpdate: (data: T | null) => void,
+  onUpdate: (data: T | null, meta?: SnapshotMetadataInfo) => void,
   onError: (err: Error) => void,
   opts?: FirestoreOpts
 ) {
@@ -266,17 +345,36 @@ export function subscribeToFirmDoc<T>(
   const docRef = doc(targetDb, 'firms', firmId, collectionName, docId);
   return onSnapshot(
     docRef,
+    { includeMetadataChanges: true },
     (snapshot) => {
+      const meta: SnapshotMetadataInfo = {
+        fromCache: snapshot.metadata.fromCache,
+        hasPendingWrites: snapshot.metadata.hasPendingWrites
+      };
       if (snapshot.exists()) {
-        onUpdate({ id: snapshot.id, ...snapshot.data() } as T);
+        onUpdate({ id: snapshot.id, ...snapshot.data() } as T, meta);
       } else {
-        onUpdate(null);
+        onUpdate(null, meta);
       }
     },
     (err) => {
       onError(err);
     }
   );
+}
+
+/**
+ * Fires whenever Firestore finishes synchronizing all active listeners and pending writes.
+ */
+export function subscribeToSnapshotsInSync(
+  onInSync: () => void,
+  opts?: FirestoreOpts
+): () => void {
+  const targetDb = opts?.db || db;
+  if (!targetDb) return () => {};
+  return onSnapshotsInSync(targetDb, () => {
+    onInSync();
+  });
 }
 
 /**
@@ -393,8 +491,39 @@ export async function reserveNextSequenceNumber(
   });
 }
 
+export function subscribeToFirmInvoiceUsage(
+  firmId: string,
+  onUpdate: (usage: FirmUsageInvoicesDoc | null, meta?: SnapshotMetadataInfo) => void,
+  onError: (err: Error) => void,
+  opts?: FirestoreOpts
+) {
+  return subscribeToFirmDoc<FirmUsageInvoicesDoc>(
+    firmId,
+    'usage',
+    'invoices',
+    onUpdate,
+    onError,
+    opts
+  );
+}
+
+export async function fetchFirmInvoiceUsage(
+  firmId: string,
+  opts?: FirestoreOpts
+): Promise<FirmUsageInvoicesDoc | null> {
+  if (!firmId) return null;
+  const targetDb = opts?.db || db;
+  try {
+    const snap = await getDoc(doc(targetDb, 'firms', firmId, 'usage', 'invoices'));
+    return snap.exists() ? (snap.data() as FirmUsageInvoicesDoc) : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Atomically create invoice, deduct stock, update customer ledger, and reserve sequence number.
+ * Atomically create invoice, deduct stock, update customer ledger, reserve sequence number,
+ * and increment the tamper-resistant counter doc `firms/{firmId}/usage/invoices`.
  * Executes ALL transaction.get() calls BEFORE any writes.
  */
 export async function createInvoiceAtomic(
@@ -406,10 +535,14 @@ export async function createInvoiceAtomic(
   opts?: FirestoreOpts
 ): Promise<GSTInvoice> {
   const targetDb = opts?.db || db;
+  const uid = opts?.uid || auth?.currentUser?.uid;
   const istInfo = getISTDate();
   const finYearStr = istInfo.financialYear.finYearStr;
+  const monthKey = istInfo.isoDateStr.slice(0, 7);
   const counterDocId = `${invoiceDraft.invoiceType}_${finYearStr}`;
   const counterRef = doc(targetDb, 'firms', firmId, 'sequence_counters', counterDocId);
+  const usageRef = doc(targetDb, 'firms', firmId, 'usage', 'invoices');
+  const firmRef = doc(targetDb, 'firms', firmId);
 
   const invoiceId = `inv-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
@@ -436,6 +569,16 @@ export async function createInvoiceAtomic(
 
   const createdInvoice = await runTransaction(targetDb, async (transaction) => {
     // === 1. ALL READS FIRST ===
+    const firmSnap = await transaction.get(firmRef);
+    const firmData = firmSnap.exists() ? firmSnap.data() : null;
+    const ownerUid = firmData?.ownerUid || uid;
+
+    const ownerRef = ownerUid ? doc(targetDb, 'users', ownerUid) : null;
+    const ownerSnap = ownerRef ? await transaction.get(ownerRef) : null;
+    const actorRef = uid && uid !== ownerUid ? doc(targetDb, 'users', uid) : null;
+    const actorSnap = actorRef ? await transaction.get(actorRef) : null;
+
+    const usageSnap = await transaction.get(usageRef);
     const counterSnap = await transaction.get(counterRef);
 
     const itemSnapshots = await Promise.all(
@@ -454,6 +597,24 @@ export async function createInvoiceAtomic(
     }
 
     // === 2. VALIDATION INSIDE TRANSACTION USING FRESH READS ===
+    const currentUsageCount = usageSnap.exists() ? Number(usageSnap.data()?.count || 0) : 0;
+    const nextUsageCount = currentUsageCount + 1;
+
+    if (!opts?.isMasterAdmin && ownerSnap && ownerSnap.exists()) {
+      const ownerAccess = { uid: ownerSnap.id, ...ownerSnap.data() } as AppUserAccessRecord;
+      const quotaCheck = canUserCreateInvoice(ownerAccess, currentUsageCount, Date.now(), false, FULL_PERMISSIONS);
+      if (!quotaCheck.allowed) {
+        throw new Error(quotaCheck.reason || 'इनवॉइस बनाने की अनुमति नहीं है।');
+      }
+      if (actorSnap && actorSnap.exists()) {
+        const actorAccess = { uid: actorSnap.id, ...actorSnap.data() } as AppUserAccessRecord;
+        const actorCheck = canUserAccessApp(actorAccess, false);
+        if (!actorCheck.allowed) {
+          throw new Error(actorCheck.message || 'आपका खाता सक्रिय नहीं है।');
+        }
+      }
+    }
+
     for (const [itemId, req] of requiredQtyByItemId.entries()) {
       const snap = itemSnapMap.get(itemId);
       const freshQty = snap && snap.exists() ? (snap.data().quantity || 0) : 0;
@@ -470,6 +631,10 @@ export async function createInvoiceAtomic(
       nextSeq = (counterSnap.data().currentVal || 0) + 1;
     }
     const actualInvoiceNumber = formatSequentialNumber(prefix, finYearStr, nextSeq);
+
+    const prevUsageData = usageSnap.exists() ? usageSnap.data() : null;
+    const nextMonthlyCount =
+      prevUsageData?.monthKey === monthKey ? Number(prevUsageData?.monthlyCount || 0) + 1 : 1;
 
     // === 4. ALL WRITES AFTER READS ===
     // a. Update sequence counter
@@ -499,7 +664,21 @@ export async function createInvoiceAtomic(
       });
     }
 
-    // d. Save final invoice document
+    // d. Increment tamper-resistant usage counter inside the SAME transaction
+    const usagePayload: FirmUsageInvoicesDoc = {
+      count: nextUsageCount,
+      monthKey,
+      monthlyCount: nextMonthlyCount,
+      lastInvoiceId: invoiceId,
+      updatedAt: Timestamp.now()
+    };
+    if (usageSnap.exists()) {
+      transaction.update(usageRef, usagePayload as Record<string, any>);
+    } else {
+      transaction.set(usageRef, usagePayload);
+    }
+
+    // e. Save final invoice document
     const finalInvoice: GSTInvoice = stripUndefined({
       ...invoiceDraft,
       id: invoiceId,
@@ -956,3 +1135,629 @@ export function downloadCSVFile(rows: any[], filename: string) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// ============================================================================
+// MASTER ADMIN, USER ACCESS, AUDIT LOGS & STAFF RBAC
+// ============================================================================
+
+/**
+ * Checks whether the signed-in user exists in server-provisioned `platform_admins/{uid}`.
+ * Nothing on the client can write to `platform_admins`.
+ */
+export async function checkIsPlatformAdmin(
+  uid?: string | null,
+  opts?: FirestoreOpts
+): Promise<boolean> {
+  if (!uid) return false;
+  const targetDb = opts?.db || db;
+  try {
+    const snap = await getDoc(doc(targetDb, 'platform_admins', uid));
+    return snap.exists();
+  } catch {
+    return false;
+  }
+}
+
+export async function getPublicSupportConfig(
+  opts?: FirestoreOpts
+): Promise<PublicSupportConfig> {
+  const targetDb = opts?.db || db;
+  try {
+    const snap = await getDoc(doc(targetDb, 'system_config', 'public'));
+    if (snap.exists()) {
+      const data = snap.data();
+      return {
+        id: 'public',
+        supportName: data.supportName || 'Platform Support Desk',
+        supportPhone: data.supportPhone || '',
+        supportEmail: data.supportEmail || '',
+        updatedAt: data.updatedAt || ''
+      };
+    }
+  } catch {
+    // Ignore if unconfigured
+  }
+  return {
+    id: 'public',
+    supportName: 'Platform Support Desk',
+    supportPhone: '',
+    supportEmail: ''
+  };
+}
+
+export async function savePublicSupportConfig(
+  config: Omit<PublicSupportConfig, 'id' | 'updatedAt'>,
+  opts?: FirestoreOpts
+): Promise<void> {
+  const targetDb = opts?.db || db;
+  await setDoc(
+    doc(targetDb, 'system_config', 'public'),
+    stripUndefined({
+      id: 'public',
+      supportName: config.supportName || 'Platform Support Desk',
+      supportPhone: config.supportPhone || '',
+      supportEmail: config.supportEmail || '',
+      updatedAt: new Date().toISOString()
+    }),
+    { merge: true }
+  );
+}
+
+export async function getMasterControlSettings(
+  opts?: FirestoreOpts
+): Promise<MasterControlSettings> {
+  const targetDb = opts?.db || db;
+  try {
+    const snap = await getDoc(doc(targetDb, 'system_config', 'master'));
+    if (snap.exists()) {
+      const data = snap.data();
+      return {
+        id: 'master',
+        defaultTrialInvoiceLimit:
+          typeof data.defaultTrialInvoiceLimit === 'number'
+            ? data.defaultTrialInvoiceLimit
+            : DEFAULT_TRIAL_INVOICE_LIMIT,
+        defaultTrialDays:
+          typeof data.defaultTrialDays === 'number'
+            ? data.defaultTrialDays
+            : DEFAULT_TRIAL_DAYS,
+        requireApprovalForNewSignups: data.requireApprovalForNewSignups !== false,
+        updatedAt: data.updatedAt || '',
+        updatedByUid: data.updatedByUid
+      };
+    }
+  } catch {
+    // Fallback to defaults if config doc doesn't exist yet or rules block
+  }
+  return {
+    id: 'master',
+    defaultTrialInvoiceLimit: DEFAULT_TRIAL_INVOICE_LIMIT,
+    defaultTrialDays: DEFAULT_TRIAL_DAYS,
+    requireApprovalForNewSignups: true,
+    updatedAt: ''
+  };
+}
+
+export async function saveMasterControlSettings(
+  settings: MasterControlSettings,
+  opts?: FirestoreOpts
+): Promise<void> {
+  const targetDb = opts?.db || db;
+  await setDoc(
+    doc(targetDb, 'system_config', 'master'),
+    stripUndefined({
+      ...settings,
+      id: 'master',
+      updatedAt: new Date().toISOString()
+    }),
+    { merge: true }
+  );
+}
+
+/**
+ * Ensures `users/{uid}` exists for any signed-in user.
+ * First-time creation strictly sets `status: 'pending'` and `role: 'owner'`
+ * with NO privileged fields (enforced by firestore.rules).
+ */
+export async function ensureUserAccessRecord(
+  user: {
+    uid: string;
+    email?: string | null;
+    emailVerified?: boolean;
+    displayName?: string | null;
+    phoneNumber?: string | null;
+  },
+  opts?: FirestoreOpts & {
+    firmName?: string;
+    phone?: string;
+    ownerName?: string;
+  }
+): Promise<AppUserAccessRecord> {
+  if (!user?.uid) {
+    throw new Error('User UID is required.');
+  }
+  const targetDb = opts?.db || db;
+  const userRef = doc(targetDb, 'users', user.uid);
+  const nowIso = new Date().toISOString();
+
+  const existingSnap = await getDoc(userRef);
+  if (!existingSnap.exists()) {
+    const newRecord: AppUserAccessRecord = stripUndefined({
+      uid: user.uid,
+      email: (user.email || '').trim().toLowerCase(),
+      displayName: opts?.ownerName || user.displayName || (user.email ? user.email.split('@')[0] : 'Jeweller'),
+      phone: opts?.phone || user.phoneNumber || '',
+      firmName: opts?.firmName || '',
+      role: 'owner',
+      status: 'pending',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      lastActiveAt: nowIso
+    });
+    await setDoc(userRef, newRecord);
+    return newRecord;
+  }
+
+  const existingData = existingSnap.data() as AppUserAccessRecord;
+  // Safe self-update keys allowed by firestore.rules: displayName, firmName, phone, lastActiveAt, updatedAt
+  const safeProfilePatch: Record<string, any> = {
+    lastActiveAt: nowIso,
+    updatedAt: nowIso
+  };
+  if (opts?.ownerName && !existingData.displayName) {
+    safeProfilePatch.displayName = opts.ownerName;
+  }
+  if (opts?.phone && !existingData.phone) {
+    safeProfilePatch.phone = opts.phone;
+  }
+  if (opts?.firmName && !existingData.firmName) {
+    safeProfilePatch.firmName = opts.firmName;
+  }
+
+  try {
+    await updateDoc(userRef, stripUndefined(safeProfilePatch));
+  } catch {
+    // Non-fatal if metadata patch fails offline
+  }
+
+  return {
+    ...existingData,
+    ...safeProfilePatch,
+    uid: user.uid
+  };
+}
+
+export function subscribeToUserAccess(
+  uid: string,
+  onUpdate: (record: AppUserAccessRecord | null) => void,
+  onError: (err: Error) => void,
+  opts?: FirestoreOpts
+) {
+  if (!uid) return () => {};
+  const targetDb = opts?.db || db;
+  const userRef = doc(targetDb, 'users', uid);
+  return onSnapshot(
+    userRef,
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      if (snapshot.exists()) {
+        onUpdate({ uid: snapshot.id, ...snapshot.data() } as AppUserAccessRecord);
+      } else {
+        onUpdate(null);
+      }
+    },
+    (err) => {
+      onError(err);
+    }
+  );
+}
+
+export async function fetchUserAccessOnce(
+  uid: string,
+  opts?: FirestoreOpts
+): Promise<AppUserAccessRecord | null> {
+  if (!uid) return null;
+  const targetDb = opts?.db || db;
+  try {
+    const snap = await getDoc(doc(targetDb, 'users', uid));
+    return snap.exists() ? ({ uid: snap.id, ...snap.data() } as AppUserAccessRecord) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function updateUserProfileFields(
+  uid: string,
+  fields: { displayName?: string; phone?: string; firmName?: string },
+  opts?: FirestoreOpts
+): Promise<void> {
+  if (!uid) throw new Error('User UID is required.');
+  const targetDb = opts?.db || db;
+  await updateDoc(
+    doc(targetDb, 'users', uid),
+    stripUndefined({
+      ...fields,
+      updatedAt: new Date().toISOString()
+    })
+  );
+}
+
+export function subscribeToAllUsers(
+  onUpdate: (users: AppUserAccessRecord[]) => void,
+  onError: (err: Error) => void,
+  opts?: FirestoreOpts
+) {
+  const targetDb = opts?.db || db;
+  return onSnapshot(
+    collection(targetDb, 'users'),
+    (snapshot) => {
+      const list = snapshot.docs.map(
+        (d) => ({ uid: d.id, ...d.data() } as AppUserAccessRecord)
+      );
+      list.sort((a, b) => (toEpochMs(b.createdAt) || 0) - (toEpochMs(a.createdAt) || 0));
+      onUpdate(list);
+    },
+    (err) => onError(err)
+  );
+}
+
+export async function updateUserAccessByMaster(
+  targetUid: string,
+  updates: Partial<
+    Pick<
+      AppUserAccessRecord,
+      | 'status'
+      | 'role'
+      | 'trialInvoiceLimit'
+      | 'trialEndsAt'
+      | 'permissions'
+      | 'adminNotes'
+      | 'firmName'
+      | 'displayName'
+      | 'phone'
+    >
+  >,
+  adminUid: string,
+  opts?: FirestoreOpts
+): Promise<void> {
+  if (!targetUid) throw new Error('Target UID is required.');
+  const targetDb = opts?.db || db;
+  const nowIso = new Date().toISOString();
+  const payload: Record<string, any> = {
+    ...updates,
+    updatedAt: nowIso
+  };
+  if (updates.trialEndsAt !== undefined && updates.trialEndsAt !== null) {
+    const ms = toEpochMs(updates.trialEndsAt);
+    if (ms !== null) {
+      payload.trialEndsAt = Timestamp.fromMillis(ms);
+    }
+  }
+  if (updates.status === 'active' || updates.status === 'trial') {
+    payload.approvedAt = nowIso;
+    payload.approvedBy = adminUid;
+  }
+  await setDoc(doc(targetDb, 'users', targetUid), stripUndefined(payload), { merge: true });
+}
+
+export async function deleteUserAccessRecord(
+  targetUid: string,
+  opts?: FirestoreOpts
+): Promise<void> {
+  if (!targetUid) throw new Error('Target UID is required.');
+  const targetDb = opts?.db || db;
+  await deleteDoc(doc(targetDb, 'users', targetUid));
+}
+
+export async function fetchAllFirmsForMaster(
+  opts?: FirestoreOpts
+): Promise<JewellerProfile[]> {
+  const targetDb = opts?.db || db;
+  const snap = await getDocs(collection(targetDb, 'firms'));
+  return snap.docs.map((d) => mapFirmDocToProfile(d.id, d.data(), d.data().ownerUid || ''));
+}
+
+export function subscribeToAllFirmsForMaster(
+  onUpdate: (firms: JewellerProfile[]) => void,
+  onError: (err: Error) => void,
+  opts?: FirestoreOpts
+) {
+  const targetDb = opts?.db || db;
+  return onSnapshot(
+    collection(targetDb, 'firms'),
+    (snapshot) => {
+      const list = snapshot.docs.map((d) => {
+        const data = d.data();
+        return mapFirmDocToProfile(d.id, data, data.ownerUid || '');
+      });
+      onUpdate(list);
+    },
+    (err) => onError(err)
+  );
+}
+
+export async function fetchAllFirmUsageForMaster(
+  firmIds: string[],
+  opts?: FirestoreOpts
+): Promise<Record<string, FirmUsageInvoicesDoc>> {
+  const targetDb = opts?.db || db;
+  const entries = await Promise.all(
+    firmIds.map(async (id) => {
+      try {
+        const snap = await getDoc(doc(targetDb, 'firms', id, 'usage', 'invoices'));
+        return [id, snap.exists() ? (snap.data() as FirmUsageInvoicesDoc) : { count: 0 }] as const;
+      } catch {
+        return [id, { count: 0 }] as const;
+      }
+    })
+  );
+  return Object.fromEntries(entries);
+}
+
+export async function updateFirmMetaByMaster(
+  firmId: string,
+  updates: Partial<JewellerProfile>,
+  opts?: FirestoreOpts
+): Promise<void> {
+  if (!firmId) throw new Error('Firm ID is required.');
+  const targetDb = opts?.db || db;
+  await setDoc(doc(targetDb, 'firms', firmId), stripUndefined(updates), { merge: true });
+}
+
+export async function deleteFirmByMaster(
+  firmId: string,
+  opts?: FirestoreOpts
+): Promise<void> {
+  if (!firmId) throw new Error('Firm ID is required.');
+  const targetDb = opts?.db || db;
+  await deleteDoc(doc(targetDb, 'firms', firmId));
+}
+
+// ============================================================================
+// APPEND-ONLY AUDIT LOGS
+// ============================================================================
+
+export async function writeAuditLog(
+  entry: Omit<AuditLogEntry, 'id' | 'createdAt'>,
+  opts?: FirestoreOpts
+): Promise<void> {
+  const targetDb = opts?.db || db;
+  try {
+    await addDoc(
+      collection(targetDb, 'audit_logs'),
+      stripUndefined({
+        ...entry,
+        createdAt: Timestamp.now()
+      })
+    );
+  } catch (err) {
+    console.warn('Failed to write audit log:', err);
+  }
+}
+
+export function subscribeToAuditLogs(
+  onUpdate: (logs: AuditLogEntry[]) => void,
+  onError: (err: Error) => void,
+  opts?: FirestoreOpts
+) {
+  const targetDb = opts?.db || db;
+  const q = query(collection(targetDb, 'audit_logs'), orderBy('createdAt', 'desc'), limit(150));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list = snapshot.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as AuditLogEntry)
+      );
+      onUpdate(list);
+    },
+    (err) => onError(err)
+  );
+}
+
+// ============================================================================
+// STAFF INVITATIONS & PER-FIRM RBAC
+// ============================================================================
+
+export function subscribeToFirmStaffInvites(
+  firmId: string,
+  onUpdate: (invites: StaffInviteRecord[]) => void,
+  onError: (err: Error) => void,
+  opts?: FirestoreOpts
+) {
+  if (!firmId) return () => {};
+  const targetDb = opts?.db || db;
+  const q = query(collection(targetDb, 'staff_invites'), where('firmId', '==', firmId));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list = snapshot.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as StaffInviteRecord)
+      );
+      onUpdate(list);
+    },
+    (err) => onError(err)
+  );
+}
+
+export async function createOrUpdateStaffInvite(
+  params: {
+    firmId: string;
+    firmName: string;
+    ownerUid: string;
+    email: string;
+    displayName?: string;
+    role: 'cashier' | 'manager';
+    permissions: UserPermissions;
+    ownerPermissions: UserPermissions;
+  },
+  opts?: FirestoreOpts
+): Promise<StaffInviteRecord> {
+  const targetDb = opts?.db || db;
+  const emailLower = params.email.trim().toLowerCase();
+  if (!emailLower || !emailLower.includes('@')) {
+    throw new Error('कृपया स्टाफ का मान्य ईमेल पता दर्ज करें।');
+  }
+  const inviteId = `${params.firmId}__${emailLower}`;
+  const cappedPermissions = capStaffPermissionsToOwner(params.permissions, params.ownerPermissions);
+  const nowIso = new Date().toISOString();
+
+  const existingSnap = await getDoc(doc(targetDb, 'staff_invites', inviteId));
+  const existingData = existingSnap.exists() ? (existingSnap.data() as StaffInviteRecord) : null;
+
+  const record: StaffInviteRecord = stripUndefined({
+    id: inviteId,
+    firmId: params.firmId,
+    firmName: params.firmName,
+    ownerUid: params.ownerUid,
+    email: emailLower,
+    displayName: params.displayName?.trim() || existingData?.displayName || emailLower.split('@')[0],
+    role: params.role,
+    permissions: cappedPermissions,
+    status: existingData?.status === 'accepted' ? 'accepted' : 'pending',
+    acceptedUid: existingData?.acceptedUid,
+    acceptedAt: existingData?.acceptedAt,
+    createdAt: existingData?.createdAt || nowIso,
+    createdByUid: params.ownerUid
+  });
+
+  await setDoc(doc(targetDb, 'staff_invites', inviteId), record, { merge: true });
+
+  // If the staff member already accepted previously, sync updated permissions onto firms/{firmId}
+  if (existingData?.acceptedUid) {
+    const uid = existingData.acceptedUid;
+    const meta: StaffMemberMeta = {
+      uid,
+      email: emailLower,
+      displayName: record.displayName,
+      role: params.role,
+      permissions: cappedPermissions,
+      addedAt: existingData.acceptedAt || nowIso,
+      addedByUid: params.ownerUid
+    };
+    await updateDoc(doc(targetDb, 'firms', params.firmId), {
+      [`staff.${uid}`]: params.role,
+      [`staffPermissions.${uid}`]: cappedPermissions,
+      [`staffMembers.${uid}`]: meta
+    });
+  }
+
+  return record;
+}
+
+export async function updateFirmStaffPermissions(
+  params: {
+    firmId: string;
+    staffUid: string;
+    email: string;
+    role: 'cashier' | 'manager';
+    permissions: UserPermissions;
+    ownerPermissions: UserPermissions;
+  },
+  opts?: FirestoreOpts
+): Promise<void> {
+  const targetDb = opts?.db || db;
+  const capped = capStaffPermissionsToOwner(params.permissions, params.ownerPermissions);
+  const inviteId = `${params.firmId}__${params.email.trim().toLowerCase()}`;
+
+  await updateDoc(doc(targetDb, 'firms', params.firmId), {
+    [`staff.${params.staffUid}`]: params.role,
+    [`staffPermissions.${params.staffUid}`]: capped,
+    [`staffMembers.${params.staffUid}.role`]: params.role,
+    [`staffMembers.${params.staffUid}.permissions`]: capped
+  });
+
+  try {
+    await updateDoc(doc(targetDb, 'staff_invites', inviteId), {
+      role: params.role,
+      permissions: capped
+    });
+  } catch {
+    // Invite doc may not exist if staff was added directly
+  }
+}
+
+export async function removeFirmStaffMember(
+  firmId: string,
+  staffUid: string | undefined,
+  email: string,
+  opts?: FirestoreOpts
+): Promise<void> {
+  const targetDb = opts?.db || db;
+  if (staffUid) {
+    await updateDoc(doc(targetDb, 'firms', firmId), {
+      [`staff.${staffUid}`]: deleteField(),
+      [`staffPermissions.${staffUid}`]: deleteField(),
+      [`staffMembers.${staffUid}`]: deleteField()
+    });
+  }
+  const inviteId = `${firmId}__${email.trim().toLowerCase()}`;
+  try {
+    await deleteDoc(doc(targetDb, 'staff_invites', inviteId));
+  } catch {
+    // Ignore if invite already deleted
+  }
+}
+
+/**
+ * Claims any pending/matching `staff_invites` for the authenticated user's email
+ * and registers their UID in `firms/{firmId}.staff` so they can access shared firms.
+ */
+export async function claimStaffInvitesForUser(
+  user: {
+    uid: string;
+    email?: string | null;
+    displayName?: string | null;
+  },
+  opts?: FirestoreOpts
+): Promise<number> {
+  const emailLower = (user.email || '').trim().toLowerCase();
+  if (!user.uid || !emailLower) return 0;
+  const targetDb = opts?.db || db;
+  let claimed = 0;
+
+  try {
+    const q = query(collection(targetDb, 'staff_invites'), where('email', '==', emailLower));
+    const snap = await getDocs(q);
+    const nowIso = new Date().toISOString();
+
+    for (const invDoc of snap.docs) {
+      const invite = invDoc.data() as StaffInviteRecord;
+      if (!invite.firmId) continue;
+      if (invite.ownerUid === user.uid) continue;
+
+      const meta: StaffMemberMeta = {
+        uid: user.uid,
+        email: emailLower,
+        displayName: user.displayName || invite.displayName || emailLower.split('@')[0],
+        role: invite.role,
+        permissions: invite.permissions || RESTRICTED_PERMISSIONS,
+        addedAt: invite.acceptedAt || nowIso,
+        addedByUid: invite.createdByUid || invite.ownerUid
+      };
+
+      try {
+        await updateDoc(doc(targetDb, 'firms', invite.firmId), {
+          [`staff.${user.uid}`]: invite.role,
+          [`staffPermissions.${user.uid}`]: meta.permissions,
+          [`staffMembers.${user.uid}`]: meta
+        });
+
+        if (invite.status !== 'accepted' || invite.acceptedUid !== user.uid) {
+          await updateDoc(doc(targetDb, 'staff_invites', invDoc.id), {
+            status: 'accepted',
+            acceptedUid: user.uid,
+            acceptedAt: nowIso
+          });
+        }
+        claimed += 1;
+      } catch (err) {
+        console.warn('Could not claim invite for firm', invite.firmId, err);
+      }
+    }
+  } catch (err) {
+    console.warn('Failed checking staff_invites:', err);
+  }
+
+  return claimed;
+}
+

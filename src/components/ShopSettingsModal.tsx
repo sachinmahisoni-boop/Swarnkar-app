@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { ShopDetails } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { InvoiceTemplateLayout, ShopDetails } from '../types';
 import { ShreemLogo } from './ShreemLogo';
 import { 
   X, 
@@ -11,7 +11,10 @@ import {
   Upload, 
   Image as ImageIcon, 
   RotateCcw, 
-  Sparkles 
+  Sparkles,
+  Printer,
+  Receipt,
+  CheckCircle2
 } from 'lucide-react';
 
 interface ShopSettingsModalProps {
@@ -29,6 +32,15 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
 }) => {
   const [formData, setFormData] = useState<ShopDetails>(shopDetails);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({
+        ...shopDetails,
+        defaultInvoiceLayout: shopDetails.defaultInvoiceLayout || 'A4',
+      });
+    }
+  }, [shopDetails, isOpen]);
 
   if (!isOpen) return null;
 
@@ -329,6 +341,87 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
                 />
               </div>
+            </div>
+          </div>
+
+          <hr className="border-slate-200 dark:border-slate-800" />
+
+          {/* Invoice Templates Default Layout Selector */}
+          <div className="space-y-3" data-testid="invoice-templates-section">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-extrabold text-amber-800 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Printer className="w-4 h-4 text-amber-600 dark:text-amber-400" /> Invoice Templates (बिल प्रिंट टेम्पलेट)
+              </h3>
+              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                Default layout for billing prints
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {(
+                [
+                  {
+                    id: 'A4' as InvoiceTemplateLayout,
+                    title: 'A4 Portrait',
+                    hindi: 'पूर्ण पेज बिल (210×297mm)',
+                    desc: 'Full official GST Tax Invoice with complete hallmark & bank details.',
+                    icon: FileText,
+                  },
+                  {
+                    id: 'A5' as InvoiceTemplateLayout,
+                    title: 'A5 Half-Page',
+                    hindi: 'हाफ पेज बिल (148×210mm)',
+                    desc: 'Compact half-sheet layout ideal for regular jewellery counter bills.',
+                    icon: FileText,
+                  },
+                  {
+                    id: 'POS_80MM' as InvoiceTemplateLayout,
+                    title: '80mm Thermal Receipt',
+                    hindi: 'थर्मल रसीद (3" रोल)',
+                    desc: 'Continuous thermal receipt format for quick POS counters & estimates.',
+                    icon: Receipt,
+                  },
+                ]
+              ).map((tpl) => {
+                const Icon = tpl.icon;
+                const isSelected = (formData.defaultInvoiceLayout || 'A4') === tpl.id;
+                return (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => handleChange('defaultInvoiceLayout', tpl.id)}
+                    aria-pressed={isSelected}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between gap-2 ${
+                      isSelected
+                        ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-500 ring-2 ring-amber-500/25 shadow-xs'
+                        : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 hover:border-amber-400'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div
+                        className={`p-2 rounded-xl ${
+                          isSelected
+                            ? 'bg-amber-500 text-stone-950'
+                            : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      {isSelected && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[10px] font-black">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <div className="font-black text-xs text-slate-900 dark:text-white">{tpl.title}</div>
+                      <div className="text-[11px] font-bold text-amber-800 dark:text-amber-400">{tpl.hindi}</div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">{tpl.desc}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

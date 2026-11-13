@@ -1,6 +1,7 @@
-import React from 'react';
-import { MetalRate, ShopDetails, JewellerProfile } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { MetalRate, ShopDetails, JewellerProfile, AppUserAccessRecord, UserPermissions } from '../types';
 import { ShreemLogo } from './ShreemLogo';
+import { canUserAccessTab, hasActionPermission, getTrialDaysRemaining, DEFAULT_TRIAL_INVOICE_LIMIT } from '../lib/accessControl';
 import { 
   RefreshCw, 
   Bell, 
@@ -22,11 +23,22 @@ import {
   CloudOff,
   Database,
   ShieldAlert,
-  AlertTriangle
+  AlertTriangle,
+  Clock,
+  Wifi,
+  WifiOff,
+  CheckCircle2,
+  HardDrive
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
+import {
+  SyncStatusType,
+  formatSyncTime,
+  resolveEffectiveSyncStatus,
+  getSyncStatusPresentation,
+} from '../lib/syncStatus';
 
-export type SyncStatusType = 'synced' | 'offline' | 'permission-error' | 'syncing' | 'error';
+export type { SyncStatusType };
 
 interface HeaderProps {
   shopDetails: ShopDetails;
@@ -52,7 +64,17 @@ interface HeaderProps {
   isSynced?: boolean;
   syncStatus?: SyncStatusType;
   syncError?: string | null;
+  lastSyncedAt?: number | null;
+  pendingWritesCount?: number;
+  syncSource?: 'cloud' | 'cache';
+  lastSyncEventLabel?: string | null;
+  syncPulseKey?: number;
+  onRetrySync?: () => void;
   onOpenBackupModal?: () => void;
+  userAccess?: AppUserAccessRecord | null;
+  effectivePermissions?: UserPermissions | null;
+  firmUsageCount?: number;
+  isMasterAdmin?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -79,15 +101,97 @@ export const Header: React.FC<HeaderProps> = ({
   isSynced = true,
   syncStatus,
   syncError,
-  onOpenBackupModal
+  lastSyncedAt = null,
+  pendingWritesCount = 0,
+  syncSource = 'cloud',
+  lastSyncEventLabel = null,
+  syncPulseKey = 0,
+  onRetrySync,
+  onOpenBackupModal,
+  userAccess,
+  effectivePermissions,
+  firmUsageCount,
+  isMasterAdmin = false
 }) => {
+  const isDemoMode = !userAccess && !isMasterAdmin;
+  const canTab = (tab: any) => isDemoMode || canUserAccessTab(userAccess, tab, effectivePermissions, isMasterAdmin);
+  const canEditRates = isDemoMode || hasActionPermission(userAccess, 'canEditRates', effectivePermissions, isMasterAdmin);
+  const canEditSettings = isDemoMode || hasActionPermission(userAccess, 'canEditSettings', effectivePermissions, isMasterAdmin);
+  const canExportBackup = isDemoMode || hasActionPermission(userAccess, 'canExportBackup', effectivePermissions, isMasterAdmin);
+  const trialLimit = userAccess?.trialInvoiceLimit ?? DEFAULT_TRIAL_INVOICE_LIMIT;
+  const trialUsed = firmUsageCount ?? userAccess?.invoicesCreatedCount ?? 0;
+  const trialDaysLeft = userAccess?.status === 'trial' ? getTrialDaysRemaining(userAccess.trialEndsAt) : null;
+
   const gold24k = rates.find(r => r.metal === 'Gold' && r.purity === '24K')?.ratePerGram || 0;
   const gold22k = rates.find(r => r.metal === 'Gold' && r.purity === '22K')?.ratePerGram || 0;
   const silver999 = rates.find(r => r.metal === 'Silver' && r.purity === '999 Fine')?.ratePerGram || 0;
 
-  const effectiveStatus: SyncStatusType = syncStatus
-    ? (!isOnline && syncStatus === 'synced' ? 'offline' : syncStatus)
-    : (!isOnline ? 'offline' : isSynced ? 'synced' : 'error');
+  const effectiveStatus = resolveEffectiveSyncStatus({
+    isOnline,
+    isSynced,
+    syncStatus,
+    pendingWritesCount,
+  });
+
+  const [isUpdatingAnim, setIsUpdatingAnim] = useState(false);
+  const [showSyncDetails, setShowSyncDetails] = useState(false);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number }>({ top: 44, left: 16 });
+  const syncButtonRef = useRef<HTMLButtonElement>(null);
+  const syncPopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!syncPulseKey) return;
+    setIsUpdatingAnim(true);
+    setNowMs(Date.now());
+    const timer = window.setTimeout(() => setIsUpdatingAnim(false), 1400);
+    return () => window.clearTimeout(timer);
+  }, [syncPulseKey]);
+
+  useEffect(() => {
+    if (!lastSyncedAt) return;
+    const interval = window.setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => window.clearInterval(interval);
+  }, [lastSyncedAt]);
+
+  useEffect(() => {
+    if (!showSyncDetails) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        syncButtonRef.current?.contains(target) ||
+        syncPopoverRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setShowSyncDetails(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showSyncDetails]);
+
+  const handleToggleSyncDetails = () => {
+    if (!showSyncDetails && syncButtonRef.current) {
+      const rect = syncButtonRef.current.getBoundingClientRect();
+      const clampedLeft = Math.max(8, Math.min(rect.left, window.innerWidth - 280));
+      setPopoverPos({
+        top: rect.bottom + 6,
+        left: clampedLeft,
+      });
+    }
+    setShowSyncDetails(prev => !prev);
+  };
+
+  const formattedSyncTime = formatSyncTime(lastSyncedAt);
+  const syncPresentation = getSyncStatusPresentation({
+    status: effectiveStatus,
+    pendingWritesCount,
+    syncSource: syncSource === 'cache' ? 'cache' : 'cloud',
+    lastSyncedAt,
+    isUpdatingAnim,
+    nowMs,
+  });
+  const statusDetailHint = syncPresentation.hint;
 
   return (
     <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md text-stone-900 dark:text-slate-100 border-b border-stone-200 dark:border-slate-800 sticky top-0 z-30 font-sans shadow-xs transition-colors">
@@ -123,57 +227,235 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </button>
 
-          {/* Synced / Offline / Permission Error Indicator Badge */}
-          <div 
-            className={`flex items-center gap-1 px-2 py-0.5 rounded-xl border text-[10px] font-extrabold font-mono transition shadow-2xs ${
+          {/* Real-Time Animated Sync Status Indicator ('Syncing...', 'Synced', 'Offline') */}
+          <button
+            ref={syncButtonRef}
+            type="button"
+            data-testid="header-sync-status"
+            onClick={handleToggleSyncDetails}
+            aria-expanded={showSyncDetails}
+            aria-label={`Firestore sync status: ${syncPresentation.label}`}
+            className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[10px] font-extrabold font-mono transition-all duration-300 shadow-2xs cursor-pointer shrink-0 ${
               effectiveStatus === 'permission-error' || effectiveStatus === 'error'
-                ? 'bg-rose-50 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-700/60'
+                ? 'bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-700/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 ring-2 ring-rose-400/35 animate-sync-halo'
                 : effectiveStatus === 'offline'
-                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
+                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60 hover:bg-amber-100 dark:hover:bg-amber-900/50 ring-2 ring-amber-400/35 animate-sync-halo'
                   : effectiveStatus === 'syncing'
-                    ? 'bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-700/60'
-                    : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700/60'
+                    ? 'bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-700/60 ring-2 ring-sky-400/50 dark:ring-sky-500/40 animate-sync-halo animate-pulse'
+                    : `bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 ${
+                        isUpdatingAnim
+                          ? 'ring-2 ring-emerald-400/70 dark:ring-emerald-500/50 scale-[1.03] animate-sync-halo'
+                          : 'animate-sync-halo'
+                      }`
             }`}
             title={
               syncError
                 ? syncError
                 : effectiveStatus === 'synced'
-                  ? 'Firestore Live Synced'
+                  ? `Synced (${formattedSyncTime}) - Click for details`
                   : effectiveStatus === 'syncing'
-                    ? 'Initializing Firm & Syncing...'
-                    : 'Offline Mode - Local cache active'
+                    ? 'Syncing changes with Firestore - Click for details'
+                    : 'Offline - Local Firestore cache active - Click for details'
             }
           >
-            {effectiveStatus === 'permission-error' ? (
-              <>
-                <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-                <span>Permission error</span>
-              </>
-            ) : effectiveStatus === 'error' ? (
-              <>
-                <AlertTriangle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-                <span>Sync error</span>
-              </>
-            ) : effectiveStatus === 'offline' ? (
-              <>
-                <CloudOff className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                <span>Offline</span>
-              </>
-            ) : effectiveStatus === 'syncing' ? (
-              <>
-                <RefreshCw className="w-3 h-3 text-sky-600 dark:text-sky-400 animate-spin" />
-                <span>Syncing...</span>
-              </>
-            ) : (
-              <>
-                <Cloud className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                <span>Synced</span>
-              </>
-            )}
-          </div>
+            {/* Color-Coded Animated Status Pulse Dot */}
+            <span className="relative flex h-2.5 w-2.5 items-center justify-center shrink-0" aria-hidden="true">
+              {syncPresentation.pulseMode === 'active' || syncPresentation.pulseMode === 'burst' ? (
+                <span
+                  className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    effectiveStatus === 'syncing' ? 'bg-sky-400' : 'bg-emerald-400'
+                  }`}
+                />
+              ) : (
+                <span
+                  className={`animate-pulse absolute inline-flex h-full w-full rounded-full opacity-65 ${
+                    effectiveStatus === 'permission-error' || effectiveStatus === 'error'
+                      ? 'bg-rose-400'
+                      : effectiveStatus === 'offline'
+                        ? 'bg-amber-400'
+                        : 'bg-emerald-400'
+                  }`}
+                />
+              )}
+              <span
+                className={`relative inline-flex rounded-full h-2 w-2 transition-colors duration-300 ${
+                  effectiveStatus === 'permission-error' || effectiveStatus === 'error'
+                    ? 'bg-rose-500'
+                    : effectiveStatus === 'offline'
+                      ? 'bg-amber-500'
+                      : effectiveStatus === 'syncing'
+                        ? 'bg-sky-500'
+                        : 'bg-emerald-500'
+                }`}
+              />
+            </span>
+
+            <span className="flex items-center gap-1" aria-live="polite">
+              {effectiveStatus === 'permission-error' ? (
+                <>
+                  <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400 shrink-0" />
+                  <span>{syncPresentation.label}</span>
+                </>
+              ) : effectiveStatus === 'error' ? (
+                <>
+                  <AlertTriangle className="w-3 h-3 text-rose-600 dark:text-rose-400 shrink-0" />
+                  <span>{syncPresentation.label}</span>
+                </>
+              ) : effectiveStatus === 'offline' ? (
+                <>
+                  <CloudOff className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>{syncPresentation.label}</span>
+                  <span className="hidden md:inline text-[9px] font-semibold opacity-80">
+                    • {statusDetailHint}
+                  </span>
+                </>
+              ) : effectiveStatus === 'syncing' ? (
+                <>
+                  <RefreshCw className="w-3 h-3 text-sky-600 dark:text-sky-400 animate-spin shrink-0" />
+                  <span>{syncPresentation.label}</span>
+                  <span className="hidden md:inline text-[9px] font-semibold opacity-80">
+                    • {statusDetailHint}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Cloud className={`w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0 transition-transform duration-300 ${isUpdatingAnim ? 'scale-110' : ''}`} />
+                  <span>{syncPresentation.label}</span>
+                  <span className="hidden md:inline text-[9px] font-semibold opacity-80">
+                    • {statusDetailHint}
+                  </span>
+                </>
+              )}
+            </span>
+          </button>
+
+          {/* Detailed Sync Status Popover */}
+          {showSyncDetails && (
+            <div
+              ref={syncPopoverRef}
+              style={{ top: `${popoverPos.top}px`, left: `${popoverPos.left}px` }}
+              className="fixed z-50 w-68 bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-700 rounded-xl shadow-xl p-3 text-xs text-stone-800 dark:text-slate-200 space-y-2"
+            >
+              <div className="flex items-center justify-between border-b border-stone-200 dark:border-slate-800 pb-1.5">
+                <span className="font-black text-[11px] uppercase tracking-wider text-stone-600 dark:text-slate-400">
+                  Cloud Sync Status
+                </span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-black font-mono ${
+                    effectiveStatus === 'synced'
+                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                      : effectiveStatus === 'syncing'
+                        ? 'bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300'
+                        : effectiveStatus === 'offline'
+                          ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
+                          : 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
+                  }`}
+                >
+                  {effectiveStatus === 'syncing'
+                    ? 'Syncing...'
+                    : effectiveStatus === 'offline'
+                      ? 'Offline'
+                      : effectiveStatus === 'synced'
+                        ? 'Synced'
+                        : 'Error'}
+                </span>
+              </div>
+
+              <div className="space-y-1.5 text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-stone-500 dark:text-slate-400">
+                    {isOnline ? <Wifi className="w-3.5 h-3.5 text-emerald-500" /> : <WifiOff className="w-3.5 h-3.5 text-amber-500" />}
+                    Connection:
+                  </span>
+                  <span className="font-bold">{isOnline ? 'Online' : 'Offline (No Internet)'}</span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-stone-500 dark:text-slate-400">
+                    <HardDrive className="w-3.5 h-3.5 text-sky-500" />
+                    Data Source:
+                  </span>
+                  <span className="font-bold">
+                    {syncSource === 'cache' || !isOnline ? 'Local Cache (IndexedDB)' : 'Firestore Cloud'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-stone-500 dark:text-slate-400">
+                    <Clock className="w-3.5 h-3.5 text-amber-500" />
+                    Last Synced:
+                  </span>
+                  <span className="font-mono font-bold">{formattedSyncTime}</span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-stone-500 dark:text-slate-400">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    Pending Queue:
+                  </span>
+                  <span className="font-mono font-bold">
+                    {pendingWritesCount === 0 ? '0 pending' : `${pendingWritesCount} queued`}
+                  </span>
+                </div>
+
+                {lastSyncEventLabel && (
+                  <div className="pt-1 border-t border-stone-100 dark:border-slate-800 text-[10px] text-stone-500 dark:text-slate-400">
+                    Last update: <strong className="text-stone-700 dark:text-slate-300">{lastSyncEventLabel}</strong>
+                  </div>
+                )}
+
+                {syncError && (
+                  <div className="p-1.5 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 rounded text-[10px] text-rose-700 dark:text-rose-300">
+                    {syncError}
+                  </div>
+                )}
+              </div>
+
+              {onRetrySync && (effectiveStatus === 'error' || effectiveStatus === 'permission-error' || effectiveStatus === 'offline') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onRetrySync();
+                    setShowSyncDetails(false);
+                  }}
+                  className="w-full py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-lg text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Retry Cloud Sync</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Trial Quota Badge */}
+          {userAccess?.status === 'trial' && !isMasterAdmin && (
+            <span
+              className={`px-2.5 py-1 rounded-xl border text-[10px] font-black font-mono shrink-0 ${
+                trialUsed >= trialLimit || trialDaysLeft === 0
+                  ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-700'
+                  : 'bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-700'
+              }`}
+              title="Trial Plan Invoice Quota & Expiry"
+            >
+              Trial: {trialUsed}/{trialLimit} Bills{trialDaysLeft !== null ? ` • ${trialDaysLeft}d` : ''}
+            </span>
+          )}
+
+          {/* Master Control Quick Trigger */}
+          {isMasterAdmin && (
+            <button
+              type="button"
+              onClick={() => onSelectTab('master_control')}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-400 border border-amber-500/40 text-[11px] font-black transition cursor-pointer shadow-2xs shrink-0"
+              title="Open Master Control Panel"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Master Control</span>
+            </button>
+          )}
 
           {/* Backup / Export Trigger Button */}
-          {onOpenBackupModal && (
+          {onOpenBackupModal && canExportBackup && (
             <button
               onClick={onOpenBackupModal}
               className="flex items-center gap-1 px-2 py-1 rounded-xl bg-white dark:bg-slate-800 hover:bg-stone-50 dark:hover:bg-slate-700 text-stone-700 dark:text-slate-200 border border-stone-300 dark:border-slate-700 text-[11px] font-bold transition cursor-pointer shadow-2xs"
@@ -187,24 +469,28 @@ export const Header: React.FC<HeaderProps> = ({
           <PWAInstallButton />
 
           {/* Live Cash Indicator */}
-          <button
-            onClick={() => onSelectTab('cashbank')}
-            className="hidden sm:flex items-center gap-1.5 bg-white dark:bg-slate-800 hover:bg-amber-50/60 dark:hover:bg-slate-700 border border-stone-300 dark:border-slate-700 px-2.5 py-1 rounded-xl text-xs font-mono font-bold text-stone-800 dark:text-slate-100 transition cursor-pointer shadow-2xs"
-            title="Cash in Hand (हाथ में नकदी)"
-          >
-            <Wallet className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span>रोकड़: <strong className="text-amber-800 dark:text-amber-400">₹{cashInHand.toLocaleString('en-IN')}</strong></span>
-          </button>
+          {canTab('cashbank') && (
+            <button
+              onClick={() => onSelectTab('cashbank')}
+              className="hidden sm:flex items-center gap-1.5 bg-white dark:bg-slate-800 hover:bg-amber-50/60 dark:hover:bg-slate-700 border border-stone-300 dark:border-slate-700 px-2.5 py-1 rounded-xl text-xs font-mono font-bold text-stone-800 dark:text-slate-100 transition cursor-pointer shadow-2xs"
+              title="Cash in Hand (हाथ में नकदी)"
+            >
+              <Wallet className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>रोकड़: <strong className="text-amber-800 dark:text-amber-400">₹{cashInHand.toLocaleString('en-IN')}</strong></span>
+            </button>
+          )}
 
           {/* Live Bank Indicator */}
-          <button
-            onClick={() => onSelectTab('cashbank')}
-            className="hidden sm:flex items-center gap-1.5 bg-white dark:bg-slate-800 hover:bg-blue-50/60 dark:hover:bg-slate-700 border border-stone-300 dark:border-slate-700 px-2.5 py-1 rounded-xl text-xs font-mono font-bold text-stone-800 dark:text-slate-100 transition cursor-pointer shadow-2xs"
-            title="Bank Balance (बैंक बैलेंस)"
-          >
-            <Landmark className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            <span>बैंक: <strong className="text-blue-800 dark:text-blue-400">₹{bankBalance.toLocaleString('en-IN')}</strong></span>
-          </button>
+          {canTab('cashbank') && (
+            <button
+              onClick={() => onSelectTab('cashbank')}
+              className="hidden sm:flex items-center gap-1.5 bg-white dark:bg-slate-800 hover:bg-blue-50/60 dark:hover:bg-slate-700 border border-stone-300 dark:border-slate-700 px-2.5 py-1 rounded-xl text-xs font-mono font-bold text-stone-800 dark:text-slate-100 transition cursor-pointer shadow-2xs"
+              title="Bank Balance (बैंक बैलेंस)"
+            >
+              <Landmark className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>बैंक: <strong className="text-blue-800 dark:text-blue-400">₹{bankBalance.toLocaleString('en-IN')}</strong></span>
+            </button>
+          )}
         </div>
 
         {/* Right: ERP Shortcuts (Right-Hand Side as requested) */}
@@ -212,48 +498,62 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono pr-1.5 border-r border-stone-300 dark:border-slate-700 hidden md:inline">
             ERP MENU:
           </span>
-          <button
-            onClick={() => onSelectTab('pos')}
-            className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-bold flex items-center gap-1 text-stone-700 dark:text-slate-300 hover:shadow-2xs"
-          >
-            <span className="font-mono text-[10px] text-amber-700 dark:text-amber-400 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F2]</span> POS Sale
-          </button>
-          <button
-            onClick={() => onSelectTab('purchases')}
-            className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium flex items-center gap-1 text-stone-700 dark:text-slate-300 hover:shadow-2xs"
-          >
-            <span className="font-mono text-[10px] text-amber-700 dark:text-amber-400 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F3]</span> Purchases
-          </button>
-          <button
-            onClick={() => onSelectTab('inventory')}
-            className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium flex items-center gap-1 text-stone-700 dark:text-slate-300 hover:shadow-2xs"
-          >
-            <span className="font-mono text-[10px] text-amber-700 dark:text-amber-400 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F4]</span> Stock
-          </button>
-          <button
-            onClick={() => onSelectTab('gemstones')}
-            className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium hidden sm:flex items-center gap-1 text-stone-700 dark:text-slate-300 hover:shadow-2xs"
-          >
-            <span className="font-mono text-[10px] text-amber-700 dark:text-amber-400 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F10]</span> Gems
-          </button>
-          <button
-            onClick={() => onSelectTab('girvi')}
-            className="hover:bg-white dark:hover:bg-slate-800 hover:text-emerald-800 dark:hover:text-emerald-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium flex items-center gap-1 text-emerald-700 dark:text-emerald-400 hover:shadow-2xs"
-          >
-            <span className="font-mono text-[10px] text-emerald-800 dark:text-emerald-300 font-black bg-emerald-100/70 dark:bg-emerald-950/60 px-1 rounded">[Alt+G]</span> Girvi
-          </button>
-          <button
-            onClick={() => onSelectTab('karigar')}
-            className="hover:bg-white dark:hover:bg-slate-800 hover:text-cyan-800 dark:hover:text-cyan-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium hidden sm:flex items-center gap-1 text-cyan-700 dark:text-cyan-400 hover:shadow-2xs"
-          >
-            <span className="font-mono text-[10px] text-cyan-800 dark:text-cyan-300 font-black bg-cyan-100/70 dark:bg-cyan-950/60 px-1 rounded">[F9]</span> Karigar
-          </button>
-          <button
-            onClick={() => onSelectTab('profit')}
-            className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-bold hidden lg:flex items-center gap-1 text-amber-700 dark:text-amber-400 hover:shadow-2xs"
-          >
-            <span className="font-mono text-[10px] text-amber-800 dark:text-amber-300 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F11]</span> Profit
-          </button>
+          {canTab('pos') && (
+            <button
+              onClick={() => onSelectTab('pos')}
+              className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-bold flex items-center gap-1 text-stone-700 dark:text-slate-300 hover:shadow-2xs"
+            >
+              <span className="font-mono text-[10px] text-amber-700 dark:text-amber-400 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F2]</span> POS Sale
+            </button>
+          )}
+          {canTab('purchases') && (
+            <button
+              onClick={() => onSelectTab('purchases')}
+              className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium flex items-center gap-1 text-stone-700 dark:text-slate-300 hover:shadow-2xs"
+            >
+              <span className="font-mono text-[10px] text-amber-700 dark:text-amber-400 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F3]</span> Purchases
+            </button>
+          )}
+          {canTab('inventory') && (
+            <button
+              onClick={() => onSelectTab('inventory')}
+              className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium flex items-center gap-1 text-stone-700 dark:text-slate-300 hover:shadow-2xs"
+            >
+              <span className="font-mono text-[10px] text-amber-700 dark:text-amber-400 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F4]</span> Stock
+            </button>
+          )}
+          {canTab('gemstones') && (
+            <button
+              onClick={() => onSelectTab('gemstones')}
+              className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium hidden sm:flex items-center gap-1 text-stone-700 dark:text-slate-300 hover:shadow-2xs"
+            >
+              <span className="font-mono text-[10px] text-amber-700 dark:text-amber-400 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F10]</span> Gems
+            </button>
+          )}
+          {canTab('girvi') && (
+            <button
+              onClick={() => onSelectTab('girvi')}
+              className="hover:bg-white dark:hover:bg-slate-800 hover:text-emerald-800 dark:hover:text-emerald-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium flex items-center gap-1 text-emerald-700 dark:text-emerald-400 hover:shadow-2xs"
+            >
+              <span className="font-mono text-[10px] text-emerald-800 dark:text-emerald-300 font-black bg-emerald-100/70 dark:bg-emerald-950/60 px-1 rounded">[Alt+G]</span> Girvi
+            </button>
+          )}
+          {canTab('karigar') && (
+            <button
+              onClick={() => onSelectTab('karigar')}
+              className="hover:bg-white dark:hover:bg-slate-800 hover:text-cyan-800 dark:hover:text-cyan-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-medium hidden sm:flex items-center gap-1 text-cyan-700 dark:text-cyan-400 hover:shadow-2xs"
+            >
+              <span className="font-mono text-[10px] text-cyan-800 dark:text-cyan-300 font-black bg-cyan-100/70 dark:bg-cyan-950/60 px-1 rounded">[F9]</span> Karigar
+            </button>
+          )}
+          {canTab('profit') && (
+            <button
+              onClick={() => onSelectTab('profit')}
+              className="hover:bg-white dark:hover:bg-slate-800 hover:text-amber-800 dark:hover:text-amber-300 px-2.5 py-1 rounded-lg transition cursor-pointer text-xs font-bold hidden lg:flex items-center gap-1 text-amber-700 dark:text-amber-400 hover:shadow-2xs"
+            >
+              <span className="font-mono text-[10px] text-amber-800 dark:text-amber-300 font-black bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded">[F11]</span> Profit
+            </button>
+          )}
         </div>
 
       </div>
@@ -314,14 +614,16 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
 
-            <button
-              onClick={onOpenRatesModal}
-              className="ml-auto bg-amber-500 hover:bg-amber-600 dark:bg-amber-500 dark:hover:bg-amber-400 text-slate-950 font-black px-2.5 sm:px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer"
-              title="Daily Rate Configurator"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Update Rates</span>
-            </button>
+            {canEditRates && (
+              <button
+                onClick={onOpenRatesModal}
+                className="ml-auto bg-amber-500 hover:bg-amber-600 dark:bg-amber-500 dark:hover:bg-amber-400 text-slate-950 font-black px-2.5 sm:px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                title="Daily Rate Configurator"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Update Rates</span>
+              </button>
+            )}
           </div>
 
           {/* Theme Toggle, Alerts & Settings Icons */}
@@ -362,14 +664,16 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            <button
-              onClick={onOpenSettingsModal}
-              className="p-2.5 rounded-2xl bg-stone-50 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-stone-600 dark:text-slate-300 hover:text-stone-900 dark:hover:text-white hover:border-amber-400 dark:hover:border-amber-400 transition cursor-pointer flex items-center gap-1.5 text-xs font-semibold shadow-2xs"
-              title="Shop & Brand Settings"
-            >
-              <Settings className="w-4 h-4" />
-              <span className="hidden sm:inline">Settings</span>
-            </button>
+            {canEditSettings && (
+              <button
+                onClick={onOpenSettingsModal}
+                className="p-2.5 rounded-2xl bg-stone-50 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-stone-600 dark:text-slate-300 hover:text-stone-900 dark:hover:text-white hover:border-amber-400 dark:hover:border-amber-400 transition cursor-pointer flex items-center gap-1.5 text-xs font-semibold shadow-2xs"
+                title="Shop & Brand Settings"
+              >
+                <Settings className="w-4 h-4" />
+                <span className="hidden sm:inline">Settings</span>
+              </button>
+            )}
 
             {onLogout && (
               <button

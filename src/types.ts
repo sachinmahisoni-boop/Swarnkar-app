@@ -60,12 +60,24 @@ export interface CityMetalRates {
   rates: MetalRate[];
 }
 
+export interface StaffMemberMeta {
+  uid: string;
+  email: string;
+  displayName?: string;
+  role: 'manager' | 'cashier';
+  permissions: UserPermissions;
+  addedAt: string;
+  addedByUid: string;
+}
+
 export interface JewellerProfile {
   id: string;
   firmId?: string;
   userId?: string;
   ownerUid?: string;
   staff?: Record<string, 'owner' | 'manager' | 'cashier'>;
+  staffPermissions?: Record<string, UserPermissions>;
+  staffMembers?: Record<string, StaffMemberMeta>;
   code: string;
   name: string;
   counterName: string;
@@ -456,6 +468,8 @@ export interface GirviLoan {
   notes?: string;
 }
 
+export type InvoiceTemplateLayout = 'A4' | 'A5' | 'POS_80MM';
+
 export interface ShopDetails {
   firmId?: string;
   name: string;
@@ -472,4 +486,106 @@ export interface ShopDetails {
   ifscCode: string;
   terms: string[];
   logoUrl?: string; // Custom global shop logo
+  defaultInvoiceLayout?: InvoiceTemplateLayout;
+}
+
+export type UserApprovalStatus = 'pending' | 'trial' | 'active' | 'suspended';
+
+export interface UserPermissions {
+  billing: boolean;
+  estimates: boolean;
+  purchases: boolean;
+  inventory: boolean;
+  customers: boolean;
+  vendors: boolean;
+  karigar: boolean;
+  girvi: boolean;
+  gemstones: boolean;
+  expenses: boolean;
+  reports: boolean;
+  gstReports: boolean;
+  rates: boolean;
+  backupExport: boolean;
+  invoiceCancel: boolean;
+  staffManagement: boolean;
+}
+
+export type FirestoreTimestampLike =
+  | string
+  | number
+  | Date
+  | { seconds: number; nanoseconds?: number; toMillis?: () => number; toDate?: () => Date };
+
+export interface AppUserAccessRecord {
+  uid: string;
+  email: string;
+  displayName: string;
+  phone?: string;
+  firmName?: string;
+  status: UserApprovalStatus;
+  role: 'owner' | 'staff';
+  trialInvoiceLimit?: number;
+  trialEndsAt?: FirestoreTimestampLike | null;
+  invoicesCreatedCount?: number;
+  permissions?: UserPermissions;
+  notes?: string;
+  adminNotes?: string;
+  createdAt: FirestoreTimestampLike;
+  updatedAt?: FirestoreTimestampLike;
+  approvedAt?: FirestoreTimestampLike;
+  approvedBy?: string;
+  lastActiveAt?: FirestoreTimestampLike;
+}
+
+export interface FirmUsageInvoicesDoc {
+  count: number;
+  updatedAt?: FirestoreTimestampLike;
+  lastInvoiceId?: string;
+  monthKey?: string;
+  monthlyCount?: number;
+}
+
+export interface StaffInviteRecord {
+  id: string;
+  firmId: string;
+  firmName: string;
+  ownerUid: string;
+  email: string;
+  displayName?: string;
+  role: 'cashier' | 'manager';
+  permissions: UserPermissions;
+  status: 'pending' | 'accepted';
+  acceptedUid?: string;
+  createdAt: string;
+  createdByUid: string;
+  acceptedAt?: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  actorUid: string;
+  actorEmail: string;
+  targetUid?: string;
+  targetEmail?: string;
+  firmId?: string;
+  details: string;
+  createdAt: FirestoreTimestampLike;
+}
+
+export interface PublicSupportConfig {
+  id: 'public';
+  supportName: string;
+  supportPhone: string;
+  supportEmail?: string;
+  updatedAt?: string;
+}
+
+export interface MasterControlSettings {
+  id: 'master';
+  defaultTrialInvoiceLimit: number;
+  defaultTrialDays: number;
+  requireApprovalForNewSignups?: boolean;
+  updatedAt: string;
+  updatedByUid?: string;
 }

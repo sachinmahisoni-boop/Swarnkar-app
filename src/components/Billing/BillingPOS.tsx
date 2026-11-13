@@ -14,6 +14,18 @@ interface BillingPOSProps {
   onAddCustomer: (newCust: Customer) => void;
   onCreateInvoice: (invoiceDraft: Omit<GSTInvoice, 'id' | 'invoiceNumber'>, prefix?: string) => Promise<GSTInvoice | void> | void;
   onUpdateInventoryQty: (itemId: string, qtyDelta: number) => void;
+  canCreateInvoice?: boolean;
+  invoiceQuotaStatus?: {
+    allowed: boolean;
+    isTrial: boolean;
+    remaining: number | null;
+    limit: number | null;
+    used: number;
+    daysRemaining?: number | null;
+    isExpired?: boolean;
+    limitReached?: boolean;
+    reason?: string;
+  };
 }
 
 export const BillingPOS: React.FC<BillingPOSProps> = ({
@@ -24,6 +36,8 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
   onAddCustomer,
   onCreateInvoice,
   onUpdateInventoryQty,
+  canCreateInvoice = true,
+  invoiceQuotaStatus,
 }) => {
   // Billing Mode: GST Tax Invoice vs Non-GST Estimate
   const [invoiceType, setInvoiceType] = useState<InvoiceType>('GST_INVOICE');
@@ -468,6 +482,10 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
 
   // Finalize Invoice Creation
   const handleGenerateInvoice = async () => {
+    if (!canCreateInvoice || (invoiceQuotaStatus && !invoiceQuotaStatus.allowed)) {
+      alert(invoiceQuotaStatus?.reason || 'नया बिल बनाने की अनुमति नहीं है या ट्रायल सीमा समाप्त हो गई है।');
+      return;
+    }
     if (cartItems.length === 0) {
       alert("कृपया बिल में कम से कम एक आभूषण आइटम जोड़ें।");
       return;
@@ -587,9 +605,29 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
     return matchesSearch && matchesCategory;
   });
 
+  const isCreationBlocked = !canCreateInvoice || Boolean(invoiceQuotaStatus && !invoiceQuotaStatus.allowed);
+
   return (
     <div className="space-y-6 font-sans">
-      
+      {isCreationBlocked && (
+        <div
+          data-testid="pos-creation-blocked-banner"
+          className="bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-700 rounded-2xl p-4 flex items-start gap-3 text-rose-900 dark:text-rose-200 shadow-xs"
+        >
+          <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <div className="font-black text-sm">
+              {invoiceQuotaStatus?.limitReached || invoiceQuotaStatus?.isExpired
+                ? 'Trial limit reached, contact admin (ट्रायल सीमा समाप्त)'
+                : 'नया बिल बनाने की अनुमति बंद है (Billing Permission Restricted)'}
+            </div>
+            <p className="font-medium">
+              {invoiceQuotaStatus?.reason || 'नए बिल बनाने के लिए Master Admin से संपर्क करें। आप पुराने बिल देख सकते हैं और बैकअप एक्सपोर्ट कर सकते हैं।'}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Top Invoice Type Mode Toggle & Customer Select Bar */}
       <div className="bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1295,11 +1333,34 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
               )}
             </div>
 
+            {/* Trial Quota / Billing Permission Banner */}
+            {(invoiceQuotaStatus?.isTrial || !canCreateInvoice || (invoiceQuotaStatus && !invoiceQuotaStatus.allowed)) && (
+              <div
+                className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-start gap-2 ${
+                  !canCreateInvoice || (invoiceQuotaStatus && !invoiceQuotaStatus.allowed)
+                    ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-200'
+                    : 'bg-sky-50 dark:bg-sky-950/60 border-sky-200 dark:border-sky-800 text-sky-800 dark:text-sky-200'
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div>
+                  {!canCreateInvoice || (invoiceQuotaStatus && !invoiceQuotaStatus.allowed) ? (
+                    <span>{invoiceQuotaStatus?.reason || 'Master Admin द्वारा बिलिंग प्रतिबंधित है।'}</span>
+                  ) : (
+                    <span>
+                      Trial Plan: {invoiceQuotaStatus?.used ?? 0} / {invoiceQuotaStatus?.limit ?? 10} इनवॉइस उपयोग किए गए ({invoiceQuotaStatus?.remaining ?? 0} शेष
+                      {typeof invoiceQuotaStatus?.daysRemaining === 'number' ? ` • ${invoiceQuotaStatus.daysRemaining} दिन शेष` : ''})
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Generate Action Button */}
             <button
               type="button"
               onClick={handleGenerateInvoice}
-              disabled={cartItems.length === 0 || isSubmitting}
+              disabled={cartItems.length === 0 || isSubmitting || !canCreateInvoice || (invoiceQuotaStatus ? !invoiceQuotaStatus.allowed : false)}
               className="w-full py-3.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 disabled:opacity-50 text-white font-extrabold text-sm rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
             >
               <Receipt className="w-4 h-4" />

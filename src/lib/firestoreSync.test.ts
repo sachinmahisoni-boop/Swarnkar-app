@@ -14,17 +14,55 @@ vi.mock('./firebase', () => ({
 let docStore: Record<string, any> = {};
 
 vi.mock('firebase/firestore', () => ({
-  collection: vi.fn(),
+  collection: vi.fn((_db, ...pathSegments) => pathSegments.join('/')),
   doc: vi.fn((_db, ...pathSegments) => pathSegments.join('/')),
   onSnapshot: vi.fn(),
+  onSnapshotsInSync: vi.fn(() => () => {}),
+  getDoc: vi.fn(async (path: string) => {
+    const data = docStore[path];
+    return {
+      id: path.split('/').pop(),
+      exists: () => data !== undefined && data !== null,
+      data: () => data
+    };
+  }),
+  getDocs: vi.fn(async () => ({ docs: [], empty: true })),
   setDoc: vi.fn(),
+  updateDoc: vi.fn(),
   deleteDoc: vi.fn(),
+  addDoc: vi.fn(),
+  query: vi.fn(),
+  where: vi.fn(),
+  limit: vi.fn(),
+  orderBy: vi.fn(),
+  deleteField: vi.fn(() => '__DELETE_FIELD__'),
+  Timestamp: class MockTimestamp {
+    seconds: number;
+    nanoseconds: number;
+    constructor(seconds: number, nanoseconds = 0) {
+      this.seconds = seconds;
+      this.nanoseconds = nanoseconds;
+    }
+    toMillis() {
+      return this.seconds * 1000 + Math.floor(this.nanoseconds / 1_000_000);
+    }
+    toDate() {
+      return new Date(this.toMillis());
+    }
+    static now() {
+      return new MockTimestamp(Math.floor(Date.now() / 1000), 0);
+    }
+    static fromMillis(ms: number) {
+      return new MockTimestamp(Math.floor(ms / 1000), 0);
+    }
+  },
   writeBatch: vi.fn(),
   runTransaction: vi.fn(async (_db, updateFunction) => {
     const mockTransaction = {
       get: vi.fn(async (path: string) => {
         const data = docStore[path];
         return {
+          id: path.split('/').pop(),
           exists: () => data !== undefined && data !== null,
           data: () => data
         };
@@ -51,7 +89,10 @@ describe('Firestore Atomic Operations Tests', () => {
   const firmId = 'firm-test-01';
 
   beforeEach(() => {
-    docStore = {};
+    docStore = {
+      [`firms/${firmId}`]: { ownerUid: 'test-user-123', name: 'Test Firm', staff: {} },
+      ['users/test-user-123']: { uid: 'test-user-123', status: 'active', role: 'owner' }
+    };
   });
 
   const mockInventory: JewelleryItem[] = [
@@ -92,8 +133,7 @@ describe('Firestore Atomic Operations Tests', () => {
     createdAt: '2026-01-01'
   };
 
-  it('generates sequential invoice numbers with no gaps across 2 consecutive invoices', async () => {
-    // Seed initial mock items & customer in store
+  it('generates sequential invoice numbers and increments firms/{firmId}/usage/invoices atomically', async () => {
     docStore[`firms/${firmId}/inventory/item-gold-ring-1`] = { ...mockInventory[0] };
     docStore[`firms/${firmId}/customers/cust-1`] = { ...mockCustomer };
 
@@ -155,6 +195,7 @@ describe('Firestore Atomic Operations Tests', () => {
 
     const inv1 = await createInvoiceAtomic(firmId, draft1, mockInventory, [mockCustomer], 'SMJ');
     expect(inv1.invoiceNumber).toMatch(/SMJ\/\d{4}-\d{2}\/0001/);
+    expect(docStore[`firms/${firmId}/usage/invoices`]?.count).toBe(1);
 
     const draft2: Omit<GSTInvoice, 'id' | 'invoiceNumber'> = {
       ...draft1,
@@ -167,6 +208,7 @@ describe('Firestore Atomic Operations Tests', () => {
 
     const inv2 = await createInvoiceAtomic(firmId, draft2, mockInventory, [mockCustomer], 'SMJ');
     expect(inv2.invoiceNumber).toMatch(/SMJ\/\d{4}-\d{2}\/0002/);
+    expect(docStore[`firms/${firmId}/usage/invoices`]?.count).toBe(2);
   });
 
   it('deducts inventory stock quantity atomically on invoice creation', async () => {
@@ -234,7 +276,6 @@ describe('Firestore Atomic Operations Tests', () => {
   });
 
   it('restores stock and customer balance on invoice cancellation, and rejects double-cancel', async () => {
-    // Setup initial store state
     docStore[`firms/${firmId}/inventory/item-gold-ring-1`] = { ...mockInventory[0], quantity: 5 };
     docStore[`firms/${firmId}/customers/cust-1`] = { ...mockCustomer, totalPurchases: 50000, outstandingBalance: 10000 };
 
@@ -298,23 +339,18 @@ describe('Firestore Atomic Operations Tests', () => {
 
     docStore[`firms/${firmId}/invoices/inv-101`] = { ...invoiceToCancel };
 
-    // Cancel invoice
     await cancelInvoiceAtomic(firmId, invoiceToCancel, 'Wrong billing', 'Owner');
 
-    // 1. Stock restored: 5 + 2 = 7
     const restoredItem = docStore[`firms/${firmId}/inventory/item-gold-ring-1`];
     expect(restoredItem.quantity).toBe(7);
 
-    // 2. Customer ledger reversed
     const restoredCust = docStore[`firms/${firmId}/customers/cust-1`];
-    expect(restoredCust.totalPurchases).toBe(11169); // 50000 - 38831
-    expect(restoredCust.outstandingBalance).toBe(0); // 10000 - 10000
+    expect(restoredCust.totalPurchases).toBe(11169);
+    expect(restoredCust.outstandingBalance).toBe(0);
 
-    // 3. Status updated to Cancelled
     const cancelledInv = docStore[`firms/${firmId}/invoices/inv-101`];
     expect(cancelledInv.status).toBe('Cancelled');
 
-    // 4. Double cancel attempt must throw
     await expect(cancelInvoiceAtomic(firmId, invoiceToCancel, 'Repeat cancel', 'Owner')).rejects.toThrow(
       'यह इनवॉइस पहले ही रद्द (Cancel) हो चुका है।'
     );

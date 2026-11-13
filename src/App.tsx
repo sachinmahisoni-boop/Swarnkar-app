@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   JewelleryItem, 
   Customer, 
@@ -14,7 +14,12 @@ import {
   ShopExpense,
   CashBankTransfer,
   CertifiedGemstone,
-  GemstoneRate
+  GemstoneRate,
+  AppUserAccessRecord,
+  FirmUsageInvoicesDoc,
+  MasterControlSettings,
+  PublicSupportConfig,
+  StaffInviteRecord
 } from './types';
 import { 
   initialShopDetails, 
@@ -63,7 +68,9 @@ import { ExpenseManager } from './components/Expenses/ExpenseManager';
 import { CashBankDashboard } from './components/CashBank/CashBankDashboard';
 import { CategoryModal } from './components/Categories/CategoryModal';
 import { QuickGenerateItemModal } from './components/Inventory/QuickGenerateItemModal';
-import { Login } from './components/Auth/Login';
+import { Login, SignupMetadata } from './components/Auth/Login';
+import { ApprovalGateScreen } from './components/Auth/ApprovalGateScreen';
+import { MasterControlPanel } from './components/MasterAdmin/MasterControlPanel';
 import { FirmRegistrationScreen } from './components/Auth/FirmRegistrationScreen';
 import { MMIDashboard } from './components/Dashboard/MMIDashboard';
 import { CustomerOrderManager } from './components/Orders/CustomerOrderManager';
@@ -74,31 +81,57 @@ import { StaffPayrollManager } from './components/Payroll/StaffPayrollManager';
 import { DataBackupModal } from './components/DataBackupModal';
 import { LegacyMigrationModal } from './components/LegacyMigrationModal';
 import { FirebaseConfigMissingScreen } from './components/FirebaseConfigMissingScreen';
-import { auth, missingFirebaseEnvVars, firebaseConfigError } from './lib/firebase';
+import { auth, db, missingFirebaseEnvVars, firebaseConfigError } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
   ensureFirmRootDoc,
   clearFirmRootReady,
   fetchUserFirms,
+  fetchAllFirmsForMaster,
   checkFirmHasFirestoreData,
   getLegacyLocalStorageData,
   subscribeToFirmCollection,
   subscribeToFirmDoc,
+  subscribeToSnapshotsInSync,
+  subscribeToUserAccess,
+  ensureUserAccessRecord,
+  fetchUserAccessOnce,
+  checkIsPlatformAdmin,
+  getPublicSupportConfig,
+  getMasterControlSettings,
+  subscribeToFirmInvoiceUsage,
+  subscribeToFirmStaffInvites,
+  createOrUpdateStaffInvite,
+  updateFirmStaffPermissions,
+  removeFirmStaffMember,
+  claimStaffInvitesForUser,
   saveFirmDoc, 
   deleteFirmDoc, 
   createInvoiceAtomic, 
   cancelInvoiceAtomic,
   createPurchaseAtomic,
-  FirmDataSnapshot
+  FirmDataSnapshot,
+  SnapshotMetadataInfo
 } from './lib/firestoreSync';
+import {
+  DEFAULT_TRIAL_INVOICE_LIMIT,
+  DEFAULT_TRIAL_DAYS,
+  FULL_PERMISSIONS,
+  resolveEffectivePermissions,
+  canUserAccessApp,
+  canUserAccessTab,
+  canUserCreateInvoice,
+  getFirstAllowedTab,
+  hasActionPermission
+} from './lib/accessControl';
 import { getISTDate, formatSequentialNumber } from './lib/invoiceNumber';
 
 export default function App() {
-  if (missingFirebaseEnvVars.length > 0) {
+  if (missingFirebaseEnvVars.length > 0 || !auth || !db) {
     return (
       <FirebaseConfigMissingScreen
         missingVars={missingFirebaseEnvVars}
-        errorMsg={firebaseConfigError}
+        errorMsg={firebaseConfigError || 'Firebase Auth/Firestore could not be initialized.'}
       />
     );
   }
@@ -107,6 +140,28 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>(() => auth.currentUser?.uid || '');
+  const [userAccess, setUserAccess] = useState<AppUserAccessRecord | null>(null);
+  const [userAccessLoaded, setUserAccessLoaded] = useState<boolean>(false);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState<boolean>(false);
+  const [userAccessRefreshNonce, setUserAccessRefreshNonce] = useState<number>(0);
+  const [masterSettings, setMasterSettings] = useState<MasterControlSettings>({
+    id: 'master',
+    defaultTrialInvoiceLimit: DEFAULT_TRIAL_INVOICE_LIMIT,
+    defaultTrialDays: DEFAULT_TRIAL_DAYS,
+    requireApprovalForNewSignups: true,
+    updatedAt: ''
+  });
+  const [supportConfig, setSupportConfig] = useState<PublicSupportConfig>({
+    id: 'public',
+    supportName: 'Platform Support Desk',
+    supportPhone: '',
+    supportEmail: ''
+  });
+  const [firmUsage, setFirmUsage] = useState<FirmUsageInvoicesDoc | null>(null);
+  const [firmOwnerAccess, setFirmOwnerAccess] = useState<AppUserAccessRecord | null>(null);
+  const [staffInvites, setStaffInvites] = useState<StaffInviteRecord[]>([]);
+  const [inspectedFirm, setInspectedFirm] = useState<JewellerProfile | null>(null);
+  const pendingSignupMetaRef = useRef<SignupMetadata | null>(null);
 
   const getEffectiveUserId = (): string => {
     if (auth.currentUser?.uid) return auth.currentUser.uid;
@@ -157,12 +212,64 @@ export default function App() {
         setCurrentUserId(user.uid);
         setIsDemoUser(false);
         setIsAuthenticated(true);
+        setUserAccessLoaded(false);
+
+        let accessRecord: AppUserAccessRecord | null = null;
+        try {
+          const signupMeta = pendingSignupMetaRef.current;
+          pendingSignupMetaRef.current = null;
+          accessRecord = await ensureUserAccessRecord(user, signupMeta || undefined);
+          if (cancelled) return;
+          setUserAccess(accessRecord);
+          setUserAccessLoaded(true);
+        } catch (err: any) {
+          if (!cancelled) {
+            setUserAccessLoaded(true);
+            handleFirestoreError(err);
+          }
+        }
+
+        const platformAdminVerified = await checkIsPlatformAdmin(user.uid);
+        if (cancelled) return;
+        setIsPlatformAdmin(platformAdminVerified);
+
+        try {
+          const [cfg, pubSupport] = await Promise.all([
+            getMasterControlSettings(),
+            getPublicSupportConfig()
+          ]);
+          if (!cancelled) {
+            setMasterSettings(cfg);
+            setSupportConfig(pubSupport);
+          }
+        } catch {
+          // Ignore non-fatal config read error
+        }
+
+        const accessCheck = canUserAccessApp(accessRecord, platformAdminVerified);
+
+        if (!platformAdminVerified && !accessCheck.allowed) {
+          setProfiles([]);
+          setActiveProfileId('');
+          setIsFirmActive(false);
+          return;
+        }
+
+        if (!platformAdminVerified) {
+          try {
+            await claimStaffInvitesForUser(user);
+          } catch {
+            // Non-fatal
+          }
+        }
 
         const localProfs = getUserProfiles(user.uid);
         let mergedProfs = [...localProfs];
 
         try {
-          const cloudProfs = await fetchUserFirms(user.uid);
+          const cloudProfs = platformAdminVerified
+            ? await fetchAllFirmsForMaster()
+            : await fetchUserFirms(user.uid);
           if (cancelled) return;
           const byId = new Map<string, JewellerProfile>();
           localProfs.forEach(p => byId.set(p.id, p));
@@ -180,6 +287,13 @@ export default function App() {
           const chosen = mergedProfs.some(p => p.id === savedActive) ? savedActive! : mergedProfs[0].id;
           setActiveProfileId(chosen);
           setIsFirmActive(true);
+          if (platformAdminVerified) {
+            setActiveTab('master_control');
+          }
+        } else if (platformAdminVerified) {
+          setActiveProfileId('');
+          setIsFirmActive(true);
+          setActiveTab('master_control');
         } else {
           setActiveProfileId('');
           setIsFirmActive(false);
@@ -189,6 +303,13 @@ export default function App() {
         setIsFirmRootReady(false);
         setIsAuthenticated(false);
         setCurrentUserId('');
+        setUserAccess(null);
+        setUserAccessLoaded(false);
+        setIsPlatformAdmin(false);
+        setFirmUsage(null);
+        setFirmOwnerAccess(null);
+        setStaffInvites([]);
+        setInspectedFirm(null);
         setProfiles([]);
         setActiveProfileId('');
         setIsFirmActive(false);
@@ -198,7 +319,26 @@ export default function App() {
       cancelled = true;
       unsubscribe();
     };
-  }, [isDemoUser]);
+  }, [isDemoUser, userAccessRefreshNonce]);
+
+  // Realtime listener on /users/{uid} so approvals, suspensions, trial limits & permissions sync immediately
+  useEffect(() => {
+    if (!isAuthenticated || isDemoUser || !currentUserId) return;
+    const unsub = subscribeToUserAccess(
+      currentUserId,
+      (record) => {
+        if (record) {
+          setUserAccess(record);
+        }
+        setUserAccessLoaded(true);
+      },
+      (err) => {
+        console.error('User access subscription error:', err);
+        setUserAccessLoaded(true);
+      }
+    );
+    return () => unsub();
+  }, [isAuthenticated, isDemoUser, currentUserId, userAccessRefreshNonce]);
 
   const buildDefaultShopDetails = (firmId: string, prof?: JewellerProfile): ShopDetails => ({
     firmId,
@@ -272,6 +412,15 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<SyncStatusType>('synced');
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncRetryNonce, setSyncRetryNonce] = useState<number>(0);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [pendingWritesCount, setPendingWritesCount] = useState<number>(0);
+  const [syncSource, setSyncSource] = useState<'cloud' | 'cache'>(() =>
+    navigator.onLine ? 'cloud' : 'cache'
+  );
+  const [lastSyncEventLabel, setLastSyncEventLabel] = useState<string | null>(null);
+  const [syncPulseKey, setSyncPulseKey] = useState<number>(0);
+  const inFlightWritesRef = useRef<number>(0);
+  const pendingCollectionsRef = useRef<Set<string>>(new Set());
   const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
   const [migrationPrompt, setMigrationPrompt] = useState<{
     firmId: string;
@@ -279,6 +428,33 @@ export default function App() {
     totalCount: number;
     snapshot: FirmDataSnapshot;
   } | null>(null);
+
+  const recomputeSyncCounts = () => {
+    const totalPending = inFlightWritesRef.current + pendingCollectionsRef.current.size;
+    setPendingWritesCount(totalPending);
+    return totalPending;
+  };
+
+  const beginSyncWrite = (label: string) => {
+    inFlightWritesRef.current += 1;
+    recomputeSyncCounts();
+    setLastSyncEventLabel(label);
+    setSyncStatus(navigator.onLine ? 'syncing' : 'offline');
+  };
+
+  const endSyncWrite = (label: string, success: boolean) => {
+    inFlightWritesRef.current = Math.max(0, inFlightWritesRef.current - 1);
+    const remaining = recomputeSyncCounts();
+    if (success) {
+      setLastSyncedAt(Date.now());
+      setSyncSource(navigator.onLine ? 'cloud' : 'cache');
+      setLastSyncEventLabel(label);
+      setSyncPulseKey(k => k + 1);
+      if (remaining === 0) {
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      }
+    }
+  };
 
   const handleFirestoreError = (err: any) => {
     const code = err?.code || '';
@@ -291,6 +467,7 @@ export default function App() {
     } else if (!navigator.onLine || code === 'unavailable') {
       setSyncStatus('offline');
       setIsSynced(false);
+      setSyncSource('cache');
       setSyncError(null);
     } else {
       setSyncStatus('error');
@@ -302,14 +479,19 @@ export default function App() {
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
+      setSyncSource('cloud');
       if (isFirmRootReady && !syncError) {
-        setSyncStatus('synced');
+        const pending = inFlightWritesRef.current + pendingCollectionsRef.current.size;
+        setSyncStatus(pending > 0 ? 'syncing' : 'synced');
+        setSyncPulseKey(k => k + 1);
       }
     };
     const handleOffline = () => {
       setIsOnline(false);
+      setSyncSource('cache');
       if (!syncError) {
         setSyncStatus('offline');
+        setLastSyncEventLabel('Offline - Local cache active');
       }
     };
     window.addEventListener('online', handleOnline);
@@ -334,8 +516,12 @@ export default function App() {
   const [printingInvoices, setPrintingInvoices] = useState<GSTInvoice[] | null>(null);
 
   // Step 1: Ensure `firms/{firmId}` root document exists BEFORE any subcollection read/write
+  const isMasterAdmin = !isDemoUser && isPlatformAdmin;
+  const activeUserAccess = isDemoUser ? null : userAccess;
+  const isUserApproved = isDemoUser || canUserAccessApp(userAccess, isPlatformAdmin).allowed;
+
   useEffect(() => {
-    if (!isAuthenticated || isDemoUser || !activeProfileId || !isFirmActive || !currentUserId) {
+    if (!isAuthenticated || isDemoUser || !activeProfileId || !isFirmActive || !currentUserId || !isUserApproved) {
       clearFirmRootReady();
       setIsFirmRootReady(false);
       return;
@@ -376,13 +562,17 @@ export default function App() {
             counterType: prof?.counterType,
             operatorName: prof?.operatorName
           },
-          { uid: currentUserId }
+          { uid: currentUserId, isMasterAdmin }
         );
         if (cancelled) return;
 
         setIsFirmRootReady(true);
         setIsSynced(true);
         setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+        setSyncSource(navigator.onLine ? 'cloud' : 'cache');
+        setLastSyncedAt(Date.now());
+        setLastSyncEventLabel('Firm workspace connected');
+        setSyncPulseKey(k => k + 1);
 
         // Check one-time legacy localStorage migration ONLY if Firestore is empty and user hasn't migrated
         const alreadyMigrated = localStorage.getItem(`jewel_migration_done_${activeProfileId}`);
@@ -411,84 +601,137 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, isDemoUser, activeProfileId, isFirmActive, currentUserId, syncRetryNonce]);
+  }, [isAuthenticated, isDemoUser, activeProfileId, isFirmActive, currentUserId, isUserApproved, isMasterAdmin, syncRetryNonce]);
 
   // Step 2: Firestore Realtime Subscriptions (blocked until firms/{firmId} root doc is ready)
   useEffect(() => {
     if (!activeProfileId || !isFirmRootReady || isDemoUser || !isAuthenticated) return;
 
+    pendingCollectionsRef.current.clear();
+    recomputeSyncCounts();
+    setSyncStatus(navigator.onLine ? 'syncing' : 'offline');
+    setLastSyncEventLabel(navigator.onLine ? 'Syncing cloud records...' : 'Offline - Local cache active');
+
     const onSubError = (err: Error) => handleFirestoreError(err);
-    const markSynced = () => {
+    const markSynced = (colName: string, meta?: SnapshotMetadataInfo) => {
+      if (meta?.hasPendingWrites) {
+        pendingCollectionsRef.current.add(colName);
+      } else {
+        pendingCollectionsRef.current.delete(colName);
+      }
+      const totalPending = recomputeSyncCounts();
+      const fromCache = Boolean(meta?.fromCache);
+      setSyncSource(fromCache ? 'cache' : 'cloud');
+
+      if (!navigator.onLine) {
+        setSyncStatus('offline');
+        setLastSyncEventLabel(`Offline cache (${colName})`);
+        return;
+      }
+
+      if (totalPending > 0) {
+        setSyncStatus('syncing');
+        setLastSyncEventLabel(`Syncing ${colName}...`);
+        return;
+      }
+
       setIsSynced(true);
       setSyncError(null);
-      setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      setSyncStatus('synced');
+      setLastSyncedAt(Date.now());
+      setLastSyncEventLabel(fromCache ? `Cached (${colName})` : `Synced ${colName}`);
+      setSyncPulseKey(k => k + 1);
     };
 
     const unsubs: (() => void)[] = [];
 
-    unsubs.push(subscribeToFirmDoc<ShopDetails>(activeProfileId, 'shop_details', 'main', (docData) => {
-      markSynced();
+    unsubs.push(
+      subscribeToSnapshotsInSync(() => {
+        const remaining = recomputeSyncCounts();
+        if (!navigator.onLine) {
+          setSyncStatus('offline');
+          return;
+        }
+        if (remaining === 0) {
+          setIsSynced(true);
+          setSyncError(null);
+          setSyncStatus('synced');
+          setSyncSource('cloud');
+          setLastSyncedAt(Date.now());
+          setSyncPulseKey(k => k + 1);
+        }
+      })
+    );
+
+    unsubs.push(subscribeToFirmDoc<ShopDetails>(activeProfileId, 'shop_details', 'main', (docData, meta) => {
+      markSynced('shop_details', meta);
       if (docData) {
         setShopDetails(docData);
       }
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<JewelleryItem>(activeProfileId, 'inventory', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<JewelleryItem>(activeProfileId, 'inventory', (items, meta) => {
+      markSynced('inventory', meta);
       setInventory(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<Customer>(activeProfileId, 'customers', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<Customer>(activeProfileId, 'customers', (items, meta) => {
+      markSynced('customers', meta);
       setCustomers(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items, meta) => {
+      markSynced('invoices', meta);
       setInvoices(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<Vendor>(activeProfileId, 'vendors', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<Vendor>(activeProfileId, 'vendors', (items, meta) => {
+      markSynced('vendors', meta);
       setVendors(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items, meta) => {
+      markSynced('purchases', meta);
       setPurchases(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<ShopExpense>(activeProfileId, 'expenses', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<ShopExpense>(activeProfileId, 'expenses', (items, meta) => {
+      markSynced('expenses', meta);
       setExpenses(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<CashBankTransfer>(activeProfileId, 'transfers', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<CashBankTransfer>(activeProfileId, 'transfers', (items, meta) => {
+      markSynced('transfers', meta);
       setTransfers(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<Karigar>(activeProfileId, 'karigars', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<Karigar>(activeProfileId, 'karigars', (items, meta) => {
+      markSynced('karigars', meta);
       setKarigars(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards', (items, meta) => {
+      markSynced('jobcards', meta);
       setJobCards(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<GirviLoan>(activeProfileId, 'girvi', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<GirviLoan>(activeProfileId, 'girvi', (items, meta) => {
+      markSynced('girvi', meta);
       setGirviLoans(items);
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones', (items) => {
-      markSynced();
+    unsubs.push(subscribeToFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones', (items, meta) => {
+      markSynced('gemstones', meta);
       setGemstones(items);
     }, onSubError));
 
+    unsubs.push(subscribeToFirmInvoiceUsage(activeProfileId, (usage, meta) => {
+      markSynced('usage', meta);
+      setFirmUsage(usage);
+    }, onSubError));
+
     return () => {
+      pendingCollectionsRef.current.clear();
       unsubs.forEach(unsub => unsub());
     };
   }, [activeProfileId, isFirmRootReady, isDemoUser, isAuthenticated]);
@@ -530,71 +773,157 @@ export default function App() {
 
   // Helper wrappers for gated Firestore writes (never swallow errors)
   const persistFirmDoc = <T extends { id: string }>(colName: string, data: T) => {
-    if (isDemoUser || !activeProfileId) return;
+    if (isDemoUser) {
+      setLastSyncedAt(Date.now());
+      setLastSyncEventLabel(`Updated ${colName} (Demo)`);
+      setSyncPulseKey(k => k + 1);
+      return;
+    }
+    if (!activeProfileId) return;
     if (!isFirmRootReady) {
       handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। सेव रोका गया।`));
       return;
     }
-    saveFirmDoc(activeProfileId, colName, data).catch(handleFirestoreError);
+    beginSyncWrite(`Saving ${colName}...`);
+    saveFirmDoc(activeProfileId, colName, data)
+      .then(() => endSyncWrite(`Saved ${colName}`, true))
+      .catch((err) => {
+        endSyncWrite(`Failed ${colName}`, false);
+        handleFirestoreError(err);
+      });
   };
 
   const removeFirmDoc = (colName: string, docId: string) => {
-    if (isDemoUser || !activeProfileId) return;
+    if (isDemoUser) {
+      setLastSyncedAt(Date.now());
+      setLastSyncEventLabel(`Deleted from ${colName} (Demo)`);
+      setSyncPulseKey(k => k + 1);
+      return;
+    }
+    if (!activeProfileId) return;
     if (!isFirmRootReady) {
       handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। डिलीट रोका गया।`));
       return;
     }
-    deleteFirmDoc(activeProfileId, colName, docId).catch(handleFirestoreError);
+    beginSyncWrite(`Removing from ${colName}...`);
+    deleteFirmDoc(activeProfileId, colName, docId)
+      .then(() => endSyncWrite(`Removed from ${colName}`, true))
+      .catch((err) => {
+        endSyncWrite(`Delete failed (${colName})`, false);
+        handleFirestoreError(err);
+      });
   };
 
-  // Global Keyboard Shortcuts (F1-F12 + Girvi)
+  // Derived metrics (needed early for permission resolution & subscriptions)
+  const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || initialProfiles[0];
+  const effectivePermissions = !isDemoUser && (isMasterAdmin || activeUserAccess)
+    ? resolveEffectivePermissions({
+        isPlatformAdmin: isMasterAdmin,
+        userAccess: activeUserAccess,
+        firmProfile: activeProfile,
+        uid: currentUserId,
+        ownerAccess: firmOwnerAccess
+      })
+    : undefined;
+
   useEffect(() => {
+    if (isDemoUser || !isAuthenticated || !activeProfile?.ownerUid || activeProfile.ownerUid === currentUserId) {
+      setFirmOwnerAccess(null);
+      return;
+    }
+    let cancelled = false;
+    fetchUserAccessOnce(activeProfile.ownerUid)
+      .then((rec) => {
+        if (!cancelled) setFirmOwnerAccess(rec);
+      })
+      .catch(() => {
+        if (!cancelled) setFirmOwnerAccess(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isDemoUser, isAuthenticated, activeProfile?.ownerUid, currentUserId]);
+
+  useEffect(() => {
+    if (
+      isDemoUser ||
+      !isAuthenticated ||
+      !isFirmRootReady ||
+      !activeProfileId ||
+      (!isMasterAdmin && activeProfile?.ownerUid !== currentUserId)
+    ) {
+      setStaffInvites([]);
+      return;
+    }
+    const unsub = subscribeToFirmStaffInvites(
+      activeProfileId,
+      (invites) => setStaffInvites(invites),
+      () => setStaffInvites([])
+    );
+    return () => unsub();
+  }, [isDemoUser, isAuthenticated, isFirmRootReady, activeProfileId, isMasterAdmin, activeProfile?.ownerUid, currentUserId]);
+
+  // Redirect activeTab cleanly if user permissions disallow current tab
+  useEffect(() => {
+    if (!isDemoUser && (activeUserAccess || isMasterAdmin)) {
+      if (!canUserAccessTab(activeUserAccess, activeTab, effectivePermissions, isMasterAdmin)) {
+        setActiveTab(getFirstAllowedTab(activeUserAccess, effectivePermissions, isMasterAdmin));
+      }
+    }
+  }, [isDemoUser, activeUserAccess, activeTab, effectivePermissions, isMasterAdmin]);
+
+  // Global Keyboard Shortcuts (F1-F12 + Girvi) gated by user permissions
+  useEffect(() => {
+    const canGo = (tab: TabType) =>
+      isDemoUser || canUserAccessTab(activeUserAccess, tab, effectivePermissions, isMasterAdmin);
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F1') {
         e.preventDefault();
-        setActiveTab('dashboard');
+        if (canGo('dashboard')) setActiveTab('dashboard');
       } else if (e.key === 'F2') {
         e.preventDefault();
-        setActiveTab('pos');
+        if (canGo('pos')) setActiveTab('pos');
       } else if (e.key === 'F3') {
         e.preventDefault();
-        setActiveTab('purchases');
+        if (canGo('purchases')) setActiveTab('purchases');
       } else if (e.key === 'F4') {
         e.preventDefault();
-        setActiveTab('inventory');
+        if (canGo('inventory')) setActiveTab('inventory');
       } else if (e.key === 'F5') {
         e.preventDefault();
-        setActiveTab('cashbank');
+        if (canGo('cashbank')) setActiveTab('cashbank');
       } else if (e.key === 'F6') {
         e.preventDefault();
-        setActiveTab('expenses');
+        if (canGo('expenses')) setActiveTab('expenses');
       } else if (e.key === 'F7') {
         e.preventDefault();
-        setActiveTab('vendors');
+        if (canGo('vendors')) setActiveTab('vendors');
       } else if (e.key === 'F8') {
         e.preventDefault();
-        setActiveTab('barcode');
+        if (canGo('barcode')) setActiveTab('barcode');
       } else if (e.key === 'F9') {
         e.preventDefault();
-        setActiveTab('karigar');
+        if (canGo('karigar')) setActiveTab('karigar');
       } else if (e.key === 'F10') {
         e.preventDefault();
-        setActiveTab('gemstones');
+        if (canGo('gemstones')) setActiveTab('gemstones');
       } else if (e.key === 'F11') {
         e.preventDefault();
-        setActiveTab('profit');
+        if (canGo('profit')) setActiveTab('profit');
       } else if (e.altKey && e.key.toLowerCase() === 'g') {
         e.preventDefault();
-        setActiveTab('girvi');
+        if (canGo('girvi')) setActiveTab('girvi');
       } else if (e.key === 'F12') {
         e.preventDefault();
-        setIsSettingsModalOpen(true);
+        if (isDemoUser || hasActionPermission(activeUserAccess, 'canEditSettings', effectivePermissions, isMasterAdmin)) {
+          setIsSettingsModalOpen(true);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [isDemoUser, activeUserAccess, effectivePermissions, isMasterAdmin]);
 
   // Compute Live Cash In Hand & Bank Balance
   const salesCashIn = invoices
@@ -635,8 +964,7 @@ export default function App() {
 
   const computedBankBalance = initialBankBalance + salesDigitalIn + cashDepositedToBank - (purchasesBankOut + expensesBankOut + cashWithdrawnFromBank);
 
-  // Derived metrics
-  const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || initialProfiles[0];
+  // Derived counts
   const lowStockCount = inventory.filter(i => i.quantity <= i.minStockAlert).length;
   const unpaidInvoicesCount = invoices.filter(i => i.status !== 'Paid').length;
   const vendorDuesCount = vendors.filter(v => v.cashBalanceDue > 0).length;
@@ -693,6 +1021,10 @@ export default function App() {
   };
 
   const handleDeleteGemstone = (id: string) => {
+    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
+      alert('Master Admin द्वारा आपको रिकॉर्ड डिलीट करने की अनुमति नहीं दी गई है।');
+      return;
+    }
     if (isDemoUser) setGemstones(prev => prev.filter(g => g.id !== id));
     removeFirmDoc('gemstones', id);
   };
@@ -723,9 +1055,29 @@ export default function App() {
   };
 
   const handleDeleteCustomer = (id: string) => {
+    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
+      alert('Master Admin द्वारा आपको रिकॉर्ड डिलीट करने की अनुमति नहीं दी गई है।');
+      return;
+    }
     if (isDemoUser) setCustomers(prev => prev.filter(c => c.id !== id));
     removeFirmDoc('customers', id);
   };
+
+  const trialOwnerRecord =
+    activeProfile?.ownerUid && activeProfile.ownerUid !== currentUserId && firmOwnerAccess
+      ? firmOwnerAccess
+      : activeUserAccess;
+
+  const invoiceQuotaStatus =
+    !isDemoUser && (isMasterAdmin || trialOwnerRecord)
+      ? canUserCreateInvoice(
+          trialOwnerRecord,
+          firmUsage?.count ?? 0,
+          Date.now(),
+          isMasterAdmin,
+          effectivePermissions
+        )
+      : undefined;
 
   // Sales Invoice Creation
   const handleCreateInvoice = async (
@@ -735,6 +1087,12 @@ export default function App() {
     if (!activeProfileId) {
       alert('कोई फर्म सक्रिय नहीं है। कृपया पहले अपनी फर्म चुनें या रजिस्टर करें।');
       return;
+    }
+
+    if (invoiceQuotaStatus && !invoiceQuotaStatus.allowed) {
+      const msg = invoiceQuotaStatus.reason || 'इनवॉइस बनाने की अनुमति नहीं है।';
+      alert(msg);
+      throw new Error(msg);
     }
 
     if (isDemoUser) {
@@ -765,17 +1123,21 @@ export default function App() {
       throw new Error(msg);
     }
 
+    beginSyncWrite('Saving invoice...');
     try {
       const createdInvoice = await createInvoiceAtomic(
         activeProfileId,
         invoiceDraft,
         inventory,
         customers,
-        prefix
+        prefix,
+        { uid: currentUserId, isMasterAdmin }
       );
+      endSyncWrite(`Invoice ${createdInvoice.invoiceNumber} synced`, true);
       setPrintingInvoices([createdInvoice]);
       return createdInvoice;
     } catch (err: any) {
+      endSyncWrite('Invoice sync failed', false);
       handleFirestoreError(err);
       alert(`इनवॉइस बनाने में त्रुटि: ${err.message || err}`);
       throw err;
@@ -832,9 +1194,12 @@ export default function App() {
       return;
     }
 
+    beginSyncWrite('Saving purchase...');
     try {
       await createPurchaseAtomic(activeProfileId, taggedPurchase, taggedItems, vendor);
+      endSyncWrite('Purchase & stock synced', true);
     } catch (err: any) {
+      endSyncWrite('Purchase sync failed', false);
       handleFirestoreError(err);
       alert(`खरीद बिल सेव करने में त्रुटि: ${err?.message || err}`);
     }
@@ -854,6 +1219,10 @@ export default function App() {
   };
 
   const handleDeleteVendor = (id: string) => {
+    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
+      alert('Master Admin द्वारा आपको रिकॉर्ड डिलीट करने की अनुमति नहीं दी गई है।');
+      return;
+    }
     if (isDemoUser) setVendors(prev => prev.filter(v => v.id !== id));
     removeFirmDoc('vendors', id);
   };
@@ -879,6 +1248,10 @@ export default function App() {
   };
 
   const handleDeleteExpense = (id: string) => {
+    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
+      alert('Master Admin द्वारा आपको रिकॉर्ड डिलीट करने की अनुमति नहीं दी गई है।');
+      return;
+    }
     if (isDemoUser) setExpenses(prev => prev.filter(e => e.id !== id));
     removeFirmDoc('expenses', id);
   };
@@ -918,6 +1291,10 @@ export default function App() {
   };
 
   const handleDeleteInventoryItem = (id: string) => {
+    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
+      alert('Master Admin द्वारा आपको स्टॉक आइटम डिलीट करने की अनुमति नहीं दी गई है।');
+      return;
+    }
     if (isDemoUser) setInventory(prev => prev.filter(i => i.id !== id));
     removeFirmDoc('inventory', id);
   };
@@ -1081,6 +1458,13 @@ export default function App() {
     setActiveProfileId('');
     setIsDemoUser(false);
     setCurrentUserId('');
+    setUserAccess(null);
+    setUserAccessLoaded(false);
+    setIsPlatformAdmin(false);
+    setFirmUsage(null);
+    setFirmOwnerAccess(null);
+    setStaffInvites([]);
+    setInspectedFirm(null);
     setProfiles([]);
     
     // Clear all in-memory React state
@@ -1126,11 +1510,13 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <Login 
-        onLogin={(firmProfile, shopUpdate, isDemo) => {
+        onLogin={(firmProfile, shopUpdate, isDemo, signupMeta) => {
           if (isDemo) {
             setIsDemoUser(true);
             setIsAuthenticated(true);
             setCurrentUserId('demo');
+            setUserAccess(null);
+            setUserAccessLoaded(true);
             const demoProfs = getUserProfiles('demo');
             setProfiles(demoProfs);
             setActiveProfileId(demoProfs[0]?.id || 'prof-main');
@@ -1150,28 +1536,50 @@ export default function App() {
             return;
           }
 
+          if (signupMeta) {
+            pendingSignupMetaRef.current = signupMeta;
+          }
+
           setIsAuthenticated(true);
-          if (firmProfile) {
-            handleRegisterFirmFromScreen(firmProfile, shopUpdate);
+          if (firmProfile && auth.currentUser) {
+            // Defer firm creation until Master Admin approves user (stored in userAccess.firmName)
+            const uid = auth.currentUser.uid;
+            setCurrentUserId(uid);
           } else {
             const uid = auth.currentUser?.uid || '';
             setCurrentUserId(uid);
-            const userProfs = getUserProfiles(uid);
-            setProfiles(userProfs);
-            if (userProfs.length > 0) {
-              setActiveProfileId(userProfs[0].id);
-              setIsFirmActive(true);
-            } else {
-              setActiveProfileId('');
-              setIsFirmActive(false);
-            }
           }
         }} 
       />
     );
   }
 
-  if (!isFirmActive) {
+  // Enforce Master Admin Approval Gate for all real registered users
+  if (!isDemoUser && currentUserId) {
+    if (!userAccessLoaded) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-stone-100 dark:bg-slate-950 text-xs font-bold text-stone-600 dark:text-slate-300">
+          खाते की स्वीकृति व अनुमतियाँ जाँची जा रही हैं (Verifying Account Access)...
+        </div>
+      );
+    }
+
+    const accessCheck = canUserAccessApp(userAccess, isPlatformAdmin);
+    if (!accessCheck.allowed && !isMasterAdmin) {
+      return (
+        <ApprovalGateScreen
+          userAccess={userAccess}
+          userEmail={auth.currentUser?.email}
+          userUid={currentUserId}
+          supportConfig={supportConfig}
+          onRefresh={() => setUserAccessRefreshNonce(n => n + 1)}
+          onLogout={handleLogout}
+        />
+      );
+    }
+  }
+
+  if (!isFirmActive && !isMasterAdmin) {
     return (
       <FirmRegistrationScreen
         existingFirms={profiles}
@@ -1209,8 +1617,109 @@ export default function App() {
         isSynced={isSynced}
         syncStatus={syncStatus}
         syncError={syncError}
+        lastSyncedAt={lastSyncedAt}
+        pendingWritesCount={pendingWritesCount}
+        syncSource={syncSource}
+        lastSyncEventLabel={lastSyncEventLabel}
+        syncPulseKey={syncPulseKey}
+        onRetrySync={() => setSyncRetryNonce(n => n + 1)}
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
+        userAccess={activeUserAccess}
+        effectivePermissions={effectivePermissions}
+        firmUsageCount={firmUsage?.count ?? 0}
+        isMasterAdmin={isMasterAdmin}
       />
+
+      {/* Trial Quota & Limit Reached Banner */}
+      {!isDemoUser && !isMasterAdmin && trialOwnerRecord?.status === 'trial' && invoiceQuotaStatus && (
+        (() => {
+          const cleanPhone = (supportConfig.supportPhone || '').replace(/[^\d+]/g, '');
+          const waDigits = cleanPhone.replace(/^\+/, '');
+          const isBlocked = invoiceQuotaStatus.limitReached || invoiceQuotaStatus.isExpired;
+          if (isBlocked) {
+            return (
+              <div
+                data-testid="trial-limit-reached-banner"
+                className="bg-rose-600 text-white px-4 py-2.5 text-xs font-bold flex flex-wrap items-center justify-between gap-2 shadow-sm"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>
+                    Trial limit reached, contact admin ({invoiceQuotaStatus.used}/{invoiceQuotaStatus.limit} invoices used
+                    {invoiceQuotaStatus.isExpired ? ' • Trial period expired' : ''}). View &amp; backup export remain available.
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {waDigits && (
+                    <a
+                      href={`https://wa.me/${waDigits}?text=${encodeURIComponent(`Hello Admin, my trial limit (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit}) on Swarnkar ERP is reached. Account: ${auth.currentUser?.email || currentUserId}`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-black rounded-lg text-[11px]"
+                    >
+                      WhatsApp Admin
+                    </a>
+                  )}
+                  {cleanPhone && (
+                    <a
+                      href={`tel:${cleanPhone}`}
+                      className="px-3 py-1 bg-white/15 hover:bg-white/25 text-white font-bold rounded-lg text-[11px]"
+                    >
+                      Call {supportConfig.supportPhone}
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsBackupModalOpen(true)}
+                    className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-stone-950 font-black rounded-lg text-[11px] cursor-pointer"
+                  >
+                    Backup / Export Data
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div
+              data-testid="trial-active-banner"
+              className="bg-sky-50 dark:bg-sky-950/60 border-b border-sky-200 dark:border-sky-800 px-4 py-1.5 text-xs font-bold text-sky-900 dark:text-sky-200 flex flex-wrap items-center justify-between gap-2"
+            >
+              <span>
+                Trial Mode: <strong>{invoiceQuotaStatus.remaining ?? 0}</strong> / {invoiceQuotaStatus.limit ?? DEFAULT_TRIAL_INVOICE_LIMIT} invoices remaining
+                {typeof invoiceQuotaStatus.daysRemaining === 'number'
+                  ? ` • ${invoiceQuotaStatus.daysRemaining} day(s) remaining`
+                  : ''}
+              </span>
+              {waDigits && (
+                <a
+                  href={`https://wa.me/${waDigits}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] underline hover:opacity-80"
+                >
+                  Upgrade / Contact Admin
+                </a>
+              )}
+            </div>
+          );
+        })()
+      )}
+
+      {/* Master Admin Cross-Firm Inspection Banner */}
+      {isMasterAdmin && inspectedFirm && activeTab !== 'master_control' && (
+        <div className="bg-stone-900 text-amber-300 border-b border-amber-500/40 px-4 py-2 text-xs font-bold flex flex-wrap items-center justify-between gap-2">
+          <span>
+            Master Inspect Mode: आप अभी फर्म <strong>{inspectedFirm.name}</strong> ({inspectedFirm.code}) का लाइव डेटा देख व नियंत्रित कर रहे हैं।
+          </span>
+          <button
+            type="button"
+            onClick={() => setActiveTab('master_control')}
+            className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-lg text-[11px] cursor-pointer"
+          >
+            Back to Master Control
+          </button>
+        </div>
+      )}
 
       {/* Surfaced Firestore Sync / Permission Error Banner */}
       {syncError && (
@@ -1261,10 +1770,33 @@ export default function App() {
           onOpenCategoryModal={() => setIsCategoryModalOpen(true)}
           customLogo={activeProfile?.logoUrl || shopDetails.logoUrl}
           onLogout={handleLogout}
+          userAccess={activeUserAccess}
+          effectivePermissions={effectivePermissions}
+          isMasterAdmin={isMasterAdmin}
         />
 
         {/* Right Main Screen Viewport */}
         <main className="flex-1 min-w-0 overflow-y-auto px-2.5 sm:px-5 lg:px-7 py-3 sm:py-5 max-w-full">
+
+        {/* TAB: Master Super Admin Control Panel */}
+        {activeTab === 'master_control' && isMasterAdmin && (
+          <MasterControlPanel
+            currentAdminUid={currentUserId}
+            currentAdminEmail={auth.currentUser?.email || userAccess?.email}
+            masterSettings={masterSettings}
+            supportConfig={supportConfig}
+            activeFirmId={activeProfileId}
+            onUpdateMasterSettings={setMasterSettings}
+            onUpdateSupportConfig={setSupportConfig}
+            onInspectFirm={(firm) => {
+              setInspectedFirm(firm);
+              setProfiles((prev) => (prev.some((p) => p.id === firm.id) ? prev : [firm, ...prev]));
+              setActiveProfileId(firm.id);
+              setIsFirmActive(true);
+              setActiveTab('dashboard');
+            }}
+          />
+        )}
         
         {/* TAB 0: Swarnkar Executive Dashboard [F1] */}
         {activeTab === 'dashboard' && (
@@ -1296,6 +1828,8 @@ export default function App() {
             onAddCustomer={handleAddCustomer}
             onCreateInvoice={handleCreateInvoice}
             onUpdateInventoryQty={handleUpdateInventoryQty}
+            canCreateInvoice={isDemoUser || hasActionPermission(activeUserAccess, 'canCreateInvoice', effectivePermissions, isMasterAdmin)}
+            invoiceQuotaStatus={invoiceQuotaStatus}
           />
         )}
 
@@ -1448,7 +1982,13 @@ export default function App() {
             onViewPrintInvoice={(inv) => setPrintingInvoices([inv])}
             onBatchPrintInvoices={(invs) => setPrintingInvoices(invs)}
             onDeleteInvoice={handleDeleteInvoice}
+            canCancelInvoice={isDemoUser || hasActionPermission(activeUserAccess, 'canCancelInvoice', effectivePermissions, isMasterAdmin)}
             onCancelInvoice={async (inv, reason) => {
+              if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canCancelInvoice', effectivePermissions, isMasterAdmin)) {
+                const msg = 'Master Admin द्वारा आपको इनवॉइस रद्द (Cancel) करने की अनुमति नहीं दी गई है।';
+                alert(msg);
+                throw new Error(msg);
+              }
               if (isDemoUser) {
                 setInvoices(prev => prev.map(i => i.id === inv.id ? {
                   ...i,
@@ -1474,10 +2014,13 @@ export default function App() {
                 throw new Error(msg);
               }
 
+              beginSyncWrite('Cancelling invoice...');
               try {
                 // Only call cancelInvoiceAtomic and await it; UI updates from Firestore snapshot
                 await cancelInvoiceAtomic(activeProfileId, inv, reason, shopDetails.name || 'Owner');
+                endSyncWrite(`Invoice ${inv.invoiceNumber} cancelled`, true);
               } catch (err: any) {
+                endSyncWrite('Cancel invoice failed', false);
                 handleFirestoreError(err);
                 alert(`इनवॉइस रद्द करने में त्रुटि: ${err?.message || err}`);
                 throw err;
@@ -1576,6 +2119,38 @@ export default function App() {
         onAddFirm={handleAddProfile}
         onUpdateFirm={handleUpdateProfile}
         onDeleteFirm={handleDeleteFirm}
+        canManageStaff={!isDemoUser && hasActionPermission(activeUserAccess, 'staffManagement', effectivePermissions, isMasterAdmin)}
+        currentUid={currentUserId}
+        ownerPermissions={effectivePermissions || FULL_PERMISSIONS}
+        staffInvites={staffInvites}
+        onInviteStaff={async ({ email, displayName, role, permissions }) => {
+          if (!activeProfileId || !activeProfile) return;
+          await createOrUpdateStaffInvite({
+            firmId: activeProfileId,
+            firmName: activeProfile.name,
+            ownerUid: activeProfile.ownerUid || currentUserId,
+            email,
+            displayName,
+            role,
+            permissions,
+            ownerPermissions: effectivePermissions || FULL_PERMISSIONS
+          });
+        }}
+        onUpdateStaffPermissions={async ({ staffUid, email, role, permissions }) => {
+          if (!activeProfileId) return;
+          await updateFirmStaffPermissions({
+            firmId: activeProfileId,
+            staffUid,
+            email,
+            role,
+            permissions,
+            ownerPermissions: effectivePermissions || FULL_PERMISSIONS
+          });
+        }}
+        onRemoveStaff={async (staffUid, email) => {
+          if (!activeProfileId) return;
+          await removeFirmStaffMember(activeProfileId, staffUid, email);
+        }}
       />
 
       {/* Daily Metal Rate Configurator Modal */}

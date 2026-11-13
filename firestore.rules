@@ -11,6 +11,30 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Master Admin identity is verified ONLY by server-side document existence in platform_admins/{uid}
+    function isMasterAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/platform_admins/$(request.auth.uid));
+    }
+
+    function userDocExists(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function userDocData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function isUserActiveOrTrial(uid) {
+      return isSignedIn() &&
+        userDocExists(uid) &&
+        userDocData(uid).status in ['trial', 'active'];
+    }
+
+    function getFirmData(firmId) {
+      return get(/databases/$(database)/documents/firms/$(firmId)).data;
+    }
+
     function isFirmOwner(firmData) {
       return isSignedIn() && firmData.ownerUid == request.auth.uid;
     }
@@ -30,65 +54,366 @@ service cloud.firestore {
         firmData.staff[request.auth.uid] == 'cashier';
     }
 
-    // Firm Root Collection
-    match /firms/{firmId} {
-      // Allow get when document doesn't exist yet (resource == null) so owner can safely check before create;
-      // once created, only owner or listed staff can read.
-      allow get: if isSignedIn() && (resource == null || isFirmMember(resource.data));
-      allow list: if isSignedIn() && isFirmMember(resource.data);
-      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isSignedIn() && (
-        isFirmOwner(resource.data) || (
-          isFirmMember(resource.data) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerUid', 'staff'])
+    function userHasPerm(uid, permKey) {
+      return userDocExists(uid) &&
+        ('permissions' in userDocData(uid)) &&
+        userDocData(uid).permissions is map &&
+        userDocData(uid).permissions[permKey] == true;
+    }
+
+    function staffRoleFallbackPerm(firmData, permKey) {
+      return ('staff' in firmData && firmData.staff is map && request.auth.uid in firmData.staff) && (
+        (firmData.staff[request.auth.uid] == 'manager' && permKey != 'staffManagement') ||
+        (firmData.staff[request.auth.uid] == 'cashier' && permKey in ['billing', 'estimates', 'inventory', 'customers'])
+      );
+    }
+
+    function staffHasPerm(firmData, permKey) {
+      return (
+        'staffPermissions' in firmData &&
+        firmData.staffPermissions is map &&
+        request.auth.uid in firmData.staffPermissions &&
+        firmData.staffPermissions[request.auth.uid] is map
+      )
+        ? firmData.staffPermissions[request.auth.uid][permKey] == true
+        : staffRoleFallbackPerm(firmData, permKey);
+    }
+
+    // Effective module permission: requires active/trial user + active/trial owner + firm membership + permission flag.
+    // Staff permissions can never exceed the owner's own permissions.
+    function hasModulePerm(firmData, permKey) {
+      return isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) &&
+        isUserActiveOrTrial(firmData.ownerUid) &&
+        isFirmMember(firmData) &&
+        (
+          isFirmOwner(firmData)
+            ? userHasPerm(request.auth.uid, permKey)
+            : (
+              userHasPerm(firmData.ownerUid, permKey) &&
+              userHasPerm(request.auth.uid, permKey) &&
+              staffHasPerm(firmData, permKey)
+            )
         )
       );
-      allow delete: if isSignedIn() && isFirmOwner(resource.data);
+    }
 
-      // Isolated Firm Subcollections
+    function canReadCollection(firmData, col) {
+      return isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) &&
+        isUserActiveOrTrial(firmData.ownerUid) &&
+        isFirmMember(firmData) && (
+          (col == 'invoices' && (hasModulePerm(firmData, 'billing') || hasModulePerm(firmData, 'estimates') || hasModulePerm(firmData, 'reports') || hasModulePerm(firmData, 'gstReports'))) ||
+          (col == 'purchases' && (hasModulePerm(firmData, 'purchases') || hasModulePerm(firmData, 'reports'))) ||
+          (col == 'inventory' && (hasModulePerm(firmData, 'inventory') || hasModulePerm(firmData, 'billing') || hasModulePerm(firmData, 'estimates') || hasModulePerm(firmData, 'purchases'))) ||
+          (col == 'customers' && (hasModulePerm(firmData, 'customers') || hasModulePerm(firmData, 'billing') || hasModulePerm(firmData, 'estimates'))) ||
+          (col == 'vendors' && (hasModulePerm(firmData, 'vendors') || hasModulePerm(firmData, 'purchases'))) ||
+          ((col == 'karigars' || col == 'jobcards') && hasModulePerm(firmData, 'karigar')) ||
+          (col == 'girvi' && (hasModulePerm(firmData, 'girvi') || hasModulePerm(firmData, 'expenses'))) ||
+          (col == 'gemstones' && hasModulePerm(firmData, 'gemstones')) ||
+          ((col == 'expenses' || col == 'transfers') && (hasModulePerm(firmData, 'expenses') || hasModulePerm(firmData, 'reports'))) ||
+          (col == 'sequence_counters' && (hasModulePerm(firmData, 'billing') || hasModulePerm(firmData, 'estimates'))) ||
+          (col == 'rates' || col == 'shop_details' || col == 'usage')
+        )
+      );
+    }
+
+    function canWriteCollection(firmData, col) {
+      return isMasterAdmin() || (
+        (col == 'invoices' && (hasModulePerm(firmData, 'billing') || hasModulePerm(firmData, 'estimates'))) ||
+        (col == 'purchases' && hasModulePerm(firmData, 'purchases')) ||
+        (col == 'inventory' && (
+          hasModulePerm(firmData, 'inventory') ||
+          ((hasModulePerm(firmData, 'billing') || hasModulePerm(firmData, 'estimates') || hasModulePerm(firmData, 'purchases')) &&
+            resource != null &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantity']))
+        )) ||
+        (col == 'customers' && (
+          hasModulePerm(firmData, 'customers') ||
+          ((hasModulePerm(firmData, 'billing') || hasModulePerm(firmData, 'estimates')) &&
+            resource != null &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalPurchases', 'outstandingBalance']))
+        )) ||
+        (col == 'vendors' && (
+          hasModulePerm(firmData, 'vendors') ||
+          (hasModulePerm(firmData, 'purchases') &&
+            resource != null &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cashBalanceDue', 'totalPurchasesAmount', 'goldBalanceOwed', 'silverBalanceOwed']))
+        )) ||
+        ((col == 'karigars' || col == 'jobcards') && hasModulePerm(firmData, 'karigar')) ||
+        (col == 'girvi' && hasModulePerm(firmData, 'girvi')) ||
+        (col == 'gemstones' && hasModulePerm(firmData, 'gemstones')) ||
+        ((col == 'expenses' || col == 'transfers') && hasModulePerm(firmData, 'expenses')) ||
+        (col == 'rates' && hasModulePerm(firmData, 'rates')) ||
+        (col == 'shop_details' && (isFirmOwner(firmData) || hasModulePerm(firmData, 'staffManagement'))) ||
+        (col == 'sequence_counters' && (hasModulePerm(firmData, 'billing') || hasModulePerm(firmData, 'estimates')))
+      );
+    }
+
+    // Checks trial quota & expiry against the firm owner's users/{ownerUid} document
+    function withinTrialQuotaIfTrial(firmData, nextCount) {
+      let ownerData = userDocData(firmData.ownerUid);
+      return ownerData.status == 'active' || (
+        ownerData.status == 'trial' &&
+        ownerData.trialInvoiceLimit is int &&
+        nextCount is int &&
+        nextCount <= ownerData.trialInvoiceLimit &&
+        ownerData.trialEndsAt is timestamp &&
+        request.time < ownerData.trialEndsAt
+      );
+    }
+
+    // Verifies that firms/{firmId}/usage/invoices was incremented by exactly +1 in this transaction
+    function usageCounterIncrementedAndAllowed(firmId, firmData) {
+      let usagePath = /databases/$(database)/documents/firms/$(firmId)/usage/invoices;
+      let afterUsage = getAfter(usagePath);
+      return afterUsage.data.count is int &&
+        (
+          (!exists(usagePath) && afterUsage.data.count == 1) ||
+          (exists(usagePath) && get(usagePath).data.count is int && afterUsage.data.count == get(usagePath).data.count + 1)
+        ) &&
+        withinTrialQuotaIfTrial(firmData, afterUsage.data.count);
+    }
+
+    // Server-provisioned Master Admin Registry (manually managed in Firebase Console only)
+    match /platform_admins/{adminUid} {
+      allow get: if isSignedIn() && (request.auth.uid == adminUid || isMasterAdmin());
+      allow list: if isMasterAdmin();
+      allow write: if false;
+    }
+
+    // Non-sensitive Public Support Contact & Global Trial Defaults
+    match /system_config/{docId} {
+      allow get: if isSignedIn();
+      allow list, create, update, delete: if isMasterAdmin();
+    }
+
+    // Append-only Audit Logs
+    match /audit_logs/{logId} {
+      allow read: if isMasterAdmin();
+      allow create: if isSignedIn() &&
+        (isMasterAdmin() || isUserActiveOrTrial(request.auth.uid)) &&
+        request.resource.data.actorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // User Registration, Approval Gate, Trial Quotas & Granular Permissions
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isMasterAdmin());
+      allow list: if isMasterAdmin();
+      allow create: if isMasterAdmin() || (
+        isSignedIn() &&
+        request.auth.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.role == 'owner' &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.keys().hasOnly([
+          'uid',
+          'email',
+          'displayName',
+          'firmName',
+          'phone',
+          'status',
+          'role',
+          'createdAt',
+          'updatedAt',
+          'lastActiveAt'
+        ])
+      );
+      allow update: if isMasterAdmin() || (
+        isSignedIn() &&
+        request.auth.uid == userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName',
+          'firmName',
+          'phone',
+          'lastActiveAt',
+          'updatedAt'
+        ])
+      );
+      allow delete: if isMasterAdmin();
+    }
+
+    // Staff Email Invitations (Owner with staffManagement invites by email; staff claims with matching auth email)
+    match /staff_invites/{inviteId} {
+      allow get: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) && (
+          resource == null ||
+          resource.data.ownerUid == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.email == request.auth.token.email.lower())
+        )
+      );
+      allow list: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) && (
+          resource.data.ownerUid == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.email == request.auth.token.email.lower())
+        )
+      );
+      allow create: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        isFirmOwner(getFirmData(request.resource.data.firmId)) &&
+        hasModulePerm(getFirmData(request.resource.data.firmId), 'staffManagement')
+      );
+      allow update: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) && (
+          resource.data.ownerUid == request.auth.uid ||
+          (
+            request.auth.token.email != null &&
+            resource.data.email == request.auth.token.email.lower() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedUid', 'acceptedAt']) &&
+            request.resource.data.status == 'accepted' &&
+            request.resource.data.acceptedUid == request.auth.uid
+          )
+        )
+      );
+      allow delete: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) &&
+        resource.data.ownerUid == request.auth.uid
+      );
+    }
+
+    // Firm Root Collection
+    match /firms/{firmId} {
+      allow get: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) && (
+          resource == null || (
+            isUserActiveOrTrial(resource.data.ownerUid) && (
+              isFirmMember(resource.data) || (
+                request.auth.token.email != null &&
+                exists(/databases/$(database)/documents/staff_invites/$(firmId + '__' + request.auth.token.email.lower()))
+              )
+            )
+          )
+        )
+      );
+      allow list: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) &&
+        isFirmMember(resource.data) &&
+        isUserActiveOrTrial(resource.data.ownerUid)
+      );
+      allow create: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) &&
+        request.resource.data.ownerUid == request.auth.uid
+      );
+      allow update: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) &&
+        isUserActiveOrTrial(resource.data.ownerUid) && (
+          isFirmOwner(resource.data) ||
+          (
+            isFirmMember(resource.data) &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'ownerUid', 'staff', 'staffPermissions', 'staffMembers'
+            ])
+          ) ||
+          (
+            // Invited staff member claiming ONLY their own UID entry matching an existing staff_invite
+            request.auth.token.email != null &&
+            exists(/databases/$(database)/documents/staff_invites/$(firmId + '__' + request.auth.token.email.lower())) &&
+            get(/databases/$(database)/documents/staff_invites/$(firmId + '__' + request.auth.token.email.lower())).data.firmId == firmId &&
+            get(/databases/$(database)/documents/staff_invites/$(firmId + '__' + request.auth.token.email.lower())).data.email == request.auth.token.email.lower() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['staff', 'staffPermissions', 'staffMembers']) &&
+            (!('staff' in resource.data) || request.resource.data.staff.diff(resource.data.staff).affectedKeys().hasOnly([request.auth.uid])) &&
+            request.resource.data.staff[request.auth.uid] == get(/databases/$(database)/documents/staff_invites/$(firmId + '__' + request.auth.token.email.lower())).data.role
+          )
+        )
+      );
+      allow delete: if isMasterAdmin() || (
+        isUserActiveOrTrial(request.auth.uid) &&
+        isFirmOwner(resource.data)
+      );
+
+      // Tamper-resistant Invoice Usage Counter: firms/{firmId}/usage/invoices
+      match /usage/{usageId} {
+        allow read: if isMasterAdmin() || (
+          isUserActiveOrTrial(request.auth.uid) &&
+          isUserActiveOrTrial(getFirmData(firmId).ownerUid) &&
+          isFirmMember(getFirmData(firmId))
+        );
+        allow create: if isMasterAdmin() || (
+          usageId == 'invoices' &&
+          (hasModulePerm(getFirmData(firmId), 'billing') || hasModulePerm(getFirmData(firmId), 'estimates')) &&
+          request.resource.data.count == 1 &&
+          withinTrialQuotaIfTrial(getFirmData(firmId), 1)
+        );
+        allow update: if isMasterAdmin() || (
+          usageId == 'invoices' &&
+          (hasModulePerm(getFirmData(firmId), 'billing') || hasModulePerm(getFirmData(firmId), 'estimates')) &&
+          resource.data.count is int &&
+          request.resource.data.count == resource.data.count + 1 &&
+          withinTrialQuotaIfTrial(getFirmData(firmId), request.resource.data.count)
+        );
+        allow delete: if isMasterAdmin();
+      }
+
+      // Isolated Firm Subcollections with Module Permissions + Cashier Restrictions
       match /{collectionName}/{docId} {
-        allow read: if isSignedIn() && isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data);
-        
-        // Disallow hard deletion of GST Invoices and Purchase Invoices - must be Cancelled instead
-        allow delete: if isSignedIn() && 
-          isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data) &&
-          collectionName != 'invoices' && 
-          collectionName != 'purchases' &&
-          (!isCashierRole(get(/databases/$(database)/documents/firms/$(firmId)).data) || (
-            collectionName != 'rates' &&
-            collectionName != 'shop_details' &&
-            collectionName != 'sequence_counters'
-          ));
+        allow read: if collectionName != 'usage' &&
+          canReadCollection(getFirmData(firmId), collectionName);
 
-        allow create: if isSignedIn() && 
-          isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data) && (
-            !isCashierRole(get(/databases/$(database)/documents/firms/$(firmId)).data) || (
+        // Hard deletion of GST Invoices and Purchase Invoices is blocked for non-master users
+        allow delete: if collectionName != 'usage' && (
+          isMasterAdmin() || (
+            canWriteCollection(getFirmData(firmId), collectionName) &&
+            collectionName != 'invoices' &&
+            collectionName != 'purchases' &&
+            (!isCashierRole(getFirmData(firmId)) || (
               collectionName != 'rates' &&
               collectionName != 'shop_details' &&
               collectionName != 'sequence_counters'
-            )
-          ) && (
-            collectionName != 'sequence_counters' || request.resource.data.currentVal == 1
-          );
+            ))
+          )
+        );
 
-        allow update: if isSignedIn() && 
-          isFirmMember(get(/databases/$(database)/documents/firms/$(firmId)).data) && (
-            !isCashierRole(get(/databases/$(database)/documents/firms/$(firmId)).data) || (
-              collectionName != 'rates' &&
-              collectionName != 'shop_details' &&
-              collectionName != 'sequence_counters' && (
-                collectionName != 'invoices' ||
-                request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                  'status', 'cancelReason', 'cancelledBy', 'cancelledAt', 'payment', 'paidAmount', 'dueAmount'
-                ])
+        allow create: if collectionName != 'usage' && (
+          isMasterAdmin() || (
+            canWriteCollection(getFirmData(firmId), collectionName) &&
+            (
+              !isCashierRole(getFirmData(firmId)) || (
+                collectionName != 'rates' &&
+                collectionName != 'shop_details' &&
+                collectionName != 'sequence_counters'
+              )
+            ) &&
+            (
+              collectionName != 'sequence_counters' || request.resource.data.currentVal == 1
+            ) &&
+            (
+              collectionName != 'invoices' ||
+              usageCounterIncrementedAndAllowed(firmId, getFirmData(firmId))
+            )
+          )
+        );
+
+        allow update: if collectionName != 'usage' && (
+          isMasterAdmin() || (
+            canWriteCollection(getFirmData(firmId), collectionName) &&
+            (
+              !isCashierRole(getFirmData(firmId)) || (
+                collectionName != 'rates' &&
+                collectionName != 'shop_details' &&
+                collectionName != 'sequence_counters' && (
+                  collectionName != 'invoices' ||
+                  request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                    'status', 'cancelReason', 'cancelledBy', 'cancelledAt', 'payment', 'paidAmount', 'dueAmount'
+                  ])
+                )
+              )
+            ) &&
+            (
+              collectionName != 'invoices' ||
+              request.resource.data.status != 'Cancelled' ||
+              resource.data.status == 'Cancelled' ||
+              hasModulePerm(getFirmData(firmId), 'invoiceCancel')
+            ) &&
+            (
+              collectionName != 'sequence_counters' || (
+                resource.data.currentVal is int &&
+                request.resource.data.currentVal == resource.data.currentVal + 1
               )
             )
-          ) && (
-            collectionName != 'sequence_counters' || (
-              resource.data.currentVal is int &&
-              request.resource.data.currentVal == resource.data.currentVal + 1
-            )
-          );
+          )
+        );
       }
     }
   }
