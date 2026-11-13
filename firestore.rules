@@ -98,6 +98,127 @@ service cloud.firestore {
       );
     }
 
+    // Per-owner user-level invoice usage counter: users/{ownerUid}/usage/invoices
+    function getOwnerUsageCount(ownerUid) {
+      let usagePath = /databases/$(database)/documents/users/$(ownerUid)/usage/invoices;
+      return exists(usagePath) && ('count' in get(usagePath).data) && (get(usagePath).data.count is int)
+        ? get(usagePath).data.count
+        : 0;
+    }
+
+    // True only when owner is active, OR trial is unexpired AND invoice count is strictly below trialInvoiceLimit
+    function isTrialOperationalOrActive(ownerUid) {
+      let ownerData = userDocData(ownerUid);
+      return ownerData.status == 'active' || (
+        ownerData.status == 'trial' &&
+        ('trialInvoiceLimit' in ownerData) &&
+        ownerData.trialInvoiceLimit is int &&
+        ownerData.trialInvoiceLimit > 0 &&
+        ('trialEndsAt' in ownerData) &&
+        ownerData.trialEndsAt is timestamp &&
+        request.time < ownerData.trialEndsAt &&
+        getOwnerUsageCount(ownerUid) < ownerData.trialInvoiceLimit
+      );
+    }
+
+    // Checks trial quota & expiry against the firm owner's users/{ownerUid} document for the incremented count
+    function withinTrialQuotaIfTrial(ownerUid, nextCount) {
+      let ownerData = userDocData(ownerUid);
+      return ownerData.status == 'active' || (
+        ownerData.status == 'trial' &&
+        ('trialInvoiceLimit' in ownerData) &&
+        ownerData.trialInvoiceLimit is int &&
+        nextCount is int &&
+        nextCount <= ownerData.trialInvoiceLimit &&
+        ('trialEndsAt' in ownerData) &&
+        ownerData.trialEndsAt is timestamp &&
+        request.time < ownerData.trialEndsAt
+      );
+    }
+
+    // Verifies that users/{ownerUid}/usage/invoices was incremented by exactly +1 in this transaction,
+    // and binds the increment to a single unique invoice docId (${series}_${count}) and firmId.
+    function usageCounterIncrementedAndAllowed(firmId, firmData, docId) {
+      let usagePath = /databases/$(database)/documents/users/$(firmData.ownerUid)/usage/invoices;
+      let afterUsage = getAfter(usagePath);
+      return ('series' in request.resource.data) &&
+        request.resource.data.series in ['GST_INVOICE', 'ESTIMATE_BILL'] &&
+        ('invoiceType' in request.resource.data) &&
+        request.resource.data.invoiceType == request.resource.data.series &&
+        ('count' in afterUsage.data) &&
+        afterUsage.data.count is int &&
+        docId == request.resource.data.series + '_' + string(afterUsage.data.count) &&
+        ('lastInvoiceId' in afterUsage.data) &&
+        afterUsage.data.lastInvoiceId == docId &&
+        ('lastFirmId' in afterUsage.data) &&
+        afterUsage.data.lastFirmId == firmId &&
+        (
+          (!exists(usagePath) && afterUsage.data.count == 1) ||
+          (exists(usagePath) && ('count' in get(usagePath).data) && get(usagePath).data.count is int && afterUsage.data.count == get(usagePath).data.count + 1)
+        ) &&
+        withinTrialQuotaIfTrial(firmData.ownerUid, afterUsage.data.count);
+    }
+
+    // Verifies that an active cancelInvoiceAtomic transaction is cancelling an uncancelled invoice
+    function isValidCancelUsageStamp(userId, firmId, invoiceId) {
+      let firmData = getFirmData(firmId);
+      let invPath = /databases/$(database)/documents/firms/$(firmId)/invoices/$(invoiceId);
+      return firmId is string &&
+        invoiceId is string &&
+        firmData.ownerUid == userId &&
+        hasModulePerm(firmData, 'invoiceCancel') &&
+        exists(invPath) &&
+        get(invPath).data.status != 'Cancelled' &&
+        getAfter(invPath).data.status == 'Cancelled';
+    }
+
+    function isOngoingInvoiceCancelInTx(firmId, firmData) {
+      let usagePath = /databases/$(database)/documents/users/$(firmData.ownerUid)/usage/invoices;
+      let afterUsage = getAfter(usagePath);
+      return ('lastCancelledInvoiceId' in afterUsage.data) &&
+        afterUsage.data.lastCancelledInvoiceId is string &&
+        ('lastFirmId' in afterUsage.data) &&
+        afterUsage.data.lastFirmId == firmId &&
+        isValidCancelUsageStamp(firmData.ownerUid, firmId, afterUsage.data.lastCancelledInvoiceId);
+    }
+
+    function validSelfClaimKey(resData, reqData, fieldName, uid) {
+      return (fieldName in reqData) &&
+        (reqData[fieldName] is map) &&
+        (
+          !(fieldName in resData) || !(resData[fieldName] is map)
+            ? reqData[fieldName].keys().hasOnly([uid])
+            : reqData[fieldName].diff(resData[fieldName]).affectedKeys().hasOnly([uid])
+        );
+    }
+
+    function isValidStaffInviteClaim(firmId) {
+      let emailLower = request.auth.token.email.lower();
+      let invitePath = /databases/$(database)/documents/staff_invites/$(firmId + '__' + emailLower);
+      let invite = get(invitePath).data;
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      return request.auth.token.email != null &&
+        exists(invitePath) &&
+        invite.firmId == firmId &&
+        invite.email == emailLower &&
+        invite.role in ['cashier', 'manager'] &&
+        affected.hasOnly(['staff', 'staffPermissions', 'staffMembers']) &&
+        validSelfClaimKey(resource.data, request.resource.data, 'staff', request.auth.uid) &&
+        request.resource.data.staff[request.auth.uid] == invite.role &&
+        validSelfClaimKey(resource.data, request.resource.data, 'staffPermissions', request.auth.uid) &&
+        request.resource.data.staffPermissions[request.auth.uid] == invite.permissions &&
+        (
+          !('staffMembers' in affected) || (
+            validSelfClaimKey(resource.data, request.resource.data, 'staffMembers', request.auth.uid) &&
+            request.resource.data.staffMembers[request.auth.uid] is map &&
+            request.resource.data.staffMembers[request.auth.uid].uid == request.auth.uid &&
+            request.resource.data.staffMembers[request.auth.uid].role == invite.role &&
+            request.resource.data.staffMembers[request.auth.uid].permissions == invite.permissions &&
+            request.resource.data.staffMembers[request.auth.uid].email == emailLower
+          )
+        );
+    }
+
     function canReadCollection(firmData, col) {
       return isMasterAdmin() || (
         isUserActiveOrTrial(request.auth.uid) &&
@@ -113,7 +234,7 @@ service cloud.firestore {
           (col == 'gemstones' && hasModulePerm(firmData, 'gemstones')) ||
           ((col == 'expenses' || col == 'transfers') && (hasModulePerm(firmData, 'expenses') || hasModulePerm(firmData, 'reports'))) ||
           (col == 'sequence_counters' && (hasModulePerm(firmData, 'billing') || hasModulePerm(firmData, 'estimates'))) ||
-          (col == 'rates' || col == 'shop_details' || col == 'usage')
+          (col == 'rates' || col == 'shop_details')
         )
       );
     }
@@ -150,31 +271,6 @@ service cloud.firestore {
       );
     }
 
-    // Checks trial quota & expiry against the firm owner's users/{ownerUid} document
-    function withinTrialQuotaIfTrial(firmData, nextCount) {
-      let ownerData = userDocData(firmData.ownerUid);
-      return ownerData.status == 'active' || (
-        ownerData.status == 'trial' &&
-        ownerData.trialInvoiceLimit is int &&
-        nextCount is int &&
-        nextCount <= ownerData.trialInvoiceLimit &&
-        ownerData.trialEndsAt is timestamp &&
-        request.time < ownerData.trialEndsAt
-      );
-    }
-
-    // Verifies that firms/{firmId}/usage/invoices was incremented by exactly +1 in this transaction
-    function usageCounterIncrementedAndAllowed(firmId, firmData) {
-      let usagePath = /databases/$(database)/documents/firms/$(firmId)/usage/invoices;
-      let afterUsage = getAfter(usagePath);
-      return afterUsage.data.count is int &&
-        (
-          (!exists(usagePath) && afterUsage.data.count == 1) ||
-          (exists(usagePath) && get(usagePath).data.count is int && afterUsage.data.count == get(usagePath).data.count + 1)
-        ) &&
-        withinTrialQuotaIfTrial(firmData, afterUsage.data.count);
-    }
-
     // Server-provisioned Master Admin Registry (manually managed in Firebase Console only)
     match /platform_admins/{adminUid} {
       allow get: if isSignedIn() && (request.auth.uid == adminUid || isMasterAdmin());
@@ -188,12 +284,39 @@ service cloud.firestore {
       allow list, create, update, delete: if isMasterAdmin();
     }
 
-    // Append-only Audit Logs
+    // Append-only Audit Logs with strict schema, server timestamp, and action allowlist
     match /audit_logs/{logId} {
       allow read: if isMasterAdmin();
       allow create: if isSignedIn() &&
         (isMasterAdmin() || isUserActiveOrTrial(request.auth.uid)) &&
-        request.resource.data.actorUid == request.auth.uid;
+        request.resource.data.keys().hasAll([
+          'actorUid', 'action', 'targetUid', 'targetFirmId', 'details', 'createdAt'
+        ]) &&
+        request.resource.data.keys().hasOnly([
+          'actorUid', 'action', 'targetUid', 'targetFirmId', 'details', 'createdAt'
+        ]) &&
+        request.resource.data.actorUid == request.auth.uid &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.targetUid is string &&
+        request.resource.data.targetUid.size() <= 128 &&
+        request.resource.data.targetFirmId is string &&
+        request.resource.data.targetFirmId.size() <= 128 &&
+        request.resource.data.details is string &&
+        request.resource.data.details.size() <= 1000 &&
+        request.resource.data.action in [
+          'USER_STATUS_TRIAL',
+          'USER_STATUS_ACTIVE',
+          'USER_STATUS_PENDING',
+          'USER_STATUS_SUSPENDED',
+          'UPDATE_USER_ACCESS',
+          'DELETE_USER_REQUEST',
+          'UPDATE_FIRM_META',
+          'DELETE_FIRM',
+          'UPDATE_GLOBAL_SETTINGS',
+          'STAFF_INVITE',
+          'STAFF_REMOVE',
+          'TEST_ACTION'
+        ];
       allow update, delete: if false;
     }
 
@@ -232,6 +355,87 @@ service cloud.firestore {
         ])
       );
       allow delete: if isMasterAdmin();
+
+      // Per-User Tamper-Resistant Invoice Usage Counter: users/{ownerUid}/usage/invoices
+      match /usage/{usageId} {
+        allow get: if isMasterAdmin() || (
+          usageId == 'invoices' &&
+          isUserActiveOrTrial(request.auth.uid) && (
+            request.auth.uid == userId ||
+            resource == null ||
+            isUserActiveOrTrial(userId)
+          )
+        );
+        allow list: if isMasterAdmin();
+        allow create: if isMasterAdmin() || (
+          usageId == 'invoices' &&
+          isSignedIn() &&
+          isUserActiveOrTrial(request.auth.uid) &&
+          isUserActiveOrTrial(userId) &&
+          'lastFirmId' in request.resource.data &&
+          request.resource.data.lastFirmId is string &&
+          getFirmData(request.resource.data.lastFirmId).ownerUid == userId &&
+          (
+            (
+              (
+                hasModulePerm(getFirmData(request.resource.data.lastFirmId), 'billing') ||
+                hasModulePerm(getFirmData(request.resource.data.lastFirmId), 'estimates')
+              ) &&
+              request.resource.data.count == 1 &&
+              'lastInvoiceId' in request.resource.data &&
+              request.resource.data.lastInvoiceId is string &&
+              withinTrialQuotaIfTrial(userId, 1)
+            ) ||
+            (
+              request.resource.data.count == 0 &&
+              request.resource.data.keys().hasOnly([
+                'count', 'lastCancelledInvoiceId', 'lastFirmId', 'updatedAt'
+              ]) &&
+              'lastCancelledInvoiceId' in request.resource.data &&
+              isValidCancelUsageStamp(
+                userId,
+                request.resource.data.lastFirmId,
+                request.resource.data.lastCancelledInvoiceId
+              )
+            )
+          )
+        );
+        allow update: if isMasterAdmin() || (
+          usageId == 'invoices' &&
+          isSignedIn() &&
+          isUserActiveOrTrial(request.auth.uid) &&
+          isUserActiveOrTrial(userId) &&
+          'lastFirmId' in request.resource.data &&
+          request.resource.data.lastFirmId is string &&
+          getFirmData(request.resource.data.lastFirmId).ownerUid == userId &&
+          (
+            (
+              (
+                hasModulePerm(getFirmData(request.resource.data.lastFirmId), 'billing') ||
+                hasModulePerm(getFirmData(request.resource.data.lastFirmId), 'estimates')
+              ) &&
+              resource.data.count is int &&
+              request.resource.data.count == resource.data.count + 1 &&
+              'lastInvoiceId' in request.resource.data &&
+              request.resource.data.lastInvoiceId is string &&
+              withinTrialQuotaIfTrial(userId, request.resource.data.count)
+            ) ||
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'lastCancelledInvoiceId', 'lastFirmId', 'updatedAt'
+              ]) &&
+              request.resource.data.count == resource.data.count &&
+              'lastCancelledInvoiceId' in request.resource.data &&
+              isValidCancelUsageStamp(
+                userId,
+                request.resource.data.lastFirmId,
+                request.resource.data.lastCancelledInvoiceId
+              )
+            )
+          )
+        );
+        allow delete: if isMasterAdmin();
+      }
     }
 
     // Staff Email Invitations (Owner with staffManagement invites by email; staff claims with matching auth email)
@@ -246,18 +450,28 @@ service cloud.firestore {
       allow list: if isMasterAdmin() || (
         isUserActiveOrTrial(request.auth.uid) && (
           resource.data.ownerUid == request.auth.uid ||
+          resource.data.acceptedUid == request.auth.uid ||
           (request.auth.token.email != null && resource.data.email == request.auth.token.email.lower())
         )
       );
       allow create: if isMasterAdmin() || (
         isUserActiveOrTrial(request.auth.uid) &&
         request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.firmId is string &&
+        request.resource.data.email is string &&
+        inviteId == request.resource.data.firmId + '__' + request.resource.data.email &&
+        request.resource.data.role in ['cashier', 'manager'] &&
+        request.resource.data.permissions is map &&
         isFirmOwner(getFirmData(request.resource.data.firmId)) &&
         hasModulePerm(getFirmData(request.resource.data.firmId), 'staffManagement')
       );
       allow update: if isMasterAdmin() || (
         isUserActiveOrTrial(request.auth.uid) && (
-          resource.data.ownerUid == request.auth.uid ||
+          (
+            resource.data.ownerUid == request.auth.uid &&
+            request.resource.data.role in ['cashier', 'manager'] &&
+            request.resource.data.permissions is map
+          ) ||
           (
             request.auth.token.email != null &&
             resource.data.email == request.auth.token.email.lower() &&
@@ -288,9 +502,12 @@ service cloud.firestore {
         )
       );
       allow list: if isMasterAdmin() || (
-        isUserActiveOrTrial(request.auth.uid) &&
-        isFirmMember(resource.data) &&
-        isUserActiveOrTrial(resource.data.ownerUid)
+        isUserActiveOrTrial(request.auth.uid) && (
+          resource.data.ownerUid == request.auth.uid || (
+            isFirmMember(resource.data) &&
+            isUserActiveOrTrial(resource.data.ownerUid)
+          )
+        )
       );
       allow create: if isMasterAdmin() || (
         isUserActiveOrTrial(request.auth.uid) &&
@@ -306,16 +523,7 @@ service cloud.firestore {
               'ownerUid', 'staff', 'staffPermissions', 'staffMembers'
             ])
           ) ||
-          (
-            // Invited staff member claiming ONLY their own UID entry matching an existing staff_invite
-            request.auth.token.email != null &&
-            exists(/databases/$(database)/documents/staff_invites/$(firmId + '__' + request.auth.token.email.lower())) &&
-            get(/databases/$(database)/documents/staff_invites/$(firmId + '__' + request.auth.token.email.lower())).data.firmId == firmId &&
-            get(/databases/$(database)/documents/staff_invites/$(firmId + '__' + request.auth.token.email.lower())).data.email == request.auth.token.email.lower() &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['staff', 'staffPermissions', 'staffMembers']) &&
-            (!('staff' in resource.data) || request.resource.data.staff.diff(resource.data.staff).affectedKeys().hasOnly([request.auth.uid])) &&
-            request.resource.data.staff[request.auth.uid] == get(/databases/$(database)/documents/staff_invites/$(firmId + '__' + request.auth.token.email.lower())).data.role
-          )
+          isValidStaffInviteClaim(firmId)
         )
       );
       allow delete: if isMasterAdmin() || (
@@ -323,37 +531,21 @@ service cloud.firestore {
         isFirmOwner(resource.data)
       );
 
-      // Tamper-resistant Invoice Usage Counter: firms/{firmId}/usage/invoices
+      // Legacy firm-level usage path locked down to Master Admin only
       match /usage/{usageId} {
-        allow read: if isMasterAdmin() || (
-          isUserActiveOrTrial(request.auth.uid) &&
-          isUserActiveOrTrial(getFirmData(firmId).ownerUid) &&
-          isFirmMember(getFirmData(firmId))
-        );
-        allow create: if isMasterAdmin() || (
-          usageId == 'invoices' &&
-          (hasModulePerm(getFirmData(firmId), 'billing') || hasModulePerm(getFirmData(firmId), 'estimates')) &&
-          request.resource.data.count == 1 &&
-          withinTrialQuotaIfTrial(getFirmData(firmId), 1)
-        );
-        allow update: if isMasterAdmin() || (
-          usageId == 'invoices' &&
-          (hasModulePerm(getFirmData(firmId), 'billing') || hasModulePerm(getFirmData(firmId), 'estimates')) &&
-          resource.data.count is int &&
-          request.resource.data.count == resource.data.count + 1 &&
-          withinTrialQuotaIfTrial(getFirmData(firmId), request.resource.data.count)
-        );
-        allow delete: if isMasterAdmin();
+        allow read, write: if isMasterAdmin();
       }
 
-      // Isolated Firm Subcollections with Module Permissions + Cashier Restrictions
+      // Isolated Firm Subcollections with Module Permissions + Trial Expiry Lockout + Cashier Restrictions
       match /{collectionName}/{docId} {
         allow read: if collectionName != 'usage' &&
           canReadCollection(getFirmData(firmId), collectionName);
 
-        // Hard deletion of GST Invoices and Purchase Invoices is blocked for non-master users
+        // Hard deletion of GST Invoices and Purchase Invoices is blocked for non-master users.
+        // Operational deletes are blocked once trialEndsAt or trialInvoiceLimit is reached.
         allow delete: if collectionName != 'usage' && (
           isMasterAdmin() || (
+            isTrialOperationalOrActive(getFirmData(firmId).ownerUid) &&
             canWriteCollection(getFirmData(firmId), collectionName) &&
             collectionName != 'invoices' &&
             collectionName != 'purchases' &&
@@ -379,14 +571,18 @@ service cloud.firestore {
               collectionName != 'sequence_counters' || request.resource.data.currentVal == 1
             ) &&
             (
-              collectionName != 'invoices' ||
-              usageCounterIncrementedAndAllowed(firmId, getFirmData(firmId))
+              collectionName == 'invoices'
+                ? usageCounterIncrementedAndAllowed(firmId, getFirmData(firmId), docId)
+                : isTrialOperationalOrActive(getFirmData(firmId).ownerUid)
             )
           )
         );
 
         allow update: if collectionName != 'usage' && (
-          isMasterAdmin() || (
+          isMasterAdmin() ||
+          // Normal operational updates (blocked after trial expiry or invoice limit reached)
+          (
+            isTrialOperationalOrActive(getFirmData(firmId).ownerUid) &&
             canWriteCollection(getFirmData(firmId), collectionName) &&
             (
               !isCashierRole(getFirmData(firmId)) || (
@@ -412,6 +608,35 @@ service cloud.firestore {
                 request.resource.data.currentVal == resource.data.currentVal + 1
               )
             )
+          ) ||
+          // Invoice Cancellation remains allowed even after trial expiry / invoice limit reached
+          (
+            collectionName == 'invoices' &&
+            hasModulePerm(getFirmData(firmId), 'invoiceCancel') &&
+            resource.data.status != 'Cancelled' &&
+            request.resource.data.status == 'Cancelled' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'cancelReason', 'cancelledBy', 'cancelledAt'
+            ])
+          ) ||
+          // Stock restoration ONLY inside an active cancelInvoiceAtomic transaction
+          (
+            collectionName == 'inventory' &&
+            hasModulePerm(getFirmData(firmId), 'invoiceCancel') &&
+            isOngoingInvoiceCancelInTx(firmId, getFirmData(firmId)) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantity']) &&
+            request.resource.data.quantity >= resource.data.quantity
+          ) ||
+          // Customer ledger reversal ONLY inside an active cancelInvoiceAtomic transaction
+          (
+            collectionName == 'customers' &&
+            hasModulePerm(getFirmData(firmId), 'invoiceCancel') &&
+            isOngoingInvoiceCancelInTx(firmId, getFirmData(firmId)) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'totalPurchases', 'outstandingBalance'
+            ]) &&
+            request.resource.data.totalPurchases <= resource.data.totalPurchases &&
+            request.resource.data.outstandingBalance <= resource.data.outstandingBalance
           )
         );
       }

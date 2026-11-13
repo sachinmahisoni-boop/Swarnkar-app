@@ -22,8 +22,9 @@ import {
 import { Timestamp } from 'firebase/firestore';
 import {
   AppUserAccessRecord,
+  AuditAction,
   AuditLogEntry,
-  FirmUsageInvoicesDoc,
+  UserUsageInvoicesDoc,
   JewellerProfile,
   MasterControlSettings,
   PublicSupportConfig,
@@ -46,7 +47,7 @@ import {
 import {
   deleteFirmByMaster,
   deleteUserAccessRecord,
-  fetchAllFirmUsageForMaster,
+  fetchAllUserUsageForMaster,
   saveMasterControlSettings,
   savePublicSupportConfig,
   subscribeToAllFirmsForMaster,
@@ -118,11 +119,11 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | UserApprovalStatus>('all');
   const [usersError, setUsersError] = useState<string | null>(null);
 
-  // Firms & per-firm usage counters
+  // Firms & per-user usage counters
   const [firms, setFirms] = useState<JewellerProfile[]>([]);
   const [firmSearch, setFirmSearch] = useState('');
   const [firmsError, setFirmsError] = useState<string | null>(null);
-  const [firmUsageMap, setFirmUsageMap] = useState<Record<string, FirmUsageInvoicesDoc>>({});
+  const [userUsageMap, setUserUsageMap] = useState<Record<string, UserUsageInvoicesDoc>>({});
 
   // Audit logs
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -210,14 +211,20 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
   }, []);
 
   useEffect(() => {
-    if (firms.length === 0) {
-      setFirmUsageMap({});
+    const uids = Array.from(
+      new Set([
+        ...users.map((u) => u.uid),
+        ...firms.map((f) => f.ownerUid || '').filter(Boolean)
+      ])
+    );
+    if (uids.length === 0) {
+      setUserUsageMap({});
       return;
     }
     let cancelled = false;
-    fetchAllFirmUsageForMaster(firms.map((f) => f.id))
+    fetchAllUserUsageForMaster(uids)
       .then((map) => {
-        if (!cancelled) setFirmUsageMap(map);
+        if (!cancelled) setUserUsageMap(map);
       })
       .catch(() => {
         // Non-fatal usage stats error
@@ -225,36 +232,48 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [firms]);
+  }, [users, firms]);
 
   const showSuccess = (text: string) => setFeedback({ type: 'success', text });
   const showError = (text: string) => setFeedback({ type: 'error', text });
 
-  // Aggregate usage per user UID from their owned firms
+  const usersByUid = useMemo(() => {
+    const map: Record<string, AppUserAccessRecord> = {};
+    for (const u of users) {
+      map[u.uid] = u;
+    }
+    return map;
+  }, [users]);
+
+  // Usage per user UID directly from users/{ownerUid}/usage/invoices + owned firm count
   const userInvoiceUsageMap = useMemo(() => {
     const map: Record<string, { count: number; monthlyCount: number; firmCount: number }> = {};
     const currentMonthKey = getISTDate().isoDateStr.slice(0, 7);
+    const firmCounts: Record<string, number> = {};
     for (const f of firms) {
-      const owner = f.ownerUid;
-      if (!owner) continue;
-      const u = firmUsageMap[f.id];
+      if (f.ownerUid) {
+        firmCounts[f.ownerUid] = (firmCounts[f.ownerUid] || 0) + 1;
+      }
+    }
+    const allUids = new Set([...Object.keys(userUsageMap), ...Object.keys(firmCounts)]);
+    for (const uid of allUids) {
+      const u = userUsageMap[uid];
       const count = Number(u?.count || 0);
       const monthly = u?.monthKey === currentMonthKey ? Number(u?.monthlyCount || 0) : 0;
-      if (!map[owner]) {
-        map[owner] = { count: 0, monthlyCount: 0, firmCount: 0 };
-      }
-      map[owner].count += count;
-      map[owner].monthlyCount += monthly;
-      map[owner].firmCount += 1;
+      map[uid] = {
+        count,
+        monthlyCount: monthly,
+        firmCount: firmCounts[uid] || 0
+      };
     }
     return map;
-  }, [firms, firmUsageMap]);
+  }, [firms, userUsageMap]);
 
   const dashboardMetrics = useMemo(() => {
     const currentMonthKey = getISTDate().isoDateStr.slice(0, 7);
     let invoicesThisMonth = 0;
     let totalInvoices = 0;
-    for (const usage of Object.values(firmUsageMap) as FirmUsageInvoicesDoc[]) {
+    for (const usage of Object.values(userUsageMap) as UserUsageInvoicesDoc[]) {
       totalInvoices += Number(usage?.count || 0);
       if (usage?.monthKey === currentMonthKey) {
         invoicesThisMonth += Number(usage?.monthlyCount || 0);
@@ -269,22 +288,24 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
       invoicesThisMonth,
       totalInvoices
     };
-  }, [users, firmUsageMap]);
+  }, [users, userUsageMap]);
 
   const logMasterAction = async (
-    action: string,
-    target: { targetUid?: string; targetEmail?: string; firmId?: string },
+    action: AuditAction,
+    target: { targetUid?: string; firmId?: string },
     details: string
   ) => {
-    await writeAuditLog({
-      action,
-      actorUid: currentAdminUid,
-      actorEmail: currentAdminEmail || 'platform-admin',
-      targetUid: target.targetUid,
-      targetEmail: target.targetEmail,
-      firmId: target.firmId,
-      details
-    });
+    try {
+      await writeAuditLog({
+        action,
+        actorUid: currentAdminUid,
+        targetUid: target.targetUid || '',
+        targetFirmId: target.firmId || '',
+        details
+      });
+    } catch (err) {
+      console.warn('Failed to write audit log:', err);
+    }
   };
 
   const openUserPermissionEditor = (u: AppUserAccessRecord) => {
@@ -326,7 +347,7 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
 
       await logMasterAction(
         'UPDATE_USER_ACCESS',
-        { targetUid: editingUser.uid, targetEmail: editingUser.email },
+        { targetUid: editingUser.uid },
         `Status=${editStatus}, Limit=${editTrialLimit}, Ends=${editTrialEndsDate}`
       );
 
@@ -376,9 +397,15 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
       }
 
       await updateUserAccessByMaster(user.uid, updates, currentAdminUid);
+      const statusActionMap: Record<UserApprovalStatus, AuditAction> = {
+        trial: 'USER_STATUS_TRIAL',
+        active: 'USER_STATUS_ACTIVE',
+        pending: 'USER_STATUS_PENDING',
+        suspended: 'USER_STATUS_SUSPENDED'
+      };
       await logMasterAction(
-        `USER_STATUS_${nextStatus.toUpperCase()}`,
-        { targetUid: user.uid, targetEmail: user.email },
+        statusActionMap[nextStatus],
+        { targetUid: user.uid },
         noteOverride ? `${nextStatus} (${noteOverride})` : `Changed user status to ${nextStatus}`
       );
 
@@ -393,7 +420,7 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
       await deleteUserAccessRecord(user.uid);
       await logMasterAction(
         'DELETE_USER_REQUEST',
-        { targetUid: user.uid, targetEmail: user.email },
+        { targetUid: user.uid },
         `Deleted user record (${user.email})`
       );
       setConfirmDeleteUid(null);
@@ -517,13 +544,17 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
 
   const filteredLogs = auditLogs.filter((l) => {
     const q = auditSearch.trim().toLowerCase();
+    const actorEmail = usersByUid[l.actorUid]?.email || '';
+    const targetEmail = usersByUid[l.targetUid]?.email || '';
     return (
       !q ||
       (l.action || '').toLowerCase().includes(q) ||
-      (l.actorEmail || '').toLowerCase().includes(q) ||
-      (l.targetEmail || '').toLowerCase().includes(q) ||
+      (l.actorUid || '').toLowerCase().includes(q) ||
+      actorEmail.toLowerCase().includes(q) ||
+      (l.targetUid || '').toLowerCase().includes(q) ||
+      targetEmail.toLowerCase().includes(q) ||
       (l.details || '').toLowerCase().includes(q) ||
-      (l.firmId || '').toLowerCase().includes(q)
+      (l.targetFirmId || '').toLowerCase().includes(q)
     );
   });
 
@@ -927,7 +958,7 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
             {filteredFirms.map((f) => {
               const ownerUser = users.find((u) => u.uid === f.ownerUid);
               const isCurrentlyInspecting = activeFirmId === f.id;
-              const usage = firmUsageMap[f.id];
+              const usage = f.ownerUid ? userUsageMap[f.ownerUid] : undefined;
               return (
                 <div
                   key={f.id}
@@ -951,7 +982,7 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
                       <div>Phone: {f.phone || 'N/A'} | Counter: {f.counterName}</div>
                       <div className="text-[11px] text-stone-500 dark:text-slate-400">
                         Owner: {ownerUser?.displayName || ownerUser?.email || f.ownerUid || 'Unknown'}
-                        {' • '}Invoices: <strong className="font-mono">{usage?.count ?? 0}</strong>
+                        {' • '}Owner Invoices: <strong className="font-mono">{usage?.count ?? 0}</strong>
                         {ownerUser?.status === 'trial' ? ` / ${ownerUser.trialInvoiceLimit ?? DEFAULT_TRIAL_INVOICE_LIMIT}` : ''}
                       </div>
                     </div>
@@ -1048,28 +1079,32 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
                 अभी कोई ऑडिट लॉग दर्ज नहीं है।
               </div>
             ) : (
-              filteredLogs.map((log) => (
-                <div key={log.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                  <div className="space-y-0.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-mono text-[10px] font-black">
-                        {log.action}
-                      </span>
-                      <span className="font-bold text-stone-800 dark:text-slate-200">{log.actorEmail}</span>
-                      {log.targetEmail && (
-                        <span className="text-stone-500 dark:text-slate-400">→ {log.targetEmail}</span>
-                      )}
-                      {log.firmId && (
-                        <span className="font-mono text-[10px] text-sky-600 dark:text-sky-400">[{log.firmId}]</span>
-                      )}
+              filteredLogs.map((log) => {
+                const actorLabel = usersByUid[log.actorUid]?.email || log.actorUid;
+                const targetLabel = log.targetUid ? (usersByUid[log.targetUid]?.email || log.targetUid) : '';
+                return (
+                  <div key={log.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <div className="space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-mono text-[10px] font-black">
+                          {log.action}
+                        </span>
+                        <span className="font-bold text-stone-800 dark:text-slate-200">{actorLabel}</span>
+                        {targetLabel && (
+                          <span className="text-stone-500 dark:text-slate-400">→ {targetLabel}</span>
+                        )}
+                        {log.targetFirmId && (
+                          <span className="font-mono text-[10px] text-sky-600 dark:text-sky-400">[{log.targetFirmId}]</span>
+                        )}
+                      </div>
+                      <p className="text-stone-600 dark:text-slate-400 text-[11px]">{log.details}</p>
                     </div>
-                    <p className="text-stone-600 dark:text-slate-400 text-[11px]">{log.details}</p>
+                    <div className="text-[11px] font-mono text-stone-400 shrink-0">
+                      {formatReadableDateTime(log.createdAt)}
+                    </div>
                   </div>
-                  <div className="text-[11px] font-mono text-stone-400 shrink-0">
-                    {formatReadableDateTime(log.createdAt)}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

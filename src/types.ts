@@ -244,6 +244,7 @@ export interface GSTInvoice {
   id: string;
   firmId?: string;
   invoiceNumber: string; // e.g., SMJ/2026-27/0001 or EST/2026-27/0001
+  series?: InvoiceType; // Derived docId series: 'GST_INVOICE' | 'ESTIMATE_BILL'
   invoiceType: InvoiceType; // 'GST_INVOICE' = Pakka Bill, 'ESTIMATE_BILL' = Kachha / Estimate
   date: string;
   customerId: string;
@@ -541,9 +542,13 @@ export interface FirmUsageInvoicesDoc {
   count: number;
   updatedAt?: FirestoreTimestampLike;
   lastInvoiceId?: string;
+  lastFirmId?: string;
+  lastCancelledInvoiceId?: string;
   monthKey?: string;
   monthlyCount?: number;
 }
+
+export type UserUsageInvoicesDoc = FirmUsageInvoicesDoc;
 
 export interface StaffInviteRecord {
   id: string;
@@ -561,14 +566,26 @@ export interface StaffInviteRecord {
   acceptedAt?: string;
 }
 
+export type AuditAction =
+  | 'USER_STATUS_TRIAL'
+  | 'USER_STATUS_ACTIVE'
+  | 'USER_STATUS_PENDING'
+  | 'USER_STATUS_SUSPENDED'
+  | 'UPDATE_USER_ACCESS'
+  | 'DELETE_USER_REQUEST'
+  | 'UPDATE_FIRM_META'
+  | 'DELETE_FIRM'
+  | 'UPDATE_GLOBAL_SETTINGS'
+  | 'STAFF_INVITE'
+  | 'STAFF_REMOVE'
+  | 'TEST_ACTION';
+
 export interface AuditLogEntry {
   id: string;
-  action: string;
   actorUid: string;
-  actorEmail: string;
-  targetUid?: string;
-  targetEmail?: string;
-  firmId?: string;
+  action: AuditAction;
+  targetUid: string;
+  targetFirmId: string;
   details: string;
   createdAt: FirestoreTimestampLike;
 }

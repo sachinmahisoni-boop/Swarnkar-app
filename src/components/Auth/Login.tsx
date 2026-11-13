@@ -76,8 +76,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
     setLoading(true);
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, loginPassword);
-      await ensureUserAccessRecord(cred.user);
+      await signInWithEmailAndPassword(auth, email, loginPassword);
       onLogin();
     } catch (err: any) {
       if (
@@ -107,8 +106,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      const cred = await signInWithPopup(auth, provider);
-      await ensureUserAccessRecord(cred.user);
+      await signInWithPopup(auth, provider);
       onLogin();
     } catch (err: any) {
       console.error(err);

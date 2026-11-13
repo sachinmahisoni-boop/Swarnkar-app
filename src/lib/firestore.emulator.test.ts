@@ -16,7 +16,9 @@ import {
   updateDoc,
   deleteDoc,
   collection,
-  getCountFromServer
+  getCountFromServer,
+  writeBatch,
+  serverTimestamp
 } from 'firebase/firestore';
 import {
   ensureFirmRootDoc,
@@ -115,7 +117,7 @@ describe('Firestore Security Rules & Emulator Integration', () => {
   };
 
   describe('Security Rules (firestore.rules)', () => {
-    it('denies all client writes to platform_admins and makes audit_logs append-only', async () => {
+    it('denies all client writes to platform_admins and enforces strict schema, serverTimestamp, action allowlist & append-only audit_logs', async () => {
       await seedPlatformAdmin('master-uid');
       await seedUser('user-1', 'active');
 
@@ -127,30 +129,92 @@ describe('Firestore Security Rules & Emulator Integration', () => {
       await assertFails(setDoc(doc(masterDb, 'platform_admins', 'other'), { uid: 'other' }));
       await assertSucceeds(getDoc(doc(masterDb, 'platform_admins', 'master-uid')));
 
-      // Audit logs can be created, read by master, but never updated or deleted
+      // Valid writeAuditLog (exact 6 keys, serverTimestamp, allowed action) succeeds
       await assertSucceeds(
         writeAuditLog(
           {
             action: 'TEST_ACTION',
             actorUid: 'master-uid',
-            actorEmail: 'master@example.com',
+            targetUid: 'user-1',
+            targetFirmId: 'firm-1',
             details: 'Seeded test log'
           },
           { db: masterDb, uid: 'master-uid' }
         )
       );
-      await assertFails(setDoc(doc(masterDb, 'audit_logs', 'log-1'), { action: 'X', actorUid: 'master-uid', details: 'd', createdAt: Timestamp.now() }));
-      await assertSucceeds(
-        setDoc(doc(masterDb, 'audit_logs', 'log-2'), {
-          action: 'X',
+
+      // Extra unexpected key MUST fail
+      await assertFails(
+        setDoc(doc(masterDb, 'audit_logs', 'log-extra'), {
           actorUid: 'master-uid',
-          actorEmail: 'm@example.com',
+          action: 'TEST_ACTION',
+          targetUid: 'user-1',
+          targetFirmId: '',
           details: 'd',
-          createdAt: Timestamp.now()
+          extraField: 'tamper',
+          createdAt: serverTimestamp()
         })
       );
-      await assertFails(updateDoc(doc(masterDb, 'audit_logs', 'log-2'), { details: 'tampered' }));
-      await assertFails(deleteDoc(doc(masterDb, 'audit_logs', 'log-2')));
+
+      // Missing key MUST fail
+      await assertFails(
+        setDoc(doc(masterDb, 'audit_logs', 'log-missing'), {
+          actorUid: 'master-uid',
+          action: 'TEST_ACTION',
+          details: 'd',
+          createdAt: serverTimestamp()
+        })
+      );
+
+      // Spoofed actorUid MUST fail
+      await assertFails(
+        setDoc(doc(userDb, 'audit_logs', 'log-spoof'), {
+          actorUid: 'master-uid',
+          action: 'TEST_ACTION',
+          targetUid: '',
+          targetFirmId: '',
+          details: 'spoofed',
+          createdAt: serverTimestamp()
+        })
+      );
+
+      // Client-fabricated timestamp instead of serverTimestamp() MUST fail
+      await assertFails(
+        setDoc(doc(masterDb, 'audit_logs', 'log-fake-time'), {
+          actorUid: 'master-uid',
+          action: 'TEST_ACTION',
+          targetUid: '',
+          targetFirmId: '',
+          details: 'fake time',
+          createdAt: Timestamp.fromMillis(Date.now() - 86400000)
+        })
+      );
+
+      // Disallowed action MUST fail
+      await assertFails(
+        setDoc(doc(masterDb, 'audit_logs', 'log-bad-action'), {
+          actorUid: 'master-uid',
+          action: 'ARBITRARY_UNLISTED_ACTION',
+          targetUid: '',
+          targetFirmId: '',
+          details: 'bad action',
+          createdAt: serverTimestamp()
+        })
+      );
+
+      // Valid exact-schema doc succeeds, then update/delete MUST fail
+      await assertSucceeds(
+        setDoc(doc(masterDb, 'audit_logs', 'log-valid'), {
+          actorUid: 'master-uid',
+          action: 'UPDATE_USER_ACCESS',
+          targetUid: 'user-1',
+          targetFirmId: '',
+          details: 'Approved trial',
+          createdAt: serverTimestamp()
+        })
+      );
+      await assertFails(updateDoc(doc(masterDb, 'audit_logs', 'log-valid'), { details: 'tampered' }));
+      await assertFails(deleteDoc(doc(masterDb, 'audit_logs', 'log-valid')));
     });
 
     it('requires ownerUid == auth.uid when creating a firm root doc and denies strangers', async () => {
@@ -645,21 +709,73 @@ describe('Firestore Security Rules & Emulator Integration', () => {
         hallmarkCertified: true
       };
 
-      // Direct write to invoices WITHOUT incrementing firms/{firmId}/usage/invoices in the same tx MUST fail
+      // Direct write to invoices WITHOUT incrementing users/{uid}/usage/invoices in the same tx MUST fail
       await assertFails(
-        setDoc(doc(trialDb, 'firms', firmId, 'invoices', 'bypass-inv'), {
+        setDoc(doc(trialDb, 'firms', firmId, 'invoices', 'GST_INVOICE_1'), {
           ...draft,
-          id: 'bypass-inv',
+          id: 'GST_INVOICE_1',
+          series: 'GST_INVOICE',
           invoiceNumber: 'SMJ/2026-27/9999',
           firmId
         })
       );
 
-      // First 2 atomic invoices succeed and increment usage/invoices counter
-      await createInvoiceAtomic(firmId, draft, [], [], 'SMJ', { db: trialDb, uid: trialUid });
-      await createInvoiceAtomic(firmId, draft, [], [], 'SMJ', { db: trialDb, uid: trialUid });
+      // Batch bypass test (Fix 1): creating 2 invoices with a single +1 on users/{uid}/usage/invoices MUST FAIL
+      const batchSameSeries = writeBatch(trialDb);
+      batchSameSeries.set(doc(trialDb, 'users', trialUid, 'usage', 'invoices'), {
+        count: 1,
+        lastInvoiceId: 'GST_INVOICE_1',
+        lastFirmId: firmId,
+        updatedAt: serverTimestamp()
+      });
+      batchSameSeries.set(doc(trialDb, 'firms', firmId, 'invoices', 'GST_INVOICE_1'), {
+        ...draft,
+        id: 'GST_INVOICE_1',
+        series: 'GST_INVOICE',
+        invoiceNumber: 'SMJ/2026-27/0001',
+        firmId
+      });
+      batchSameSeries.set(doc(trialDb, 'firms', firmId, 'invoices', 'GST_INVOICE_2'), {
+        ...draft,
+        id: 'GST_INVOICE_2',
+        series: 'GST_INVOICE',
+        invoiceNumber: 'SMJ/2026-27/0002',
+        firmId
+      });
+      await assertFails(batchSameSeries.commit());
 
-      const usageSnap = await getDoc(doc(trialDb, 'firms', firmId, 'usage', 'invoices'));
+      // Cross-series batch bypass test: GST_INVOICE_1 + ESTIMATE_BILL_1 with single +1 MUST ALSO FAIL
+      const batchCrossSeries = writeBatch(trialDb);
+      batchCrossSeries.set(doc(trialDb, 'users', trialUid, 'usage', 'invoices'), {
+        count: 1,
+        lastInvoiceId: 'GST_INVOICE_1',
+        lastFirmId: firmId,
+        updatedAt: serverTimestamp()
+      });
+      batchCrossSeries.set(doc(trialDb, 'firms', firmId, 'invoices', 'GST_INVOICE_1'), {
+        ...draft,
+        id: 'GST_INVOICE_1',
+        series: 'GST_INVOICE',
+        invoiceNumber: 'SMJ/2026-27/0001',
+        firmId
+      });
+      batchCrossSeries.set(doc(trialDb, 'firms', firmId, 'invoices', 'ESTIMATE_BILL_1'), {
+        ...draft,
+        invoiceType: 'ESTIMATE_BILL',
+        series: 'ESTIMATE_BILL',
+        id: 'ESTIMATE_BILL_1',
+        invoiceNumber: 'EST/2026-27/0001',
+        firmId
+      });
+      await assertFails(batchCrossSeries.commit());
+
+      // First 2 atomic invoices succeed and increment users/{trialUid}/usage/invoices counter
+      const inv1 = await createInvoiceAtomic(firmId, draft, [], [], 'SMJ', { db: trialDb, uid: trialUid });
+      const inv2 = await createInvoiceAtomic(firmId, draft, [], [], 'SMJ', { db: trialDb, uid: trialUid });
+      expect(inv1.id).toBe('GST_INVOICE_1');
+      expect(inv2.id).toBe('GST_INVOICE_2');
+
+      const usageSnap = await getDoc(doc(trialDb, 'users', trialUid, 'usage', 'invoices'));
       expect(usageSnap.data()?.count).toBe(2);
 
       // 3rd invoice MUST fail (trial limit = 2)
@@ -667,24 +783,184 @@ describe('Firestore Security Rules & Emulator Integration', () => {
         createInvoiceAtomic(firmId, draft, [], [], 'SMJ', { db: trialDb, uid: trialUid })
       ).rejects.toThrow(/ट्रायल बिल सीमा समाप्त/);
 
-      // Also test expired trialEndsAt blocks even with remaining invoice quota
-      const expiredUid = 'trial-expired-1';
-      await seedUser(expiredUid, 'trial', 10, -2, FULL_PERMISSIONS);
-      const expiredDb = asModularDb(testEnv.authenticatedContext(expiredUid).firestore());
-      await ensureFirmRootDoc('firm-expired-1', { name: 'Expired Shop' }, { db: expiredDb, uid: expiredUid });
+      // Fix 2 (Limit Per User, Not Per Firm): creating a second firm does NOT give a fresh quota
+      const secondFirmId = 'firm-trial-2';
+      await ensureFirmRootDoc(secondFirmId, { name: 'Trial Jewellers Branch 2' }, { db: trialDb, uid: trialUid });
       await expect(
-        createInvoiceAtomic('firm-expired-1', draft, [], [], 'SMJ', { db: expiredDb, uid: expiredUid })
-      ).rejects.toThrow(/ट्रायल अवधि समाप्त/);
+        createInvoiceAtomic(secondFirmId, draft, [], [], 'SMJ', { db: trialDb, uid: trialUid })
+      ).rejects.toThrow(/ट्रायल बिल सीमा समाप्त/);
+
+      // Even direct batch on second firm attempting count: 1 on legacy path or users path MUST fail
+      const bypassSecondFirmBatch = writeBatch(trialDb);
+      bypassSecondFirmBatch.update(doc(trialDb, 'users', trialUid, 'usage', 'invoices'), {
+        count: 3,
+        lastInvoiceId: 'GST_INVOICE_3',
+        lastFirmId: secondFirmId,
+        updatedAt: serverTimestamp()
+      });
+      bypassSecondFirmBatch.set(doc(trialDb, 'firms', secondFirmId, 'invoices', 'GST_INVOICE_3'), {
+        ...draft,
+        id: 'GST_INVOICE_3',
+        series: 'GST_INVOICE',
+        invoiceNumber: 'SMJ/2026-27/0001',
+        firmId: secondFirmId
+      });
+      await assertFails(bypassSecondFirmBatch.commit());
     });
 
-    it('enforces staff invitations and owner-capped permissions in firestore.rules', async () => {
+    it('denies writes to operational collections after trial expiry or limit reached while keeping reads, export & invoice cancel working', async () => {
+      const expiredUid = 'trial-expired-lockout';
+      const staffUid = 'staff-expired-lockout';
+      const firmId = 'firm-expired-lockout';
+
+      // Create user initially active/unexpired so we can seed an active invoice, then expire trialEndsAt
+      await seedUser(expiredUid, 'trial', 5, 10, FULL_PERMISSIONS);
+      await seedUser(staffUid, 'trial', 5, 10, FULL_PERMISSIONS);
+
+      const ownerDb = asModularDb(testEnv.authenticatedContext(expiredUid).firestore());
+      const staffDb = asModularDb(testEnv.authenticatedContext(staffUid).firestore());
+
+      await ensureFirmRootDoc(firmId, { name: 'Expired Lockout Jewellers' }, { db: ownerDb, uid: expiredUid });
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        const adminDb = asModularDb(ctx.firestore());
+        await updateDoc(doc(adminDb, 'firms', firmId), {
+          staff: { [staffUid]: 'manager' },
+          staffPermissions: { [staffUid]: MANAGER_PERMISSIONS }
+        });
+        await setDoc(doc(adminDb, 'firms', firmId, 'inventory', 'item-lock-1'), {
+          id: 'item-lock-1',
+          name: 'Gold Chain',
+          quantity: 5
+        });
+        await setDoc(doc(adminDb, 'firms', firmId, 'customers', 'cust-lock-1'), {
+          id: 'cust-lock-1',
+          name: 'Sita Devi',
+          totalPurchases: 0,
+          outstandingBalance: 0
+        });
+      });
+
+      const createdInv = await createInvoiceAtomic(
+        firmId,
+        {
+          invoiceType: 'GST_INVOICE',
+          date: '2026-11-12',
+          customerId: 'cust-lock-1',
+          customerName: 'Sita Devi',
+          customerPhone: '9999999999',
+          customerAddress: 'Bhopal',
+          placeOfSupply: 'Madhya Pradesh (23)',
+          isInterState: false,
+          items: [
+            {
+              itemId: 'item-lock-1',
+              tagNo: 'T1',
+              name: 'Gold Chain',
+              category: 'Chain',
+              metal: 'Gold',
+              purity: '22K',
+              grossWeight: 10,
+              netWeight: 10,
+              stoneWeight: 0,
+              stoneValue: 0,
+              metalRateApplied: 7000,
+              metalCost: 70000,
+              wastagePercentage: 0,
+              wastageCost: 0,
+              makingChargeType: 'per_gram',
+              makingChargeRate: 0,
+              makingCharge: 0,
+              subtotal: 70000,
+              quantity: 1,
+              hsnCode: '7113'
+            }
+          ],
+          itemsSubtotal: 70000,
+          oldMetalDeduction: 0,
+          taxableAmount: 70000,
+          cgstRate: 1.5,
+          sgstRate: 1.5,
+          igstRate: 0,
+          cgstAmount: 1050,
+          sgstAmount: 1050,
+          igstAmount: 0,
+          totalTax: 2100,
+          hallmarkingTotalFee: 0,
+          discountAmount: 0,
+          grandTotal: 72100,
+          payment: { method: 'Cash', amountPaid: 50000, dueAmount: 22100 },
+          status: 'Partial',
+          hallmarkCertified: true
+        },
+        [],
+        [],
+        'SMJ',
+        { db: ownerDb, uid: expiredUid }
+      );
+
+      // Now expire the owner's trialEndsAt in the past
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        const adminDb = asModularDb(ctx.firestore());
+        await updateDoc(doc(adminDb, 'users', expiredUid), {
+          trialEndsAt: Timestamp.fromMillis(Date.now() - 86400000)
+        });
+      });
+
+      const lockedCollections = [
+        'purchases',
+        'inventory',
+        'customers',
+        'vendors',
+        'karigars',
+        'jobcards',
+        'girvi',
+        'gemstones',
+        'expenses',
+        'transfers'
+      ];
+
+      // Owner AND staff writes to all 10 operational collections MUST FAIL after expiry
+      for (const colName of lockedCollections) {
+        await assertFails(setDoc(doc(ownerDb, 'firms', firmId, colName, `new-${colName}`), { id: `new-${colName}` }));
+        await assertFails(setDoc(doc(staffDb, 'firms', firmId, colName, `staff-${colName}`), { id: `staff-${colName}` }));
+      }
+      // Direct update to inventory or customer outside cancel transaction MUST FAIL
+      await assertFails(updateDoc(doc(ownerDb, 'firms', firmId, 'inventory', 'item-lock-1'), { quantity: 99 }));
+      await assertFails(updateDoc(doc(ownerDb, 'firms', firmId, 'customers', 'cust-lock-1'), { outstandingBalance: 0 }));
+
+      // Reads (used for viewing & backup/export) MUST STILL SUCCEED
+      await assertSucceeds(getDoc(doc(ownerDb, 'firms', firmId, 'inventory', 'item-lock-1')));
+      await assertSucceeds(getDoc(doc(ownerDb, 'firms', firmId, 'invoices', createdInv.id)));
+      await assertSucceeds(getDoc(doc(staffDb, 'firms', firmId, 'customers', 'cust-lock-1')));
+
+      // Invoice Cancel MUST STILL SUCCEED and restore stock & customer balance atomically
+      await assertSucceeds(
+        cancelInvoiceAtomic(firmId, createdInv, 'Post-expiry customer return', 'Owner', {
+          db: ownerDb,
+          uid: expiredUid
+        })
+      );
+
+      const invAfterCancel = (await getDoc(doc(ownerDb, 'firms', firmId, 'invoices', createdInv.id))).data();
+      expect(invAfterCancel?.status).toBe('Cancelled');
+      const itemAfterCancel = (await getDoc(doc(ownerDb, 'firms', firmId, 'inventory', 'item-lock-1'))).data();
+      expect(itemAfterCancel?.quantity).toBe(5);
+      const custAfterCancel = (await getDoc(doc(ownerDb, 'firms', firmId, 'customers', 'cust-lock-1'))).data();
+      expect(custAfterCancel?.outstandingBalance).toBe(0);
+    });
+
+    it('enforces staff invitations, owner-capped permissions, and prevents staff claim escalation', async () => {
       const ownerPerms = { ...MANAGER_PERMISSIONS, staffManagement: true, girvi: false };
       await seedUser('owner-staff-test', 'active', 10, 15, ownerPerms);
       await seedUser('staff-u1', 'active', 10, 15, FULL_PERMISSIONS);
+      await seedUser('staff-u2', 'active', 10, 15, FULL_PERMISSIONS);
 
       const ownerDb = asModularDb(testEnv.authenticatedContext('owner-staff-test').firestore());
       const staffDb = asModularDb(
         testEnv.authenticatedContext('staff-u1', { email: 'staff1@example.com' }).firestore()
+      );
+      const staff2Db = asModularDb(
+        testEnv.authenticatedContext('staff-u2', { email: 'staff2@example.com' }).firestore()
       );
 
       await ensureFirmRootDoc('firm-staff-1', { name: 'Team Shop' }, { db: ownerDb, uid: 'owner-staff-test' });
@@ -706,11 +982,73 @@ describe('Firestore Security Rules & Emulator Integration', () => {
         )
       );
 
+      // Fix 3: Invited staff CANNOT escalate role or other UIDs during claim
+      const cappedCashierPerms = { ...CASHIER_PERMISSIONS, girvi: false };
+      // 1) Escalating role to manager MUST fail
+      await assertFails(
+        updateDoc(doc(staffDb, 'firms', 'firm-staff-1'), {
+          'staff.staff-u1': 'manager',
+          'staffPermissions.staff-u1': cappedCashierPerms
+        })
+      );
+      // 2) Injecting another UID into staff / staffPermissions / staffMembers MUST fail
+      await assertFails(
+        updateDoc(doc(staffDb, 'firms', 'firm-staff-1'), {
+          staff: { 'staff-u1': 'cashier', 'other-hacker': 'manager' },
+          staffPermissions: { 'staff-u1': cappedCashierPerms, 'other-hacker': FULL_PERMISSIONS }
+        })
+      );
+      // 3) Escalating own staffPermissions beyond invite.permissions MUST fail
+      await assertFails(
+        updateDoc(doc(staffDb, 'firms', 'firm-staff-1'), {
+          'staff.staff-u1': 'cashier',
+          'staffPermissions.staff-u1': { ...cappedCashierPerms, purchases: true }
+        })
+      );
+
+      // Valid claim via claimStaffInvitesForUser succeeds
       const claimed = await claimStaffInvitesForUser(
         { uid: 'staff-u1', email: 'staff1@example.com', displayName: 'Staff One' },
         { db: staffDb, uid: 'staff-u1' }
       );
       expect(claimed).toBe(1);
+
+      // Second invited staff claiming when staff/staffPermissions/staffMembers already exist:
+      await assertSucceeds(
+        createOrUpdateStaffInvite(
+          {
+            firmId: 'firm-staff-1',
+            firmName: 'Team Shop',
+            ownerUid: 'owner-staff-test',
+            email: 'staff2@example.com',
+            role: 'cashier',
+            permissions: CASHIER_PERMISSIONS,
+            ownerPermissions: ownerPerms
+          },
+          { db: ownerDb, uid: 'owner-staff-test' }
+        )
+      );
+      // Trying to overwrite staff-u1's entry in staffPermissions/staffMembers MUST FAIL
+      await assertFails(
+        updateDoc(doc(staff2Db, 'firms', 'firm-staff-1'), {
+          'staff.staff-u2': 'cashier',
+          'staffPermissions.staff-u2': CASHIER_PERMISSIONS,
+          'staffPermissions.staff-u1': FULL_PERMISSIONS
+        })
+      );
+      await assertFails(
+        updateDoc(doc(staff2Db, 'firms', 'firm-staff-1'), {
+          'staff.staff-u2': 'cashier',
+          'staffPermissions.staff-u2': CASHIER_PERMISSIONS,
+          'staffMembers.staff-u1': { uid: 'staff-u1', role: 'manager', permissions: FULL_PERMISSIONS }
+        })
+      );
+      // Valid claim for staff-u2 succeeds without touching staff-u1
+      const claimed2 = await claimStaffInvitesForUser(
+        { uid: 'staff-u2', email: 'staff2@example.com', displayName: 'Staff Two' },
+        { db: staff2Db, uid: 'staff-u2' }
+      );
+      expect(claimed2).toBe(1);
 
       // Staff can read/write inventory (cashier perm true & owner perm true)
       await assertSucceeds(

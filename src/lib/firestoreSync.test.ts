@@ -36,6 +36,7 @@ vi.mock('firebase/firestore', () => ({
   limit: vi.fn(),
   orderBy: vi.fn(),
   deleteField: vi.fn(() => '__DELETE_FIELD__'),
+  serverTimestamp: vi.fn(() => ({ _methodName: 'serverTimestamp' })),
   Timestamp: class MockTimestamp {
     seconds: number;
     nanoseconds: number;
@@ -133,7 +134,7 @@ describe('Firestore Atomic Operations Tests', () => {
     createdAt: '2026-01-01'
   };
 
-  it('generates sequential invoice numbers and increments firms/{firmId}/usage/invoices atomically', async () => {
+  it('generates sequential invoice numbers, deterministic series_count IDs, and increments users/{ownerUid}/usage/invoices atomically', async () => {
     docStore[`firms/${firmId}/inventory/item-gold-ring-1`] = { ...mockInventory[0] };
     docStore[`firms/${firmId}/customers/cust-1`] = { ...mockCustomer };
 
@@ -194,8 +195,12 @@ describe('Firestore Atomic Operations Tests', () => {
     };
 
     const inv1 = await createInvoiceAtomic(firmId, draft1, mockInventory, [mockCustomer], 'SMJ');
+    expect(inv1.id).toBe('GST_INVOICE_1');
+    expect(inv1.series).toBe('GST_INVOICE');
     expect(inv1.invoiceNumber).toMatch(/SMJ\/\d{4}-\d{2}\/0001/);
-    expect(docStore[`firms/${firmId}/usage/invoices`]?.count).toBe(1);
+    expect(docStore['users/test-user-123/usage/invoices']?.count).toBe(1);
+    expect(docStore['users/test-user-123/usage/invoices']?.lastInvoiceId).toBe('GST_INVOICE_1');
+    expect(docStore['users/test-user-123/usage/invoices']?.lastFirmId).toBe(firmId);
 
     const draft2: Omit<GSTInvoice, 'id' | 'invoiceNumber'> = {
       ...draft1,
@@ -207,8 +212,10 @@ describe('Firestore Atomic Operations Tests', () => {
     };
 
     const inv2 = await createInvoiceAtomic(firmId, draft2, mockInventory, [mockCustomer], 'SMJ');
+    expect(inv2.id).toBe('GST_INVOICE_2');
     expect(inv2.invoiceNumber).toMatch(/SMJ\/\d{4}-\d{2}\/0002/);
-    expect(docStore[`firms/${firmId}/usage/invoices`]?.count).toBe(2);
+    expect(docStore['users/test-user-123/usage/invoices']?.count).toBe(2);
+    expect(docStore['users/test-user-123/usage/invoices']?.lastInvoiceId).toBe('GST_INVOICE_2');
   });
 
   it('deducts inventory stock quantity atomically on invoice creation', async () => {
@@ -350,6 +357,7 @@ describe('Firestore Atomic Operations Tests', () => {
 
     const cancelledInv = docStore[`firms/${firmId}/invoices/inv-101`];
     expect(cancelledInv.status).toBe('Cancelled');
+    expect(docStore['users/test-user-123/usage/invoices']?.lastCancelledInvoiceId).toBe('inv-101');
 
     await expect(cancelInvoiceAtomic(firmId, invoiceToCancel, 'Repeat cancel', 'Owner')).rejects.toThrow(
       'यह इनवॉइस पहले ही रद्द (Cancel) हो चुका है।'

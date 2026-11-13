@@ -21,6 +21,8 @@ interface ApprovalGateScreenProps {
   userEmail?: string | null;
   userUid: string;
   supportConfig?: PublicSupportConfig | null;
+  permissionError?: string | null;
+  databaseId?: string;
   onRefresh: () => void;
   onLogout: () => void;
 }
@@ -30,6 +32,8 @@ export const ApprovalGateScreen: React.FC<ApprovalGateScreenProps> = ({
   userEmail,
   userUid,
   supportConfig,
+  permissionError,
+  databaseId,
   onRefresh,
   onLogout,
 }) => {
@@ -121,6 +125,18 @@ export const ApprovalGateScreen: React.FC<ApprovalGateScreenProps> = ({
 
         {/* Body */}
         <div className="p-5 sm:p-6 space-y-5">
+          {permissionError && (
+            <div className="bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded-2xl p-4 text-xs text-rose-900 dark:text-rose-200 space-y-1.5">
+              <div className="font-black text-rose-800 dark:text-rose-300">
+                Firestore Security Rules Publish Required
+              </div>
+              <p className="leading-relaxed">
+                Database <code className="font-mono font-bold bg-rose-100 dark:bg-rose-900/60 px-1.5 py-0.5 rounded">{databaseId || '(default)'}</code> returned <span className="font-bold">Missing or insufficient permissions</span> while checking <code className="font-mono">users/{'{uid}'}</code>.
+                Please publish the updated <code className="font-mono font-bold">firestore.rules</code> file in <strong>Firebase Console → Firestore Database → Rules</strong> for this database, then click <strong>Refresh</strong> below.
+              </p>
+            </div>
+          )}
+
           {/* Account Summary Box */}
           <div className="bg-stone-50 dark:bg-slate-800/70 border border-stone-200 dark:border-slate-700 rounded-2xl p-4 space-y-2 text-xs">
             <div className="flex items-center justify-between gap-2">

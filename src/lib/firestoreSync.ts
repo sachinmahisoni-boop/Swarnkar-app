@@ -16,6 +16,7 @@ import {
   orderBy,
   addDoc,
   deleteField,
+  serverTimestamp,
   Timestamp,
   Firestore
 } from 'firebase/firestore';
@@ -31,8 +32,10 @@ import {
   AppUserAccessRecord,
   MasterControlSettings,
   FirmUsageInvoicesDoc,
+  UserUsageInvoicesDoc,
   StaffInviteRecord,
   AuditLogEntry,
+  AuditAction,
   PublicSupportConfig,
   UserPermissions,
   StaffMemberMeta
@@ -99,7 +102,8 @@ export function stripUndefined<T>(value: T): T {
   if (
     value instanceof Date ||
     (typeof Timestamp === 'function' && value instanceof Timestamp) ||
-    (typeof value === 'object' && typeof (value as any).toMillis === 'function' && typeof (value as any).toDate === 'function')
+    (typeof value === 'object' && typeof (value as any).toMillis === 'function' && typeof (value as any).toDate === 'function') ||
+    (typeof value === 'object' && (typeof (value as any)._methodName === 'string' || value?.constructor?.name?.includes('FieldValue')))
   ) {
     return value;
   }
@@ -491,31 +495,44 @@ export async function reserveNextSequenceNumber(
   });
 }
 
-export function subscribeToFirmInvoiceUsage(
-  firmId: string,
-  onUpdate: (usage: FirmUsageInvoicesDoc | null, meta?: SnapshotMetadataInfo) => void,
+export function subscribeToUserInvoiceUsage(
+  ownerUid: string,
+  onUpdate: (usage: UserUsageInvoicesDoc | null, meta?: SnapshotMetadataInfo) => void,
   onError: (err: Error) => void,
   opts?: FirestoreOpts
 ) {
-  return subscribeToFirmDoc<FirmUsageInvoicesDoc>(
-    firmId,
-    'usage',
-    'invoices',
-    onUpdate,
-    onError,
-    opts
+  if (!ownerUid) return () => {};
+  const targetDb = opts?.db || db;
+  const usageRef = doc(targetDb, 'users', ownerUid, 'usage', 'invoices');
+  return onSnapshot(
+    usageRef,
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      const meta: SnapshotMetadataInfo = {
+        fromCache: snapshot.metadata.fromCache,
+        hasPendingWrites: snapshot.metadata.hasPendingWrites
+      };
+      if (snapshot.exists()) {
+        onUpdate(snapshot.data() as UserUsageInvoicesDoc, meta);
+      } else {
+        onUpdate(null, meta);
+      }
+    },
+    (err) => {
+      onError(err);
+    }
   );
 }
 
-export async function fetchFirmInvoiceUsage(
-  firmId: string,
+export async function fetchUserInvoiceUsage(
+  ownerUid: string,
   opts?: FirestoreOpts
-): Promise<FirmUsageInvoicesDoc | null> {
-  if (!firmId) return null;
+): Promise<UserUsageInvoicesDoc | null> {
+  if (!ownerUid) return null;
   const targetDb = opts?.db || db;
   try {
-    const snap = await getDoc(doc(targetDb, 'firms', firmId, 'usage', 'invoices'));
-    return snap.exists() ? (snap.data() as FirmUsageInvoicesDoc) : null;
+    const snap = await getDoc(doc(targetDb, 'users', ownerUid, 'usage', 'invoices'));
+    return snap.exists() ? (snap.data() as UserUsageInvoicesDoc) : null;
   } catch {
     return null;
   }
@@ -523,7 +540,8 @@ export async function fetchFirmInvoiceUsage(
 
 /**
  * Atomically create invoice, deduct stock, update customer ledger, reserve sequence number,
- * and increment the tamper-resistant counter doc `firms/{firmId}/usage/invoices`.
+ * and increment the tamper-resistant per-owner counter doc `users/{ownerUid}/usage/invoices`.
+ * Invoice docId is derived strictly as `${series}_${nextUsageCount}` to prevent batch bypasses.
  * Executes ALL transaction.get() calls BEFORE any writes.
  */
 export async function createInvoiceAtomic(
@@ -539,12 +557,10 @@ export async function createInvoiceAtomic(
   const istInfo = getISTDate();
   const finYearStr = istInfo.financialYear.finYearStr;
   const monthKey = istInfo.isoDateStr.slice(0, 7);
-  const counterDocId = `${invoiceDraft.invoiceType}_${finYearStr}`;
+  const series = invoiceDraft.invoiceType;
+  const counterDocId = `${series}_${finYearStr}`;
   const counterRef = doc(targetDb, 'firms', firmId, 'sequence_counters', counterDocId);
-  const usageRef = doc(targetDb, 'firms', firmId, 'usage', 'invoices');
   const firmRef = doc(targetDb, 'firms', firmId);
-
-  const invoiceId = `inv-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
   // Collect unique inventory item IDs
   const itemIds = Array.from(
@@ -572,9 +588,13 @@ export async function createInvoiceAtomic(
     const firmSnap = await transaction.get(firmRef);
     const firmData = firmSnap.exists() ? firmSnap.data() : null;
     const ownerUid = firmData?.ownerUid || uid;
+    if (!ownerUid) {
+      throw new Error('फर्म स्वामी (Owner UID) सत्यापित नहीं हो सका।');
+    }
 
-    const ownerRef = ownerUid ? doc(targetDb, 'users', ownerUid) : null;
-    const ownerSnap = ownerRef ? await transaction.get(ownerRef) : null;
+    const ownerRef = doc(targetDb, 'users', ownerUid);
+    const usageRef = doc(targetDb, 'users', ownerUid, 'usage', 'invoices');
+    const ownerSnap = await transaction.get(ownerRef);
     const actorRef = uid && uid !== ownerUid ? doc(targetDb, 'users', uid) : null;
     const actorSnap = actorRef ? await transaction.get(actorRef) : null;
 
@@ -599,8 +619,9 @@ export async function createInvoiceAtomic(
     // === 2. VALIDATION INSIDE TRANSACTION USING FRESH READS ===
     const currentUsageCount = usageSnap.exists() ? Number(usageSnap.data()?.count || 0) : 0;
     const nextUsageCount = currentUsageCount + 1;
+    const invoiceId = `${series}_${nextUsageCount}`;
 
-    if (!opts?.isMasterAdmin && ownerSnap && ownerSnap.exists()) {
+    if (!opts?.isMasterAdmin && ownerSnap.exists()) {
       const ownerAccess = { uid: ownerSnap.id, ...ownerSnap.data() } as AppUserAccessRecord;
       const quotaCheck = canUserCreateInvoice(ownerAccess, currentUsageCount, Date.now(), false, FULL_PERMISSIONS);
       if (!quotaCheck.allowed) {
@@ -664,24 +685,27 @@ export async function createInvoiceAtomic(
       });
     }
 
-    // d. Increment tamper-resistant usage counter inside the SAME transaction
-    const usagePayload: FirmUsageInvoicesDoc = {
+    // d. Increment tamper-resistant per-owner usage counter inside the SAME transaction
+    const usagePayload: Record<string, any> = {
       count: nextUsageCount,
       monthKey,
       monthlyCount: nextMonthlyCount,
       lastInvoiceId: invoiceId,
-      updatedAt: Timestamp.now()
+      lastFirmId: firmId,
+      updatedAt: serverTimestamp()
     };
     if (usageSnap.exists()) {
-      transaction.update(usageRef, usagePayload as Record<string, any>);
+      transaction.update(usageRef, usagePayload);
     } else {
       transaction.set(usageRef, usagePayload);
     }
 
-    // e. Save final invoice document
+    // e. Save final invoice document with counter-derived ID
     const finalInvoice: GSTInvoice = stripUndefined({
       ...invoiceDraft,
       id: invoiceId,
+      series,
+      invoiceType: series,
       invoiceNumber: actualInvoiceNumber,
       firmId
     });
@@ -697,6 +721,8 @@ export async function createInvoiceAtomic(
 
 /**
  * Atomically cancel invoice, restore stock, and reverse customer ledger.
+ * Works even after trial expiry / invoice limit reached by stamping `lastCancelledInvoiceId`
+ * on `users/{ownerUid}/usage/invoices` inside the same transaction.
  * Executes ALL transaction.get() calls BEFORE any writes.
  */
 export async function cancelInvoiceAtomic(
@@ -707,7 +733,9 @@ export async function cancelInvoiceAtomic(
   opts?: FirestoreOpts
 ): Promise<void> {
   const targetDb = opts?.db || db;
+  const uid = opts?.uid || auth?.currentUser?.uid;
   const invRef = doc(targetDb, 'firms', firmId, 'invoices', invoice.id);
+  const firmRef = doc(targetDb, 'firms', firmId);
 
   const itemIds = Array.from(
     new Set(
@@ -719,6 +747,11 @@ export async function cancelInvoiceAtomic(
 
   await runTransaction(targetDb, async (transaction) => {
     // === 1. ALL READS FIRST ===
+    const firmSnap = await transaction.get(firmRef);
+    const ownerUid = (firmSnap.exists() ? firmSnap.data()?.ownerUid : null) || uid || '';
+    const usageRef = ownerUid ? doc(targetDb, 'users', ownerUid, 'usage', 'invoices') : null;
+    const usageSnap = usageRef ? await transaction.get(usageRef) : null;
+
     const invSnap = await transaction.get(invRef);
     if (!invSnap.exists()) {
       throw new Error('इनवॉइस नहीं मिला।');
@@ -759,7 +792,25 @@ export async function cancelInvoiceAtomic(
     }
 
     // === 2. ALL WRITES AFTER READS ===
-    // a. Restore stock for linked items
+    // a. Stamp cancellation on owner usage doc to authorize stock/ledger reversal post-expiry
+    if (usageRef && usageSnap) {
+      if (usageSnap.exists()) {
+        transaction.update(usageRef, {
+          lastCancelledInvoiceId: invoice.id,
+          lastFirmId: firmId,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        transaction.set(usageRef, {
+          count: 0,
+          lastCancelledInvoiceId: invoice.id,
+          lastFirmId: firmId,
+          updatedAt: serverTimestamp()
+        });
+      }
+    }
+
+    // b. Restore stock for linked items
     for (const [itemId, qtyToRestore] of restoreQtyByItemId.entries()) {
       const snap = itemSnapMap.get(itemId);
       if (snap && snap.exists()) {
@@ -769,7 +820,7 @@ export async function cancelInvoiceAtomic(
       }
     }
 
-    // b. Reverse customer ledger
+    // c. Reverse customer ledger
     if (custRef && custSnap && custSnap.exists()) {
       const cData = custSnap.data();
       const newTotalPurchases = Math.max(0, (cData.totalPurchases || 0) - invData.grandTotal);
@@ -780,7 +831,7 @@ export async function cancelInvoiceAtomic(
       });
     }
 
-    // c. Mark invoice as Cancelled
+    // d. Mark invoice as Cancelled
     transaction.update(invRef, {
       status: 'Cancelled',
       cancelReason,
@@ -1476,18 +1527,19 @@ export function subscribeToAllFirmsForMaster(
   );
 }
 
-export async function fetchAllFirmUsageForMaster(
-  firmIds: string[],
+export async function fetchAllUserUsageForMaster(
+  ownerUids: string[],
   opts?: FirestoreOpts
-): Promise<Record<string, FirmUsageInvoicesDoc>> {
+): Promise<Record<string, UserUsageInvoicesDoc>> {
   const targetDb = opts?.db || db;
+  const uniqueUids = Array.from(new Set(ownerUids.filter(Boolean)));
   const entries = await Promise.all(
-    firmIds.map(async (id) => {
+    uniqueUids.map(async (uid) => {
       try {
-        const snap = await getDoc(doc(targetDb, 'firms', id, 'usage', 'invoices'));
-        return [id, snap.exists() ? (snap.data() as FirmUsageInvoicesDoc) : { count: 0 }] as const;
+        const snap = await getDoc(doc(targetDb, 'users', uid, 'usage', 'invoices'));
+        return [uid, snap.exists() ? (snap.data() as UserUsageInvoicesDoc) : { count: 0 }] as const;
       } catch {
-        return [id, { count: 0 }] as const;
+        return [uid, { count: 0 }] as const;
       }
     })
   );
@@ -1518,21 +1570,24 @@ export async function deleteFirmByMaster(
 // ============================================================================
 
 export async function writeAuditLog(
-  entry: Omit<AuditLogEntry, 'id' | 'createdAt'>,
+  entry: {
+    actorUid: string;
+    action: AuditAction;
+    targetUid?: string;
+    targetFirmId?: string;
+    details: string;
+  },
   opts?: FirestoreOpts
 ): Promise<void> {
   const targetDb = opts?.db || db;
-  try {
-    await addDoc(
-      collection(targetDb, 'audit_logs'),
-      stripUndefined({
-        ...entry,
-        createdAt: Timestamp.now()
-      })
-    );
-  } catch (err) {
-    console.warn('Failed to write audit log:', err);
-  }
+  await addDoc(collection(targetDb, 'audit_logs'), {
+    actorUid: entry.actorUid,
+    action: entry.action,
+    targetUid: entry.targetUid || '',
+    targetFirmId: entry.targetFirmId || '',
+    details: String(entry.details || '').slice(0, 1000),
+    createdAt: serverTimestamp()
+  });
 }
 
 export function subscribeToAuditLogs(

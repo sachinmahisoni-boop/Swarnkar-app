@@ -81,7 +81,7 @@ import { StaffPayrollManager } from './components/Payroll/StaffPayrollManager';
 import { DataBackupModal } from './components/DataBackupModal';
 import { LegacyMigrationModal } from './components/LegacyMigrationModal';
 import { FirebaseConfigMissingScreen } from './components/FirebaseConfigMissingScreen';
-import { auth, db, missingFirebaseEnvVars, firebaseConfigError } from './lib/firebase';
+import { auth, db, firestoreDatabaseId, missingFirebaseEnvVars, firebaseConfigError } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
   ensureFirmRootDoc,
@@ -99,7 +99,7 @@ import {
   checkIsPlatformAdmin,
   getPublicSupportConfig,
   getMasterControlSettings,
-  subscribeToFirmInvoiceUsage,
+  subscribeToUserInvoiceUsage,
   subscribeToFirmStaffInvites,
   createOrUpdateStaffInvite,
   updateFirmStaffPermissions,
@@ -161,6 +161,7 @@ export default function App() {
   const [firmOwnerAccess, setFirmOwnerAccess] = useState<AppUserAccessRecord | null>(null);
   const [staffInvites, setStaffInvites] = useState<StaffInviteRecord[]>([]);
   const [inspectedFirm, setInspectedFirm] = useState<JewellerProfile | null>(null);
+  const [trialReadOnlyMode, setTrialReadOnlyMode] = useState<boolean>(false);
   const pendingSignupMetaRef = useRef<SignupMetadata | null>(null);
 
   const getEffectiveUserId = (): string => {
@@ -519,6 +520,16 @@ export default function App() {
   const isMasterAdmin = !isDemoUser && isPlatformAdmin;
   const activeUserAccess = isDemoUser ? null : userAccess;
   const isUserApproved = isDemoUser || canUserAccessApp(userAccess, isPlatformAdmin).allowed;
+  const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || initialProfiles[0];
+  const effectivePermissions = !isDemoUser && (isMasterAdmin || activeUserAccess)
+    ? resolveEffectivePermissions({
+        isPlatformAdmin: isMasterAdmin,
+        userAccess: activeUserAccess,
+        firmProfile: activeProfile,
+        uid: currentUserId,
+        ownerAccess: firmOwnerAccess
+      })
+    : undefined;
 
   useEffect(() => {
     if (!isAuthenticated || isDemoUser || !activeProfileId || !isFirmActive || !currentUserId || !isUserApproved) {
@@ -663,6 +674,17 @@ export default function App() {
       })
     );
 
+    const perms = effectivePermissions;
+    const canReadInventory = isMasterAdmin || Boolean(perms && (perms.inventory || perms.billing || perms.estimates || perms.purchases));
+    const canReadCustomers = isMasterAdmin || Boolean(perms && (perms.customers || perms.billing || perms.estimates));
+    const canReadInvoices = isMasterAdmin || Boolean(perms && (perms.billing || perms.estimates || perms.reports || perms.gstReports));
+    const canReadVendors = isMasterAdmin || Boolean(perms && (perms.vendors || perms.purchases));
+    const canReadPurchases = isMasterAdmin || Boolean(perms && (perms.purchases || perms.reports));
+    const canReadExpensesAndTransfers = isMasterAdmin || Boolean(perms && (perms.expenses || perms.reports));
+    const canReadKarigar = isMasterAdmin || Boolean(perms?.karigar);
+    const canReadGirvi = isMasterAdmin || Boolean(perms && (perms.girvi || perms.expenses));
+    const canReadGemstones = isMasterAdmin || Boolean(perms?.gemstones);
+
     unsubs.push(subscribeToFirmDoc<ShopDetails>(activeProfileId, 'shop_details', 'main', (docData, meta) => {
       markSynced('shop_details', meta);
       if (docData) {
@@ -670,71 +692,123 @@ export default function App() {
       }
     }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<JewelleryItem>(activeProfileId, 'inventory', (items, meta) => {
-      markSynced('inventory', meta);
-      setInventory(items);
-    }, onSubError));
+    if (canReadInventory) {
+      unsubs.push(subscribeToFirmCollection<JewelleryItem>(activeProfileId, 'inventory', (items, meta) => {
+        markSynced('inventory', meta);
+        setInventory(items);
+      }, onSubError));
+    } else {
+      setInventory([]);
+    }
 
-    unsubs.push(subscribeToFirmCollection<Customer>(activeProfileId, 'customers', (items, meta) => {
-      markSynced('customers', meta);
-      setCustomers(items);
-    }, onSubError));
+    if (canReadCustomers) {
+      unsubs.push(subscribeToFirmCollection<Customer>(activeProfileId, 'customers', (items, meta) => {
+        markSynced('customers', meta);
+        setCustomers(items);
+      }, onSubError));
+    } else {
+      setCustomers([]);
+    }
 
-    unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items, meta) => {
-      markSynced('invoices', meta);
-      setInvoices(items);
-    }, onSubError));
+    if (canReadInvoices) {
+      unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items, meta) => {
+        markSynced('invoices', meta);
+        setInvoices(items);
+      }, onSubError));
+    } else {
+      setInvoices([]);
+    }
 
-    unsubs.push(subscribeToFirmCollection<Vendor>(activeProfileId, 'vendors', (items, meta) => {
-      markSynced('vendors', meta);
-      setVendors(items);
-    }, onSubError));
+    if (canReadVendors) {
+      unsubs.push(subscribeToFirmCollection<Vendor>(activeProfileId, 'vendors', (items, meta) => {
+        markSynced('vendors', meta);
+        setVendors(items);
+      }, onSubError));
+    } else {
+      setVendors([]);
+    }
 
-    unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items, meta) => {
-      markSynced('purchases', meta);
-      setPurchases(items);
-    }, onSubError));
+    if (canReadPurchases) {
+      unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items, meta) => {
+        markSynced('purchases', meta);
+        setPurchases(items);
+      }, onSubError));
+    } else {
+      setPurchases([]);
+    }
 
-    unsubs.push(subscribeToFirmCollection<ShopExpense>(activeProfileId, 'expenses', (items, meta) => {
-      markSynced('expenses', meta);
-      setExpenses(items);
-    }, onSubError));
+    if (canReadExpensesAndTransfers) {
+      unsubs.push(subscribeToFirmCollection<ShopExpense>(activeProfileId, 'expenses', (items, meta) => {
+        markSynced('expenses', meta);
+        setExpenses(items);
+      }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<CashBankTransfer>(activeProfileId, 'transfers', (items, meta) => {
-      markSynced('transfers', meta);
-      setTransfers(items);
-    }, onSubError));
+      unsubs.push(subscribeToFirmCollection<CashBankTransfer>(activeProfileId, 'transfers', (items, meta) => {
+        markSynced('transfers', meta);
+        setTransfers(items);
+      }, onSubError));
+    } else {
+      setExpenses([]);
+      setTransfers([]);
+    }
 
-    unsubs.push(subscribeToFirmCollection<Karigar>(activeProfileId, 'karigars', (items, meta) => {
-      markSynced('karigars', meta);
-      setKarigars(items);
-    }, onSubError));
+    if (canReadKarigar) {
+      unsubs.push(subscribeToFirmCollection<Karigar>(activeProfileId, 'karigars', (items, meta) => {
+        markSynced('karigars', meta);
+        setKarigars(items);
+      }, onSubError));
 
-    unsubs.push(subscribeToFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards', (items, meta) => {
-      markSynced('jobcards', meta);
-      setJobCards(items);
-    }, onSubError));
+      unsubs.push(subscribeToFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards', (items, meta) => {
+        markSynced('jobcards', meta);
+        setJobCards(items);
+      }, onSubError));
+    } else {
+      setKarigars([]);
+      setJobCards([]);
+    }
 
-    unsubs.push(subscribeToFirmCollection<GirviLoan>(activeProfileId, 'girvi', (items, meta) => {
-      markSynced('girvi', meta);
-      setGirviLoans(items);
-    }, onSubError));
+    if (canReadGirvi) {
+      unsubs.push(subscribeToFirmCollection<GirviLoan>(activeProfileId, 'girvi', (items, meta) => {
+        markSynced('girvi', meta);
+        setGirviLoans(items);
+      }, onSubError));
+    } else {
+      setGirviLoans([]);
+    }
 
-    unsubs.push(subscribeToFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones', (items, meta) => {
-      markSynced('gemstones', meta);
-      setGemstones(items);
-    }, onSubError));
-
-    unsubs.push(subscribeToFirmInvoiceUsage(activeProfileId, (usage, meta) => {
-      markSynced('usage', meta);
-      setFirmUsage(usage);
-    }, onSubError));
+    if (canReadGemstones) {
+      unsubs.push(subscribeToFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones', (items, meta) => {
+        markSynced('gemstones', meta);
+        setGemstones(items);
+      }, onSubError));
+    } else {
+      setGemstones([]);
+    }
 
     return () => {
       pendingCollectionsRef.current.clear();
       unsubs.forEach(unsub => unsub());
     };
-  }, [activeProfileId, isFirmRootReady, isDemoUser, isAuthenticated]);
+  }, [
+    activeProfileId,
+    isFirmRootReady,
+    isDemoUser,
+    isAuthenticated,
+    isMasterAdmin,
+    effectivePermissions?.inventory,
+    effectivePermissions?.customers,
+    effectivePermissions?.billing,
+    effectivePermissions?.estimates,
+    effectivePermissions?.vendors,
+    effectivePermissions?.purchases,
+    effectivePermissions?.expenses,
+    effectivePermissions?.reports,
+    effectivePermissions?.gstReports,
+    effectivePermissions?.karigar,
+    effectivePermissions?.girvi,
+    effectivePermissions?.gemstones
+  ]);
+
 
   // Persist ONLY UI preferences in localStorage (NEVER firm ERP collections)
   useEffect(() => {
@@ -814,17 +888,27 @@ export default function App() {
       });
   };
 
-  // Derived metrics (needed early for permission resolution & subscriptions)
-  const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || initialProfiles[0];
-  const effectivePermissions = !isDemoUser && (isMasterAdmin || activeUserAccess)
-    ? resolveEffectivePermissions({
-        isPlatformAdmin: isMasterAdmin,
-        userAccess: activeUserAccess,
-        firmProfile: activeProfile,
-        uid: currentUserId,
-        ownerAccess: firmOwnerAccess
-      })
-    : undefined;
+  // Subscribe to per-owner invoice usage counter: users/{ownerUid}/usage/invoices
+  const effectiveUsageOwnerUid = !isDemoUser
+    ? (activeProfile?.ownerUid || currentUserId)
+    : '';
+
+  useEffect(() => {
+    if (!isAuthenticated || isDemoUser || !isUserApproved || !effectiveUsageOwnerUid) {
+      setFirmUsage(null);
+      return;
+    }
+    const unsub = subscribeToUserInvoiceUsage(
+      effectiveUsageOwnerUid,
+      (usage) => {
+        setFirmUsage(usage);
+      },
+      (err) => {
+        console.warn('User invoice usage listener error:', err);
+      }
+    );
+    return () => unsub();
+  }, [isAuthenticated, isDemoUser, isUserApproved, effectiveUsageOwnerUid]);
 
   useEffect(() => {
     if (isDemoUser || !isAuthenticated || !activeProfile?.ownerUid || activeProfile.ownerUid === currentUserId) {
@@ -1572,7 +1656,12 @@ export default function App() {
           userEmail={auth.currentUser?.email}
           userUid={currentUserId}
           supportConfig={supportConfig}
-          onRefresh={() => setUserAccessRefreshNonce(n => n + 1)}
+          permissionError={syncError}
+          databaseId={firestoreDatabaseId}
+          onRefresh={() => {
+            setSyncError(null);
+            setUserAccessRefreshNonce(n => n + 1);
+          }}
           onLogout={handleLogout}
         />
       );
@@ -1644,14 +1733,15 @@ export default function App() {
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span>
-                    Trial limit reached, contact admin ({invoiceQuotaStatus.used}/{invoiceQuotaStatus.limit} invoices used
-                    {invoiceQuotaStatus.isExpired ? ' • Trial period expired' : ''}). View &amp; backup export remain available.
+                    {invoiceQuotaStatus.isExpired
+                      ? `Trial expired (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit} invoices used). Read-only mode, backup/export & invoice cancel remain active.`
+                      : `Trial limit reached (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit} invoices used). Read-only mode, backup/export & invoice cancel remain active.`}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {waDigits && (
                     <a
-                      href={`https://wa.me/${waDigits}?text=${encodeURIComponent(`Hello Admin, my trial limit (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit}) on Swarnkar ERP is reached. Account: ${auth.currentUser?.email || currentUserId}`)}`}
+                      href={`https://wa.me/${waDigits}?text=${encodeURIComponent(`Hello Admin, my trial (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit}) on Swarnkar ERP needs renewal. Account: ${auth.currentUser?.email || currentUserId}`)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-black rounded-lg text-[11px]"
@@ -1673,6 +1763,13 @@ export default function App() {
                     className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-stone-950 font-black rounded-lg text-[11px] cursor-pointer"
                   >
                     Backup / Export Data
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTrialReadOnlyMode((prev) => !prev)}
+                    className="px-3 py-1 bg-stone-950/60 hover:bg-stone-950 text-white font-bold rounded-lg text-[11px] cursor-pointer"
+                  >
+                    {trialReadOnlyMode ? 'Trial Expired Screen' : 'Read-Only & Cancel Bills'}
                   </button>
                 </div>
               </div>
@@ -1777,6 +1874,116 @@ export default function App() {
 
         {/* Right Main Screen Viewport */}
         <main className="flex-1 min-w-0 overflow-y-auto px-2.5 sm:px-5 lg:px-7 py-3 sm:py-5 max-w-full">
+
+        {/* Clear Trial Expired / Trial Limit Reached Screen (keeps reads, backup/export & invoice cancel accessible) */}
+        {!isDemoUser &&
+          !isMasterAdmin &&
+          trialOwnerRecord?.status === 'trial' &&
+          invoiceQuotaStatus &&
+          (invoiceQuotaStatus.isExpired || invoiceQuotaStatus.limitReached) &&
+          !trialReadOnlyMode && (
+          <div
+            data-testid="trial-expired-screen"
+            className="max-w-2xl mx-auto my-6 bg-white dark:bg-slate-900 border-2 border-rose-300 dark:border-rose-800 rounded-3xl shadow-xl overflow-hidden"
+          >
+            <div className="bg-gradient-to-r from-rose-950 via-stone-900 to-rose-950 text-white p-6 text-center border-b border-rose-500/30">
+              <span className="inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-500/20 border border-rose-400/40 text-rose-200 mb-2">
+                {invoiceQuotaStatus.isExpired ? 'Trial Period Expired' : 'Trial Invoice Quota Reached'}
+              </span>
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                {invoiceQuotaStatus.isExpired
+                  ? 'Trial Expired — Read-Only Access Active'
+                  : 'Trial Limit Reached — Read-Only Access Active'}
+              </h2>
+              <p className="text-xs text-stone-300 mt-1.5 max-w-lg mx-auto">
+                {invoiceQuotaStatus.isExpired
+                  ? 'आपकी ट्रायल अवधि समाप्त हो गई है। नई एंट्री (बिल, खरीद, स्टॉक, ग्राहक, गिरवी, खर्चे) बंद हैं, लेकिन आप अपना पूरा डेटा देख सकते हैं, बैकअप/एक्सपोर्ट कर सकते हैं और पुराने इनवॉइस रद्द (Cancel) कर सकते हैं।'
+                  : `आपकी ट्रायल बिल सीमा (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit}) पूरी हो गई है। नई एंट्री बंद हैं, लेकिन डेटा देखना, बैकअप/एक्सपोर्ट और इनवॉइस रद्द करना चालू है।`}
+              </p>
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="bg-stone-50 dark:bg-slate-800/70 border border-stone-200 dark:border-slate-700 rounded-2xl p-3.5">
+                  <div className="text-stone-500 dark:text-slate-400 font-semibold">Invoices Used</div>
+                  <div className="text-lg font-black font-mono text-stone-900 dark:text-white mt-0.5">
+                    {invoiceQuotaStatus.used} / {invoiceQuotaStatus.limit ?? 0}
+                  </div>
+                </div>
+                <div className="bg-stone-50 dark:bg-slate-800/70 border border-stone-200 dark:border-slate-700 rounded-2xl p-3.5">
+                  <div className="text-stone-500 dark:text-slate-400 font-semibold">Trial Status</div>
+                  <div className="text-lg font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                    {invoiceQuotaStatus.isExpired ? 'Expired (0d left)' : 'Quota Full'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2.5">
+                {(() => {
+                  const cleanPhone = (supportConfig.supportPhone || '').replace(/[^\d+]/g, '');
+                  const waDigits = cleanPhone.replace(/^\+/, '');
+                  return (
+                    <>
+                      {waDigits && (
+                        <a
+                          href={`https://wa.me/${waDigits}?text=${encodeURIComponent(`Hello Admin, my Swarnkar ERP trial has ended (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit}). Account: ${auth.currentUser?.email || currentUserId}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 min-w-[160px] py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs text-center transition"
+                        >
+                          WhatsApp Admin to Renew
+                        </a>
+                      )}
+                      {cleanPhone && (
+                        <a
+                          href={`tel:${cleanPhone}`}
+                          className="py-2.5 px-4 bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-900 dark:text-white font-bold rounded-xl text-xs transition"
+                        >
+                          Call {supportConfig.supportPhone}
+                        </a>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-stone-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsBackupModalOpen(true)}
+                  className="py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-xl text-xs cursor-pointer transition"
+                >
+                  Backup / Export Data
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTrialReadOnlyMode(true);
+                    setActiveTab('invoices');
+                  }}
+                  className="py-2.5 px-3 bg-stone-900 hover:bg-stone-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold rounded-xl text-xs cursor-pointer transition"
+                >
+                  Open Invoices (Cancel)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTrialReadOnlyMode(true)}
+                  className="py-2.5 px-3 bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-800 dark:text-slate-200 font-bold rounded-xl text-xs cursor-pointer transition"
+                >
+                  Browse Read-Only Data
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(isDemoUser ||
+          isMasterAdmin ||
+          trialOwnerRecord?.status !== 'trial' ||
+          !invoiceQuotaStatus ||
+          (!invoiceQuotaStatus.isExpired && !invoiceQuotaStatus.limitReached) ||
+          trialReadOnlyMode) && (
+        <>
 
         {/* TAB: Master Super Admin Control Panel */}
         {activeTab === 'master_control' && isMasterAdmin && (
@@ -2017,7 +2224,10 @@ export default function App() {
               beginSyncWrite('Cancelling invoice...');
               try {
                 // Only call cancelInvoiceAtomic and await it; UI updates from Firestore snapshot
-                await cancelInvoiceAtomic(activeProfileId, inv, reason, shopDetails.name || 'Owner');
+                await cancelInvoiceAtomic(activeProfileId, inv, reason, shopDetails.name || 'Owner', {
+                  uid: currentUserId,
+                  isMasterAdmin
+                });
                 endSyncWrite(`Invoice ${inv.invoiceNumber} cancelled`, true);
               } catch (err: any) {
                 endSyncWrite('Cancel invoice failed', false);
@@ -2084,6 +2294,9 @@ export default function App() {
         {/* Staff Payroll & Biometric Attendance */}
         {activeTab === 'payroll' && (
           <StaffPayrollManager />
+        )}
+
+        </>
         )}
 
         </main>

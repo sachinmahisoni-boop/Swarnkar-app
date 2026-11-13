@@ -12,7 +12,7 @@ A full-stack Indian Jewellery Shop ERP built with React 19, TypeScript, Vite, Ta
 - **Secure Multi-User Platform & Master Control**:
   - New users register via Google Sign-In or Email/Password and enter a strict `pending` approval gate with no firm data access until approved.
   - Platform Master Admins (verified server-side via `platform_admins/{uid}` in Firestore) manage user approvals (`trial` / `active` / `suspended`), per-user invoice quota (`trialInvoiceLimit`) & expiry (`trialEndsAt`), 16 granular module/action permissions, firm inspection, and append-only `audit_logs`.
-  - Trial limits are atomically enforced via `firms/{firmId}/usage/invoices` inside the same Firestore transaction (`createInvoiceAtomic`) and verified with `getAfter()` in `firestore.rules`.
+  - Trial limits are atomically enforced per firm owner via `users/{ownerUid}/usage/invoices` inside the same Firestore transaction (`createInvoiceAtomic`) using deterministic `${series}_${count}` invoice IDs verified with `getAfter()` in `firestore.rules`. When `trialEndsAt` expires or `trialInvoiceLimit` is reached, new writes are blocked across operational collections while reads, backup/export, and invoice cancellation remain available.
   - Firm Owners with `staffManagement` permission can invite cashier/manager staff by email; staff permissions are strictly capped at the owner's permissions.
 - **Multi-Format Printing & Offline PWA**: A4, A5, and 80mm Thermal receipt printing (with saved Shop Default layout in Settings) and real-time pulsing Firestore sync indicators.
 
@@ -84,10 +84,17 @@ npm run dev
 npm test
 
 # Run Firebase Firestore Emulator security rules & transaction integration tests
-# (Requires Java JRE 17+ and firebase-tools installed)
+# (Requires Java JRE 17+ available on PATH)
 npm run test:emulator
 
 # Lint & build
 npm run lint
 npm run build
 ```
+
+### Testing Security Rules with Firestore Emulator
+`npm run test:emulator` executes `src/lib/firestore.emulator.test.ts` against a local Firebase Firestore Emulator (`127.0.0.1:8088`).
+
+- **Prerequisite**: **Java JRE 17+** (for example, OpenJDK 17 or 21) must be installed and available on your system `PATH` (`java -version`). The Firebase Firestore Emulator runs on the JVM and will fail to start if `java` is missing.
+- **No Cloud Project Required**: `npm run test:emulator` uses the local demo project ID (`demo-swarnkar-test`) and tests `firestore.rules` offline.
+
