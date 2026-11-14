@@ -17,7 +17,13 @@ import {
   History,
   Phone,
   Clock,
-  BarChart3
+  BarChart3,
+  PlayCircle,
+  Copy,
+  Check,
+  AlertCircle,
+  Bug,
+  RefreshCw
 } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 import {
@@ -29,7 +35,9 @@ import {
   MasterControlSettings,
   PublicSupportConfig,
   UserApprovalStatus,
-  UserPermissions
+  UserPermissions,
+  BillingSelfTestSummary,
+  BillingSelfTestCaseResult
 } from '../../types';
 import {
   CASHIER_PERMISSIONS,
@@ -56,7 +64,8 @@ import {
   subscribeToAuditLogs,
   updateFirmMetaByMaster,
   updateUserAccessByMaster,
-  writeAuditLog
+  writeAuditLog,
+  runBillingSelfTest
 } from '../../lib/firestoreSync';
 import { getISTDate } from '../../lib/invoiceNumber';
 
@@ -169,6 +178,48 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
   const [supportPhoneInput, setSupportPhoneInput] = useState<string>(supportConfig.supportPhone || '');
   const [supportEmailInput, setSupportEmailInput] = useState<string>(supportConfig.supportEmail || '');
   const [savingSettings, setSavingSettings] = useState(false);
+  const [selfTestSummary, setSelfTestSummary] = useState<BillingSelfTestSummary | null>(null);
+  const [isRunningSelfTest, setIsRunningSelfTest] = useState(false);
+  const [copiedSelfTest, setCopiedSelfTest] = useState(false);
+  const [selfTestFirmId, setSelfTestFirmId] = useState<string>(activeFirmId || '');
+
+  useEffect(() => {
+    if (activeFirmId && !selfTestFirmId) {
+      setSelfTestFirmId(activeFirmId);
+    }
+  }, [activeFirmId, selfTestFirmId]);
+
+  const handleRunSelfTest = async () => {
+    const target = selfTestFirmId || activeFirmId || (firms[0]?.id);
+    if (!target) {
+      alert('परीक्षण हेतु कोई फर्म उपलब्ध नहीं है। कृपया पहले एक फर्म जोड़ें।');
+      return;
+    }
+    setIsRunningSelfTest(true);
+    try {
+      const summary = await runBillingSelfTest(target, {
+        uid: currentAdminUid,
+        isMasterAdmin: true
+      });
+      setSelfTestSummary(summary);
+    } catch (err: any) {
+      console.error('[MasterControlPanel] Billing self-test runtime error:', err);
+      alert('Billing self-test runtime error: ' + (err?.message || String(err)));
+    } finally {
+      setIsRunningSelfTest(false);
+    }
+  };
+
+  const handleCopySelfTestReport = async () => {
+    if (!selfTestSummary) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(selfTestSummary, null, 2));
+      setCopiedSelfTest(true);
+      setTimeout(() => setCopiedSelfTest(false), 2500);
+    } catch (clipErr) {
+      console.warn('Clipboard copy failed:', clipErr);
+    }
+  };
 
   useEffect(() => {
     setDefaultTrialLimitInput(masterSettings.defaultTrialInvoiceLimit || DEFAULT_TRIAL_INVOICE_LIMIT);
@@ -1131,124 +1182,265 @@ export const MasterControlPanel: React.FC<MasterControlPanelProps> = ({
         </div>
       )}
 
-      {/* TAB 4: GLOBAL TRIAL DEFAULTS & PUBLIC SUPPORT CONTACT */}
+      {/* TAB 4: GLOBAL TRIAL DEFAULTS, PUBLIC SUPPORT CONTACT & BILLING SELF-TEST */}
       {subTab === 'rules' && (
-        <form
-          onSubmit={handleSaveGlobalRules}
-          className="bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-800 rounded-2xl p-6 max-w-xl space-y-5 shadow-2xs"
-        >
-          <div className="flex items-center gap-2 border-b border-stone-100 dark:border-slate-800 pb-3">
-            <FileText className="w-5 h-5 text-amber-600" />
-            <div>
-              <h3 className="font-extrabold text-sm text-stone-900 dark:text-white">
-                Global Trial Policy &amp; Admin Contact Settings
-              </h3>
-              <p className="text-xs text-stone-500 dark:text-slate-400">
-                नए यूज़र के ट्रायल नियम और Pending/Suspended स्क्रीन पर दिखने वाला WhatsApp/फ़ोन नंबर सेट करें।
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-stone-700 dark:text-slate-300 mb-1">
-                Default Trial Invoice Limit
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={1000}
-                value={defaultTrialLimitInput}
-                onChange={(e) => setDefaultTrialLimitInput(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm font-mono font-bold text-stone-900 dark:text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-stone-700 dark:text-slate-300 mb-1">
-                Default Trial Duration (Days)
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={365}
-                value={defaultTrialDaysInput}
-                onChange={(e) => setDefaultTrialDaysInput(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm font-mono font-bold text-stone-900 dark:text-white"
-              />
-            </div>
-          </div>
-
-          <label className="flex items-center gap-3 p-3 bg-stone-50 dark:bg-slate-800/70 rounded-xl border border-stone-200 dark:border-slate-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={requireApprovalInput}
-              onChange={(e) => setRequireApprovalInput(e.target.checked)}
-              className="w-4 h-4 accent-amber-600"
-            />
-            <div>
-              <div className="text-xs font-extrabold text-stone-900 dark:text-white">
-                Require Master Admin Approval for All New Signups
-              </div>
-              <div className="text-[11px] text-stone-500 dark:text-slate-400">
-                हर नया रजिस्टर यूज़र Pending रहेगा जब तक आप Approve न करें।
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <form
+            onSubmit={handleSaveGlobalRules}
+            className="bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xs"
+          >
+            <div className="flex items-center gap-2 border-b border-stone-100 dark:border-slate-800 pb-3">
+              <FileText className="w-5 h-5 text-amber-600" />
+              <div>
+                <h3 className="font-extrabold text-sm text-stone-900 dark:text-white">
+                  Global Trial Policy &amp; Admin Contact Settings
+                </h3>
+                <p className="text-xs text-stone-500 dark:text-slate-400">
+                  नए यूज़र के ट्रायल नियम और Pending/Suspended स्क्रीन पर दिखने वाला WhatsApp/फ़ोन नंबर सेट करें।
+                </p>
               </div>
             </div>
-          </label>
 
-          <div className="border-t border-stone-100 dark:border-slate-800 pt-4 space-y-3">
-            <h4 className="text-xs font-extrabold text-stone-800 dark:text-slate-200 flex items-center gap-1.5">
-              <Phone className="w-4 h-4 text-emerald-600" />
-              Public Admin Support Contact (Approval Gate &amp; Trial Limit Screen)
-            </h4>
-            <div>
-              <label className="block text-xs font-bold text-stone-700 dark:text-slate-300 mb-1">
-                Support Contact Name / Desk
-              </label>
-              <input
-                type="text"
-                value={supportNameInput}
-                onChange={(e) => setSupportNameInput(e.target.value)}
-                placeholder="e.g. Shreem Mahal ERP Support"
-                className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm text-stone-900 dark:text-white"
-              />
-            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-stone-700 dark:text-slate-300 mb-1">
-                  Admin WhatsApp / Phone
+                  Default Trial Invoice Limit
                 </label>
                 <input
-                  type="text"
-                  value={supportPhoneInput}
-                  onChange={(e) => setSupportPhoneInput(e.target.value)}
-                  placeholder="+91 98260 00000"
-                  className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm font-mono text-stone-900 dark:text-white"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={defaultTrialLimitInput}
+                  onChange={(e) => setDefaultTrialLimitInput(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm font-mono font-bold text-stone-900 dark:text-white"
                 />
               </div>
               <div>
                 <label className="block text-xs font-bold text-stone-700 dark:text-slate-300 mb-1">
-                  Support Email (Optional)
+                  Default Trial Duration (Days)
                 </label>
                 <input
-                  type="email"
-                  value={supportEmailInput}
-                  onChange={(e) => setSupportEmailInput(e.target.value)}
-                  placeholder="support@example.com"
-                  className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm text-stone-900 dark:text-white"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={defaultTrialDaysInput}
+                  onChange={(e) => setDefaultTrialDaysInput(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm font-mono font-bold text-stone-900 dark:text-white"
                 />
               </div>
             </div>
-          </div>
 
-          <button
-            type="submit"
-            disabled={savingSettings}
-            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-xl text-xs flex items-center gap-2 cursor-pointer transition"
-          >
-            <Save className="w-4 h-4" />
-            {savingSettings ? 'Saving...' : 'Save Global Rules & Contact'}
-          </button>
-        </form>
+            <label className="flex items-center gap-3 p-3 bg-stone-50 dark:bg-slate-800/70 rounded-xl border border-stone-200 dark:border-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={requireApprovalInput}
+                onChange={(e) => setRequireApprovalInput(e.target.checked)}
+                className="w-4 h-4 accent-amber-600"
+              />
+              <div>
+                <div className="text-xs font-extrabold text-stone-900 dark:text-white">
+                  Require Master Admin Approval for All New Signups
+                </div>
+                <div className="text-[11px] text-stone-500 dark:text-slate-400">
+                  हर नया रजिस्टर यूज़र Pending रहेगा जब तक आप Approve न करें।
+                </div>
+              </div>
+            </label>
+
+            <div className="border-t border-stone-100 dark:border-slate-800 pt-4 space-y-3">
+              <h4 className="text-xs font-extrabold text-stone-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Phone className="w-4 h-4 text-emerald-600" />
+                Public Admin Support Contact (Approval Gate &amp; Trial Limit Screen)
+              </h4>
+              <div>
+                <label className="block text-xs font-bold text-stone-700 dark:text-slate-300 mb-1">
+                  Support Contact Name / Desk
+                </label>
+                <input
+                  type="text"
+                  value={supportNameInput}
+                  onChange={(e) => setSupportNameInput(e.target.value)}
+                  placeholder="e.g. Shreem Mahal ERP Support"
+                  className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm text-stone-900 dark:text-white"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-slate-300 mb-1">
+                    Admin WhatsApp / Phone
+                  </label>
+                  <input
+                    type="text"
+                    value={supportPhoneInput}
+                    onChange={(e) => setSupportPhoneInput(e.target.value)}
+                    placeholder="+91 98260 00000"
+                    className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm font-mono text-stone-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-slate-300 mb-1">
+                    Support Email (Optional)
+                  </label>
+                  <input
+                    type="email"
+                    value={supportEmailInput}
+                    onChange={(e) => setSupportEmailInput(e.target.value)}
+                    placeholder="support@example.com"
+                    className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-sm text-stone-900 dark:text-white"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={savingSettings}
+              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-xl text-xs flex items-center gap-2 cursor-pointer transition"
+            >
+              <Save className="w-4 h-4" />
+              {savingSettings ? 'Saving...' : 'Save Global Rules & Contact'}
+            </button>
+          </form>
+
+          {/* Billing Self-Test & Diagnostics Panel */}
+          <div className="bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xs">
+            <div className="flex items-center justify-between border-b border-stone-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 rounded-xl">
+                  <PlayCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-stone-900 dark:text-white">
+                    Billing Self-Test (बिलिंग आत्म-परीक्षण)
+                  </h3>
+                  <p className="text-xs text-stone-500 dark:text-slate-400">
+                    4 ट्रांज़ैक्शन संयोजनों (GST &amp; Estimate, Cash &amp; Mixed) का लाइव टेस्ट
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-600 dark:text-slate-300 leading-relaxed">
+              यह टूल वास्तविक Firestore ट्रांज़ैक्शन पाथ चलाता है (reads: firm, owner, usage, counter, stock, customer ledger; writes: sequence counter, stock deduction, customer ledger, usage counter, invoice)। परीक्षण के पश्चात सभी थ्रो-अवे टेस्ट रिकॉर्ड्स (Invoices, Items, Customers) स्वतः डिलीट कर दिए जाते हैं।
+            </p>
+
+            {/* Target Firm Selector */}
+            <div>
+              <label className="block text-xs font-bold text-stone-700 dark:text-slate-300 mb-1">
+                Target Test Firm (परीक्षण हेतु फर्म)
+              </label>
+              <select
+                value={selfTestFirmId}
+                onChange={(e) => setSelfTestFirmId(e.target.value)}
+                className="w-full bg-stone-50 dark:bg-slate-800 border border-stone-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs font-bold text-stone-900 dark:text-white"
+              >
+                {firms.map(f => (
+                  <option key={f.id} value={f.id}>
+                    {f.name} ({f.id})
+                  </option>
+                ))}
+                {!firms.some(f => f.id === activeFirmId) && activeFirmId && (
+                  <option value={activeFirmId}>Active: {activeFirmId}</option>
+                )}
+              </select>
+            </div>
+
+            {/* Run Button */}
+            <button
+              type="button"
+              onClick={handleRunSelfTest}
+              disabled={isRunningSelfTest}
+              className="w-full py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 disabled:opacity-50 text-white font-black text-xs rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {isRunningSelfTest ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                  <span>सेल्फ-टेस्ट चल रहा है (Running 4 test cases...)...</span>
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="w-4 h-4" />
+                  <span>Run Billing Self-Test (परीक्षण शुरू करें)</span>
+                </>
+              )}
+            </button>
+
+            {/* Results Display */}
+            {selfTestSummary && (
+              <div className="space-y-3 pt-3 border-t border-stone-100 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-stone-900 dark:text-white">
+                    परीक्षण परिणाम (Summary)
+                  </span>
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                      Passed: {selfTestSummary.passedCount} / {selfTestSummary.totalCases}
+                    </span>
+                    {selfTestSummary.failedCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300">
+                        Failed: {selfTestSummary.failedCount}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {selfTestSummary.results.map((r) => (
+                    <div
+                      key={r.id}
+                      className={`p-3 rounded-xl border text-xs ${
+                        r.status === 'passed'
+                          ? 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-200'
+                          : 'border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/30 text-rose-950 dark:text-rose-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between font-bold">
+                        <span>{r.title}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-mono font-extrabold ${
+                            r.status === 'passed'
+                              ? 'bg-emerald-200 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100'
+                              : 'bg-rose-200 dark:bg-rose-800 text-rose-900 dark:text-rose-100'
+                          }`}
+                        >
+                          {r.status === 'passed' ? 'PASS' : 'FAIL'} ({r.durationMs}ms)
+                        </span>
+                      </div>
+                      {r.invoiceId && (
+                        <div className="text-[11px] font-mono text-stone-500 dark:text-slate-400 mt-1">
+                          Created &amp; cleaned doc: {r.invoiceId}
+                        </div>
+                      )}
+                      {r.errorMessage && (
+                        <div className="text-[11px] font-mono text-rose-700 dark:text-rose-300 mt-1.5 p-1.5 bg-rose-100/60 dark:bg-rose-900/40 rounded">
+                          Error ({r.errorCode}): {r.errorMessage}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopySelfTestReport}
+                  className="w-full py-2 bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-700 dark:text-slate-300 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {copiedSelfTest ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>रिपोर्ट कॉपी हो गई! (Copied)</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Self-Test Report (JSON)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* MODAL: EDIT USER PERMISSIONS, TRIAL LIMIT & EXPIRY */}

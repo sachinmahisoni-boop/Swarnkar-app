@@ -38,7 +38,13 @@ import {
   AuditAction,
   PublicSupportConfig,
   UserPermissions,
-  StaffMemberMeta
+  StaffMemberMeta,
+  InvoiceTransactionStep,
+  InvoiceCreationDiagnostics,
+  BillingSelfTestCaseResult,
+  BillingSelfTestSummary,
+  InvoiceType,
+  PaymentMethod
 } from '../types';
 import { getISTDate, formatSequentialNumber } from './invoiceNumber';
 import {
@@ -98,32 +104,138 @@ export interface MigrationResult {
 const verifiedFirmRoots = new Map<string, string>();
 
 /**
- * Recursively removes undefined values because Firestore rejects undefined fields.
+ * Sanitizes invoice and document payloads before saving to Firestore / runTransaction:
+ * - Recursively removes `undefined`
+ * - Detects and rejects nested arrays (multi-dimensional arrays), throwing an error naming the offending field
+ * - Converts `Date` instances to Firestore `Timestamp`
+ * - Detects `NaN` and `Infinity` numbers, logs a clear error naming the offending field, and replaces with 0
+ * - Preserves Firestore Timestamp and FieldValue instances
  */
-export function stripUndefined<T>(value: T): T {
-  if (value === null || value === undefined) return value;
+export function sanitizeInvoicePayload<T>(value: T, currentPath: string = ''): T {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  // Check for Date instances and convert to Timestamp
+  if (value instanceof Date) {
+    return Timestamp.fromDate(value) as unknown as T;
+  }
+
+  // Preserve Firestore Timestamp or FieldValue instances
   if (
-    value instanceof Date ||
     (typeof Timestamp === 'function' && value instanceof Timestamp) ||
-    (typeof value === 'object' && typeof (value as any).toMillis === 'function' && typeof (value as any).toDate === 'function') ||
-    (typeof value === 'object' && (typeof (value as any)._methodName === 'string' || value?.constructor?.name?.includes('FieldValue')))
+    (typeof value === 'object' && typeof (value as any)?.toMillis === 'function' && typeof (value as any)?.toDate === 'function') ||
+    (typeof value === 'object' && (typeof (value as any)?._methodName === 'string' || (value as any)?.constructor?.name?.includes('FieldValue')))
   ) {
     return value;
   }
+
+  // Reject nested arrays
   if (Array.isArray(value)) {
-    return value.map(item => stripUndefined(item)) as unknown as T;
+    for (let i = 0; i < value.length; i++) {
+      const item = value[i];
+      const itemPath = currentPath ? `${currentPath}[${i}]` : `[${i}]`;
+      if (Array.isArray(item)) {
+        const errorMsg = `Nested array detected at offending field: "${itemPath}". Firestore does not support multi-dimensional arrays.`;
+        console.error(`[sanitizeInvoicePayload] ${errorMsg}`, { offendingField: itemPath, value: item });
+        throw new Error(errorMsg);
+      }
+    }
+    return value.map((item, idx) => {
+      const itemPath = currentPath ? `${currentPath}[${idx}]` : `[${idx}]`;
+      return sanitizeInvoicePayload(item, itemPath);
+    }) as unknown as T;
   }
+
+  // Check numeric values for NaN and Infinity
+  if (typeof value === 'number') {
+    if (Number.isNaN(value) || !Number.isFinite(value)) {
+      console.error(
+        `[sanitizeInvoicePayload] Invalid numeric value (${value}) detected at offending field: "${currentPath}". Sanitizing to 0.`,
+        { offendingField: currentPath, invalidValue: value }
+      );
+      return 0 as unknown as T;
+    }
+    return value;
+  }
+
+  // Process plain objects
   if (typeof value === 'object') {
     const out: Record<string, any> = {};
     for (const [k, v] of Object.entries(value as Record<string, any>)) {
-      if (v !== undefined) {
-        out[k] = stripUndefined(v);
+      const fieldPath = currentPath ? `${currentPath}.${k}` : k;
+      if (v === undefined) {
+        continue;
       }
+      if (typeof v === 'number' && (Number.isNaN(v) || !Number.isFinite(v))) {
+        console.error(
+          `[sanitizeInvoicePayload] Invalid numeric value (${v}) detected at offending field: "${fieldPath}". Sanitizing to 0.`,
+          { offendingField: fieldPath, invalidValue: v }
+        );
+        out[k] = 0;
+        continue;
+      }
+      out[k] = sanitizeInvoicePayload(v, fieldPath);
     }
     return out as T;
   }
+
   return value;
 }
+
+/**
+ * Recursively removes undefined values and normalizes numbers/dates for Firestore.
+ */
+export function stripUndefined<T>(value: T): T {
+  return sanitizeInvoicePayload(value);
+}
+
+export function extractErrorCode(err: any): string {
+  if (!err) return 'unknown';
+  const rawCode = String(err.code || '');
+  if (rawCode.includes('/')) {
+    return rawCode.split('/').pop()?.toLowerCase() || rawCode.toLowerCase();
+  }
+  if (rawCode) return rawCode.toLowerCase();
+  const msg = String(err.message || '').toLowerCase();
+  if (msg.includes('permission') || msg.includes('insufficient permissions')) return 'permission-denied';
+  if (msg.includes('internal') || msg.includes('an internal error')) return 'internal';
+  if (msg.includes('unavailable') || msg.includes('offline') || msg.includes('network')) return 'unavailable';
+  if (msg.includes('deadline')) return 'deadline-exceeded';
+  if (msg.includes('aborted')) return 'aborted';
+  return 'unknown';
+}
+
+export const TRANSIENT_FIRESTORE_CODES = new Set<string>([
+  'internal',
+  'unavailable',
+  'deadline-exceeded',
+  'aborted'
+]);
+
+export class InvoiceCreationError extends Error {
+  code: string;
+  step: InvoiceTransactionStep;
+  firmId: string;
+  series: InvoiceType;
+  invoiceId: string;
+  diagnostics: InvoiceCreationDiagnostics;
+
+  constructor(diagnostics: InvoiceCreationDiagnostics, originalError?: any) {
+    super(diagnostics.message);
+    this.name = 'InvoiceCreationError';
+    this.code = diagnostics.code;
+    this.step = diagnostics.step;
+    this.firmId = diagnostics.firmId;
+    this.series = diagnostics.series;
+    this.invoiceId = diagnostics.invoiceId;
+    this.diagnostics = diagnostics;
+    if (originalError?.stack) {
+      this.stack = originalError.stack;
+    }
+  }
+}
+
 
 export function isFirmRootReady(firmId: string, uid?: string): boolean {
   if (!firmId) return false;
@@ -582,15 +694,46 @@ export async function createInvoiceAtomic(
   const istInfo = getISTDate();
   const finYearStr = istInfo.financialYear.finYearStr;
   const monthKey = istInfo.isoDateStr.slice(0, 7);
-  const series = invoiceDraft.invoiceType;
+  const series: InvoiceType = invoiceDraft.invoiceType;
   const counterDocId = `${series}_${finYearStr}`;
   const counterRef = doc(targetDb, 'firms', firmId, 'sequence_counters', counterDocId);
   const firmRef = doc(targetDb, 'firms', firmId);
 
+  // 1. Sanitize payload BEFORE runTransaction:
+  // Remove undefined, NaN, and Infinity numbers, convert Dates to Timestamps, and reject nested arrays.
+  let currentStep: InvoiceTransactionStep = 'sanitize';
+  let calculatedInvoiceId: string = `${series}_pending`;
+  let sanitizedDraft: Omit<GSTInvoice, 'id' | 'invoiceNumber'>;
+  try {
+    sanitizedDraft = sanitizeInvoicePayload(invoiceDraft, 'invoiceDraft');
+  } catch (err: any) {
+    const offending = err?.message?.includes('offending field:')
+      ? String(err.message.split('offending field:')[1] || '').trim().replace(/^"|"$/g, '')
+      : undefined;
+    const diag: InvoiceCreationDiagnostics = {
+      code: 'invalid-argument',
+      message: `पेलोड सैनिटाइजेशन में त्रुटि: ${err.message}`,
+      step: 'sanitize',
+      firmId,
+      series,
+      invoiceId: calculatedInvoiceId,
+      uid,
+      userRole: opts?.isMasterAdmin ? 'master_admin' : undefined,
+      paymentMode: invoiceDraft.payment?.method,
+      itemCount: invoiceDraft.items?.length || 0,
+      retriesAttempted: 0,
+      offendingField: offending,
+      timestamp: new Date().toISOString(),
+      details: err?.message || String(err)
+    };
+    console.error('[createInvoiceAtomic] Payload sanitization failed:', diag, err);
+    throw new InvoiceCreationError(diag, err);
+  }
+
   // Collect unique inventory item IDs
   const itemIds = Array.from(
     new Set(
-      invoiceDraft.items
+      sanitizedDraft.items
         .map(i => i.itemId)
         .filter((id): id is string => Boolean(id))
     )
@@ -598,7 +741,7 @@ export async function createInvoiceAtomic(
 
   // Aggregate total required quantity per itemId across cart lines
   const requiredQtyByItemId = new Map<string, { qty: number; name: string }>();
-  for (const item of invoiceDraft.items) {
+  for (const item of sanitizedDraft.items) {
     if (item.itemId) {
       const existing = requiredQtyByItemId.get(item.itemId);
       requiredQtyByItemId.set(item.itemId, {
@@ -608,174 +751,213 @@ export async function createInvoiceAtomic(
     }
   }
 
-  try {
-    const createdInvoice = await runTransaction(targetDb, async (transaction) => {
-    // === 1. ALL READS FIRST ===
-    const firmSnap = await transaction.get(firmRef);
-    const firmData = firmSnap.exists() ? firmSnap.data() : null;
-    const ownerUid = firmData?.ownerUid || uid;
-    if (!ownerUid) {
-      throw new Error('फर्म स्वामी (Owner UID) सत्यापित नहीं हो सका।');
-    }
+  const MAX_TRANSIENT_RETRIES = 2;
+  let attempt = 0;
 
-    const ownerRef = doc(targetDb, 'users', ownerUid);
-    const usageRef = doc(targetDb, 'users', ownerUid, 'usage', 'invoices');
-    const ownerSnap = await transaction.get(ownerRef);
-    const actorRef = uid && uid !== ownerUid ? doc(targetDb, 'users', uid) : null;
-    const actorSnap = actorRef ? await transaction.get(actorRef) : null;
-
-    const usageSnap = await transaction.get(usageRef);
-    const counterSnap = await transaction.get(counterRef);
-
-    const itemSnapshots = await Promise.all(
-      itemIds.map(id => transaction.get(doc(targetDb, 'firms', firmId, 'inventory', id)))
-    );
-    const itemSnapMap = new Map<string, any>();
-    itemIds.forEach((id, idx) => {
-      itemSnapMap.set(id, itemSnapshots[idx]);
-    });
-
-    let custSnap: any = null;
-    let custRef: any = null;
-    if (invoiceDraft.customerId && invoiceDraft.customerId !== 'walkin') {
-      custRef = doc(targetDb, 'firms', firmId, 'customers', invoiceDraft.customerId);
-      custSnap = await transaction.get(custRef);
-    }
-
-    // === 2. VALIDATION INSIDE TRANSACTION USING FRESH READS ===
-    const currentUsageCount = usageSnap.exists() ? Number(usageSnap.data()?.count || 0) : 0;
-    const nextUsageCount = currentUsageCount + 1;
-    const invoiceId = `${series}_${nextUsageCount}`;
-
-    if (!opts?.isMasterAdmin) {
-      if (!ownerSnap.exists()) {
-        throw new Error('फर्म स्वामी (Owner) का एक्सेस रिकॉर्ड नहीं मिला। कृपया Master Admin से संपर्क करें।');
-      }
-      const ownerAccess = { uid: ownerSnap.id, ...ownerSnap.data() } as AppUserAccessRecord;
-      const ownerPerms = normalizePermissions(ownerAccess.permissions, ownerAccess.status === 'active' ? FULL_PERMISSIONS : RESTRICTED_PERMISSIONS);
-      const quotaCheck = canUserCreateInvoice(ownerAccess, currentUsageCount, Date.now(), false, ownerPerms);
-      if (!quotaCheck.allowed) {
-        throw new Error(quotaCheck.reason || 'इनवॉइस बनाने की अनुमति नहीं है।');
-      }
-      if (ownerAccess.status === 'trial') {
-        const trialReadiness = validateTrialFirestoreReadiness(ownerAccess);
-        if (!trialReadiness.valid) {
-          throw new Error(trialReadiness.reason || 'ट्रायल सेटिंग्स अपूर्ण हैं।');
+  while (true) {
+    try {
+      const createdInvoice = await runTransaction(targetDb, async (transaction) => {
+        // === 1. ALL READS FIRST ===
+        currentStep = 'reads';
+        const firmSnap = await transaction.get(firmRef);
+        const firmData = firmSnap.exists() ? firmSnap.data() : null;
+        const ownerUid = firmData?.ownerUid || uid;
+        if (!ownerUid) {
+          throw new Error('फर्म स्वामी (Owner UID) सत्यापित नहीं हो सका।');
         }
-      }
-      if (actorSnap) {
-        if (!actorSnap.exists()) {
-          throw new Error('आपका यूज़र एक्सेस रिकॉर्ड नहीं मिला। कृपया Master Admin से संपर्क करें।');
-        }
-        const actorAccess = { uid: actorSnap.id, ...actorSnap.data() } as AppUserAccessRecord;
-        const actorCheck = canUserAccessApp(actorAccess, false);
-        if (!actorCheck.allowed) {
-          throw new Error(actorCheck.message || 'आपका खाता सक्रिय नहीं है।');
-        }
-        const firmProfileLike = firmData
-          ? ({ id: firmId, ...firmData } as unknown as JewellerProfile)
-          : undefined;
-        const actorPerms = resolveEffectivePermissions({
-          isPlatformAdmin: false,
-          userAccess: actorAccess,
-          firmProfile: firmProfileLike,
-          uid,
-          ownerAccess
-        });
-        if (!actorPerms.billing && !actorPerms.estimates) {
-          throw new Error('आपके खाते या स्टाफ रोल के लिए Billing / Estimates अनुमति बंद है।');
-        }
-      }
-    }
 
-    for (const [itemId, req] of requiredQtyByItemId.entries()) {
-      const snap = itemSnapMap.get(itemId);
-      const freshQty = snap && snap.exists() ? (snap.data().quantity || 0) : 0;
-      if (!snap || !snap.exists() || freshQty < req.qty) {
-        throw new Error(
-          `स्टॉक में पर्याप्त मात्रा उपलब्ध नहीं है (${req.name}): उपलब्ध ${freshQty}, आवश्यक ${req.qty}`
+        const ownerRef = doc(targetDb, 'users', ownerUid);
+        const usageRef = doc(targetDb, 'users', ownerUid, 'usage', 'invoices');
+        const ownerSnap = await transaction.get(ownerRef);
+        const actorRef = uid && uid !== ownerUid ? doc(targetDb, 'users', uid) : null;
+        const actorSnap = actorRef ? await transaction.get(actorRef) : null;
+
+        const usageSnap = await transaction.get(usageRef);
+        const counterSnap = await transaction.get(counterRef);
+
+        const itemSnapshots = await Promise.all(
+          itemIds.map(id => transaction.get(doc(targetDb, 'firms', firmId, 'inventory', id)))
         );
-      }
-    }
+        const itemSnapMap = new Map<string, any>();
+        itemIds.forEach((id, idx) => {
+          itemSnapMap.set(id, itemSnapshots[idx]);
+        });
 
-    // === 3. PREPARE WRITES ===
-    let nextSeq = 1;
-    if (counterSnap.exists()) {
-      nextSeq = (counterSnap.data().currentVal || 0) + 1;
-    }
-    const actualInvoiceNumber = formatSequentialNumber(prefix, finYearStr, nextSeq);
+        let custSnap: any = null;
+        let custRef: any = null;
+        if (sanitizedDraft.customerId && sanitizedDraft.customerId !== 'walkin') {
+          custRef = doc(targetDb, 'firms', firmId, 'customers', sanitizedDraft.customerId);
+          custSnap = await transaction.get(custRef);
+        }
 
-    const prevUsageData = usageSnap.exists() ? usageSnap.data() : null;
-    const nextMonthlyCount =
-      prevUsageData?.monthKey === monthKey ? Number(prevUsageData?.monthlyCount || 0) + 1 : 1;
+        // === 2. VALIDATION INSIDE TRANSACTION USING FRESH READS ===
+        currentStep = 'validation';
+        const currentUsageCount = usageSnap.exists() ? Number(usageSnap.data()?.count || 0) : 0;
+        const nextUsageCount = currentUsageCount + 1;
+        calculatedInvoiceId = `${series}_${nextUsageCount}`;
 
-    // === 4. ALL WRITES AFTER READS ===
-    // a. Update sequence counter
-    transaction.set(
-      counterRef,
-      { currentVal: nextSeq, finYear: finYearStr, lastUpdated: istInfo.isoDateStr },
-      { merge: true }
-    );
+        if (!opts?.isMasterAdmin) {
+          if (!ownerSnap.exists()) {
+            throw new Error('फर्म स्वामी (Owner) का एक्सेस रिकॉर्ड नहीं मिला। कृपया Master Admin से संपर्क करें।');
+          }
+          const ownerAccess = { uid: ownerSnap.id, ...ownerSnap.data() } as AppUserAccessRecord;
+          const ownerPerms = normalizePermissions(ownerAccess.permissions, ownerAccess.status === 'active' ? FULL_PERMISSIONS : RESTRICTED_PERMISSIONS);
+          const quotaCheck = canUserCreateInvoice(ownerAccess, currentUsageCount, Date.now(), false, ownerPerms);
+          if (!quotaCheck.allowed) {
+            throw new Error(quotaCheck.reason || 'इनवॉइस बनाने की अनुमति नहीं है।');
+          }
+          if (ownerAccess.status === 'trial') {
+            const trialReadiness = validateTrialFirestoreReadiness(ownerAccess);
+            if (!trialReadiness.valid) {
+              throw new Error(trialReadiness.reason || 'ट्रायल सेटिंग्स अपूर्ण हैं।');
+            }
+          }
+          if (actorSnap) {
+            if (!actorSnap.exists()) {
+              throw new Error('आपका यूज़र एक्सेस रिकॉर्ड नहीं मिला। कृपया Master Admin से संपर्क करें।');
+            }
+            const actorAccess = { uid: actorSnap.id, ...actorSnap.data() } as AppUserAccessRecord;
+            const actorCheck = canUserAccessApp(actorAccess, false);
+            if (!actorCheck.allowed) {
+              throw new Error(actorCheck.message || 'आपका खाता सक्रिय नहीं है।');
+            }
+            const firmProfileLike = firmData
+              ? ({ id: firmId, ...firmData } as unknown as JewellerProfile)
+              : undefined;
+            const actorPerms = resolveEffectivePermissions({
+              isPlatformAdmin: false,
+              userAccess: actorAccess,
+              firmProfile: firmProfileLike,
+              uid,
+              ownerAccess
+            });
+            if (!actorPerms.billing && !actorPerms.estimates) {
+              throw new Error('आपके खाते या स्टाफ रोल के लिए Billing / Estimates अनुमति बंद है।');
+            }
+          }
+        }
 
-    // b. Deduct stock from inventory
-    for (const [itemId, req] of requiredQtyByItemId.entries()) {
-      const snap = itemSnapMap.get(itemId);
-      const freshQty = snap.data().quantity || 0;
-      const newQty = freshQty - req.qty;
-      const itemRef = doc(targetDb, 'firms', firmId, 'inventory', itemId);
-      transaction.update(itemRef, { quantity: newQty });
-    }
+        for (const [itemId, req] of requiredQtyByItemId.entries()) {
+          const snap = itemSnapMap.get(itemId);
+          const freshQty = snap && snap.exists() ? (snap.data().quantity || 0) : 0;
+          if (!snap || !snap.exists() || freshQty < req.qty) {
+            throw new Error(
+              `स्टॉक में पर्याप्त मात्रा उपलब्ध नहीं है (${req.name}): उपलब्ध ${freshQty}, आवश्यक ${req.qty}`
+            );
+          }
+        }
 
-    // c. Update customer ledger
-    if (custRef && custSnap && custSnap.exists()) {
-      const cData = custSnap.data();
-      const newTotalPurchases = (cData.totalPurchases || 0) + invoiceDraft.grandTotal;
-      const newOutstanding = (cData.outstandingBalance || 0) + (invoiceDraft.payment?.dueAmount || 0);
-      transaction.update(custRef, {
-        totalPurchases: newTotalPurchases,
-        outstandingBalance: newOutstanding
+        // === 3. PREPARE WRITES ===
+        currentStep = 'writes';
+        let nextSeq = 1;
+        if (counterSnap.exists()) {
+          nextSeq = (counterSnap.data().currentVal || 0) + 1;
+        }
+        const actualInvoiceNumber = formatSequentialNumber(prefix, finYearStr, nextSeq);
+
+        const prevUsageData = usageSnap.exists() ? usageSnap.data() : null;
+        const nextMonthlyCount =
+          prevUsageData?.monthKey === monthKey ? Number(prevUsageData?.monthlyCount || 0) + 1 : 1;
+
+        // === 4. ALL WRITES AFTER READS ===
+        // a. Update sequence counter
+        transaction.set(
+          counterRef,
+          { currentVal: nextSeq, finYear: finYearStr, lastUpdated: istInfo.isoDateStr },
+          { merge: true }
+        );
+
+        // b. Deduct stock from inventory
+        for (const [itemId, req] of requiredQtyByItemId.entries()) {
+          const snap = itemSnapMap.get(itemId);
+          const freshQty = snap.data().quantity || 0;
+          const newQty = freshQty - req.qty;
+          const itemRef = doc(targetDb, 'firms', firmId, 'inventory', itemId);
+          transaction.update(itemRef, { quantity: newQty });
+        }
+
+        // c. Update customer ledger
+        if (custRef && custSnap && custSnap.exists()) {
+          const cData = custSnap.data();
+          const newTotalPurchases = (cData.totalPurchases || 0) + sanitizedDraft.grandTotal;
+          const newOutstanding = (cData.outstandingBalance || 0) + (sanitizedDraft.payment?.dueAmount || 0);
+          transaction.update(custRef, {
+            totalPurchases: newTotalPurchases,
+            outstandingBalance: newOutstanding
+          });
+        }
+
+        // d. Increment tamper-resistant per-owner usage counter inside the SAME transaction
+        const usagePayload: Record<string, any> = {
+          count: nextUsageCount,
+          monthKey,
+          monthlyCount: nextMonthlyCount,
+          lastInvoiceId: calculatedInvoiceId,
+          lastFirmId: firmId,
+          updatedAt: serverTimestamp()
+        };
+        if (usageSnap.exists()) {
+          transaction.update(usageRef, usagePayload);
+        } else {
+          transaction.set(usageRef, usagePayload);
+        }
+
+        // e. Save final invoice document with counter-derived ID (sanitized)
+        const finalInvoice: GSTInvoice = sanitizeInvoicePayload({
+          ...sanitizedDraft,
+          id: calculatedInvoiceId,
+          series,
+          invoiceType: series,
+          invoiceNumber: actualInvoiceNumber,
+          firmId
+        }, 'finalInvoice');
+
+        const invRef = doc(targetDb, 'firms', firmId, 'invoices', calculatedInvoiceId);
+        transaction.set(invRef, finalInvoice);
+
+        return finalInvoice;
       });
+
+      return createdInvoice;
+    } catch (err: any) {
+      const code = extractErrorCode(err);
+      // Requirement 2: Add a retry (up to 2 times with a short delay) ONLY for transient codes
+      // (internal, unavailable, deadline-exceeded, aborted). Never retry permission-denied or validation errors.
+      const isTransient = TRANSIENT_FIRESTORE_CODES.has(code) && currentStep !== 'validation' && currentStep !== 'sanitize';
+      if (isTransient && attempt < MAX_TRANSIENT_RETRIES) {
+        attempt++;
+        const backoffMs = attempt * 300;
+        console.warn(
+          `[createInvoiceAtomic] Transient Firestore error (code="${code}") at step="${currentStep}". Retrying attempt ${attempt}/${MAX_TRANSIENT_RETRIES} in ${backoffMs}ms...`,
+          err
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        continue;
+      }
+
+      const friendlyMessage = formatTransactionErrorMessage(err);
+      const diag: InvoiceCreationDiagnostics = {
+        code,
+        message: friendlyMessage,
+        step: currentStep,
+        firmId,
+        series,
+        invoiceId: calculatedInvoiceId,
+        uid,
+        userRole: opts?.isMasterAdmin ? 'master_admin' : undefined,
+        paymentMode: invoiceDraft.payment?.method,
+        itemCount: invoiceDraft.items?.length || 0,
+        retriesAttempted: attempt,
+        timestamp: new Date().toISOString(),
+        details: err?.message || String(err)
+      };
+
+      console.error('[createInvoiceAtomic] Transaction failed with diagnostics:', diag, err);
+      throw new InvoiceCreationError(diag, err);
     }
-
-    // d. Increment tamper-resistant per-owner usage counter inside the SAME transaction
-    const usagePayload: Record<string, any> = {
-      count: nextUsageCount,
-      monthKey,
-      monthlyCount: nextMonthlyCount,
-      lastInvoiceId: invoiceId,
-      lastFirmId: firmId,
-      updatedAt: serverTimestamp()
-    };
-    if (usageSnap.exists()) {
-      transaction.update(usageRef, usagePayload);
-    } else {
-      transaction.set(usageRef, usagePayload);
-    }
-
-    // e. Save final invoice document with counter-derived ID
-    const finalInvoice: GSTInvoice = stripUndefined({
-      ...invoiceDraft,
-      id: invoiceId,
-      series,
-      invoiceType: series,
-      invoiceNumber: actualInvoiceNumber,
-      firmId
-    });
-
-    const invRef = doc(targetDb, 'firms', firmId, 'invoices', invoiceId);
-    transaction.set(invRef, finalInvoice);
-
-    return finalInvoice;
-    });
-
-    return createdInvoice;
-  } catch (err: any) {
-    const friendly = formatTransactionErrorMessage(err);
-    const wrapped = new Error(friendly);
-    (wrapped as any).code = err?.code;
-    throw wrapped;
   }
 }
+
 
 /**
  * Atomically cancel invoice, restore stock, and reverse customer ledger.
@@ -897,6 +1079,228 @@ export async function cancelInvoiceAtomic(
       cancelledAt: getISTDate().isoDateStr
     });
   });
+}
+
+/**
+ * Executes Master Control > Rules & Support Billing Self-Test.
+ * Tests the complete atomic transaction path on throwaway test documents for:
+ * 1. GST Invoice with Cash payment
+ * 2. GST Invoice with Mixed payment
+ * 3. Estimate Bill with Cash payment
+ * 4. Estimate Bill with Mixed payment
+ * All test documents (invoices, test items, test customers) are cleaned up in finally blocks.
+ */
+export async function runBillingSelfTest(
+  firmId: string,
+  opts?: FirestoreOpts
+): Promise<BillingSelfTestSummary> {
+  const targetDb = opts?.db || db;
+  const startedAt = new Date().toISOString();
+
+  const cases: Array<{
+    id: string;
+    title: string;
+    invoiceType: InvoiceType;
+    paymentMethod: PaymentMethod;
+  }> = [
+    {
+      id: 'case_gst_cash',
+      title: 'GST Invoice • Cash (पक्का बिल - नकद)',
+      invoiceType: 'GST_INVOICE',
+      paymentMethod: 'Cash'
+    },
+    {
+      id: 'case_gst_mixed',
+      title: 'GST Invoice • Mixed Payment (पक्का बिल - मिक्स्ड)',
+      invoiceType: 'GST_INVOICE',
+      paymentMethod: 'Mixed'
+    },
+    {
+      id: 'case_est_cash',
+      title: 'Estimate Bill • Cash (कच्चा बिल / एस्टीमेट - नकद)',
+      invoiceType: 'ESTIMATE_BILL',
+      paymentMethod: 'Cash'
+    },
+    {
+      id: 'case_est_mixed',
+      title: 'Estimate Bill • Mixed Payment (कच्चा बिल / एस्टीमेट - मिक्स्ड)',
+      invoiceType: 'ESTIMATE_BILL',
+      paymentMethod: 'Mixed'
+    }
+  ];
+
+  const results: BillingSelfTestCaseResult[] = [];
+
+  for (const c of cases) {
+    const caseStartTime = Date.now();
+    const testItemId = `selftest-item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const testCustId = `selftest-cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    let createdInvoiceId: string | undefined = undefined;
+
+    const testItem: JewelleryItem = {
+      id: testItemId,
+      firmId,
+      tagNo: `TST-${Date.now().toString().slice(-4)}`,
+      name: `Self-Test Silver Coin (${c.invoiceType})`,
+      category: 'Silver',
+      metal: 'Silver',
+      purity: '925 Sterling',
+      grossWeight: 10,
+      netWeight: 10,
+      stoneWeight: 0,
+      stoneValue: 0,
+      wastagePercentage: 0,
+      makingChargeType: 'flat',
+      makingChargeRate: 50,
+      makingCharge: 50,
+      subtotal: 800,
+      hsnCode: '7113',
+      quantity: 5,
+      minStockAlert: 1,
+      barcode: `TSTBC-${Date.now()}`
+    };
+
+    const testCust: Customer = {
+      id: testCustId,
+      firmId,
+      name: 'Billing Self-Test Customer',
+      phone: '9999900000',
+      address: 'Test Terminal Bhopal',
+      city: 'Bhopal',
+      state: 'Madhya Pradesh (23)',
+      totalPurchases: 0,
+      outstandingBalance: 0,
+      createdAt: getISTDate().isoDateStr
+    };
+
+    const draft: Omit<GSTInvoice, 'id' | 'invoiceNumber'> = {
+      invoiceType: c.invoiceType,
+      date: getISTDate().isoDateStr,
+      customerId: testCustId,
+      customerName: testCust.name,
+      customerPhone: testCust.phone,
+      customerAddress: testCust.address,
+      placeOfSupply: 'Madhya Pradesh (23)',
+      isInterState: false,
+      items: [
+        {
+          itemId: testItemId,
+          tagNo: testItem.tagNo,
+          name: testItem.name,
+          category: 'Silver',
+          metal: 'Silver',
+          purity: '925 Sterling',
+          grossWeight: 10,
+          netWeight: 10,
+          stoneWeight: 0,
+          stoneValue: 0,
+          metalRateApplied: 75,
+          metalCost: 750,
+          wastagePercentage: 0,
+          wastageCost: 0,
+          makingChargeType: 'flat',
+          makingChargeRate: 50,
+          makingCharge: 50,
+          subtotal: 800,
+          hsnCode: '7113',
+          quantity: 1
+        }
+      ],
+      itemsSubtotal: 800,
+      oldMetalDeduction: 0,
+      taxableAmount: 800,
+      cgstRate: c.invoiceType === 'GST_INVOICE' ? 1.5 : 0,
+      sgstRate: c.invoiceType === 'GST_INVOICE' ? 1.5 : 0,
+      igstRate: 0,
+      cgstAmount: c.invoiceType === 'GST_INVOICE' ? 12 : 0,
+      sgstAmount: c.invoiceType === 'GST_INVOICE' ? 12 : 0,
+      igstAmount: 0,
+      totalTax: c.invoiceType === 'GST_INVOICE' ? 24 : 0,
+      hallmarkingTotalFee: 0,
+      discountAmount: 0,
+      grandTotal: c.invoiceType === 'GST_INVOICE' ? 824 : 800,
+      payment: {
+        method: c.paymentMethod,
+        amountPaid: c.paymentMethod === 'Mixed' ? 500 : (c.invoiceType === 'GST_INVOICE' ? 824 : 800),
+        dueAmount: c.paymentMethod === 'Mixed' ? (c.invoiceType === 'GST_INVOICE' ? 324 : 300) : 0,
+        transactionRef: c.paymentMethod === 'Mixed' ? 'SELFTEST-UTR-01' : undefined
+      },
+      status: c.paymentMethod === 'Mixed' ? 'Partial' : 'Paid',
+      notes: 'Automated Billing Self-Test Run',
+      hallmarkCertified: false
+    };
+
+    try {
+      // 1. Seed throwaway inventory and customer docs
+      await setDoc(doc(targetDb, 'firms', firmId, 'inventory', testItemId), testItem);
+      await setDoc(doc(targetDb, 'firms', firmId, 'customers', testCustId), testCust);
+
+      // 2. Execute atomic invoice creation
+      const prefix = c.invoiceType === 'GST_INVOICE' ? 'SMJ' : 'EST';
+      const createdInv = await createInvoiceAtomic(
+        firmId,
+        draft,
+        [testItem],
+        [testCust],
+        prefix,
+        opts
+      );
+      createdInvoiceId = createdInv.id;
+
+      results.push({
+        id: c.id,
+        title: c.title,
+        invoiceType: c.invoiceType,
+        paymentMethod: c.paymentMethod,
+        status: 'passed',
+        durationMs: Date.now() - caseStartTime,
+        invoiceId: createdInvoiceId
+      });
+    } catch (err: any) {
+      const diag: InvoiceCreationDiagnostics | undefined = err?.diagnostics;
+      results.push({
+        id: c.id,
+        title: c.title,
+        invoiceType: c.invoiceType,
+        paymentMethod: c.paymentMethod,
+        status: 'failed',
+        durationMs: Date.now() - caseStartTime,
+        errorCode: err?.code || diag?.code || 'unknown',
+        errorMessage: err?.message || String(err),
+        diagnostics: diag
+      });
+    } finally {
+      // 3. Clean up test documents
+      try {
+        if (createdInvoiceId) {
+          await deleteDoc(doc(targetDb, 'firms', firmId, 'invoices', createdInvoiceId));
+        }
+      } catch (cleanErr) {
+        console.warn(`[runBillingSelfTest] Cleanup test invoice ${createdInvoiceId} failed:`, cleanErr);
+      }
+      try {
+        await deleteDoc(doc(targetDb, 'firms', firmId, 'inventory', testItemId));
+      } catch (cleanErr) {
+        console.warn(`[runBillingSelfTest] Cleanup test inventory item ${testItemId} failed:`, cleanErr);
+      }
+      try {
+        await deleteDoc(doc(targetDb, 'firms', firmId, 'customers', testCustId));
+      } catch (cleanErr) {
+        console.warn(`[runBillingSelfTest] Cleanup test customer ${testCustId} failed:`, cleanErr);
+      }
+    }
+  }
+
+  const finishedAt = new Date().toISOString();
+  return {
+    firmId,
+    totalCases: cases.length,
+    passedCount: results.filter(r => r.status === 'passed').length,
+    failedCount: results.filter(r => r.status === 'failed').length,
+    results,
+    startedAt,
+    finishedAt
+  };
 }
 
 const MIGRATION_COLLECTIONS: { colName: string; snapshotKey: keyof FirmDataSnapshot; legacyGlobalKey: string }[] = [

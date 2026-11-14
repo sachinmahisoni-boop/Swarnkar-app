@@ -1096,5 +1096,279 @@ describe('Firestore Security Rules & Emulator Integration', () => {
         updateDoc(doc(masterDb, 'firms', 'firm-x', 'inventory', 'x1'), { quantity: 10 })
       );
     });
+
+    describe('POS Exact Transaction Reproductions (Master Admin, Active Owner, Trial Owner, Cashier with Mixed Payments)', () => {
+      const sampleItem: JewelleryItem = {
+        id: 'pos-gold-ring-1',
+        tagNo: 'RING-001',
+        name: '22K Gold Ring',
+        category: 'Gold',
+        metal: 'Gold',
+        purity: '22K',
+        grossWeight: 5.0,
+        netWeight: 5.0,
+        stoneWeight: 0,
+        stoneValue: 0,
+        wastagePercentage: 2,
+        makingChargeRate: 400,
+        makingChargeType: 'per_gram',
+        hsnCode: '7113',
+        quantity: 10,
+        minStockAlert: 2,
+        barcode: 'BC-RING-001'
+      };
+
+      const sampleCust: Customer = {
+        id: 'pos-cust-1',
+        name: 'Deepak Verma',
+        phone: '9826011111',
+        address: 'TT Nagar, Bhopal',
+        city: 'Bhopal',
+        state: 'Madhya Pradesh (23)',
+        totalPurchases: 0,
+        outstandingBalance: 0,
+        createdAt: '2026-11-14T00:00:00.000Z'
+      };
+
+      const buildPosDraft = (type: 'GST_INVOICE' | 'ESTIMATE_BILL'): Omit<GSTInvoice, 'id' | 'invoiceNumber'> => ({
+        invoiceType: type,
+        date: '2026-11-14',
+        customerId: sampleCust.id,
+        customerName: sampleCust.name,
+        customerPhone: sampleCust.phone,
+        customerAddress: sampleCust.address,
+        placeOfSupply: 'Madhya Pradesh (23)',
+        isInterState: false,
+        items: [
+          {
+            itemId: sampleItem.id,
+            tagNo: sampleItem.tagNo,
+            name: sampleItem.name,
+            category: 'Gold',
+            metal: 'Gold',
+            purity: '22K',
+            grossWeight: 5.0,
+            netWeight: 5.0,
+            stoneWeight: 0,
+            stoneValue: 0,
+            metalRateApplied: 7000,
+            metalCost: 35000,
+            wastagePercentage: 2,
+            wastageCost: 700,
+            makingChargeType: 'per_gram',
+            makingChargeRate: 400,
+            makingCharge: 2000,
+            subtotal: 37700,
+            hsnCode: '7113',
+            quantity: 1
+          }
+        ],
+        itemsSubtotal: 37700,
+        oldMetalDeduction: 0,
+        taxableAmount: 37700,
+        cgstRate: type === 'GST_INVOICE' ? 1.5 : 0,
+        sgstRate: type === 'GST_INVOICE' ? 1.5 : 0,
+        igstRate: 0,
+        cgstAmount: type === 'GST_INVOICE' ? 565.5 : 0,
+        sgstAmount: type === 'GST_INVOICE' ? 565.5 : 0,
+        igstAmount: 0,
+        totalTax: type === 'GST_INVOICE' ? 1131 : 0,
+        hallmarkingTotalFee: 0,
+        discountAmount: 0,
+        grandTotal: type === 'GST_INVOICE' ? 38831 : 37700,
+        payment: {
+          method: 'Mixed',
+          amountPaid: 20000,
+          dueAmount: type === 'GST_INVOICE' ? 18831 : 17700,
+          transactionRef: 'MIXED-POS-REF-99'
+        },
+        status: 'Partial',
+        notes: 'POS Sale with Mixed Payment',
+        hallmarkCertified: true
+      });
+
+      const seedFirmEnv = async (firmId: string, ownerUid: string, cashierUid?: string) => {
+        await testEnv.withSecurityRulesDisabled(async (ctx) => {
+          const adminDb = asModularDb(ctx.firestore());
+          const staffMap: Record<string, string> = {};
+          const staffPermsMap: Record<string, any> = {};
+          if (cashierUid) {
+            staffMap[cashierUid] = 'cashier';
+            staffPermsMap[cashierUid] = CASHIER_PERMISSIONS;
+          }
+          await setDoc(doc(adminDb, 'firms', firmId), {
+            ownerUid,
+            name: 'Shreem Mahal Jewellers',
+            staff: staffMap,
+            staffPermissions: staffPermsMap
+          });
+          await setDoc(doc(adminDb, 'firms', firmId, 'inventory', sampleItem.id), { ...sampleItem });
+          await setDoc(doc(adminDb, 'firms', firmId, 'customers', sampleCust.id), { ...sampleCust });
+        });
+      };
+
+      it('Master Admin: succeeds creating GST_INVOICE with Mixed payment and updates inventory/customer/counter/usage', async () => {
+        const firmId = 'firm-pos-master-1';
+        const ownerUid = 'owner-m1';
+        const masterUid = 'master-admin-pos';
+        await seedPlatformAdmin(masterUid);
+        await seedUser(ownerUid, 'active');
+        await seedFirmEnv(firmId, ownerUid);
+
+        const masterDb = asModularDb(testEnv.authenticatedContext(masterUid).firestore());
+        const createdInv = await createInvoiceAtomic(
+          firmId,
+          buildPosDraft('GST_INVOICE'),
+          [sampleItem],
+          [sampleCust],
+          'SMJ',
+          { db: masterDb, uid: masterUid, isMasterAdmin: true }
+        );
+
+        expect(createdInv.id).toMatch(/^GST_INVOICE_\d+$/);
+        expect(createdInv.payment.method).toBe('Mixed');
+        expect(createdInv.payment.amountPaid).toBe(20000);
+
+        const invDoc = (await getDoc(doc(masterDb, 'firms', firmId, 'invoices', createdInv.id))).data();
+        expect(invDoc?.id).toBe(createdInv.id);
+
+        const itemDoc = (await getDoc(doc(masterDb, 'firms', firmId, 'inventory', sampleItem.id))).data();
+        expect(itemDoc?.quantity).toBe(9);
+
+        const custDoc = (await getDoc(doc(masterDb, 'firms', firmId, 'customers', sampleCust.id))).data();
+        expect(custDoc?.totalPurchases).toBe(38831);
+        expect(custDoc?.outstandingBalance).toBe(18831);
+      });
+
+      it('Master Admin: succeeds creating ESTIMATE_BILL with Mixed payment', async () => {
+        const firmId = 'firm-pos-master-2';
+        const ownerUid = 'owner-m2';
+        const masterUid = 'master-admin-pos-2';
+        await seedPlatformAdmin(masterUid);
+        await seedUser(ownerUid, 'active');
+        await seedFirmEnv(firmId, ownerUid);
+
+        const masterDb = asModularDb(testEnv.authenticatedContext(masterUid).firestore());
+        const createdInv = await createInvoiceAtomic(
+          firmId,
+          buildPosDraft('ESTIMATE_BILL'),
+          [sampleItem],
+          [sampleCust],
+          'EST',
+          { db: masterDb, uid: masterUid, isMasterAdmin: true }
+        );
+
+        expect(createdInv.id).toMatch(/^ESTIMATE_BILL_\d+$/);
+        expect(createdInv.payment.method).toBe('Mixed');
+        const invDoc = (await getDoc(doc(masterDb, 'firms', firmId, 'invoices', createdInv.id))).data();
+        expect(invDoc?.invoiceType).toBe('ESTIMATE_BILL');
+      });
+
+      it('Owner (Active): succeeds with GST_INVOICE and Mixed payment', async () => {
+        const firmId = 'firm-pos-owner-1';
+        const ownerUid = 'owner-active-1';
+        await seedUser(ownerUid, 'active');
+        await seedFirmEnv(firmId, ownerUid);
+
+        const ownerDb = asModularDb(testEnv.authenticatedContext(ownerUid).firestore());
+        const createdInv = await createInvoiceAtomic(
+          firmId,
+          buildPosDraft('GST_INVOICE'),
+          [sampleItem],
+          [sampleCust],
+          'SMJ',
+          { db: ownerDb, uid: ownerUid }
+        );
+
+        expect(createdInv.id).toMatch(/^GST_INVOICE_1$/);
+        expect(createdInv.payment.method).toBe('Mixed');
+
+        const itemDoc = (await getDoc(doc(ownerDb, 'firms', firmId, 'inventory', sampleItem.id))).data();
+        expect(itemDoc?.quantity).toBe(9);
+      });
+
+      it('Owner (Active): succeeds with ESTIMATE_BILL and Mixed payment', async () => {
+        const firmId = 'firm-pos-owner-2';
+        const ownerUid = 'owner-active-2';
+        await seedUser(ownerUid, 'active');
+        await seedFirmEnv(firmId, ownerUid);
+
+        const ownerDb = asModularDb(testEnv.authenticatedContext(ownerUid).firestore());
+        const createdInv = await createInvoiceAtomic(
+          firmId,
+          buildPosDraft('ESTIMATE_BILL'),
+          [sampleItem],
+          [sampleCust],
+          'EST',
+          { db: ownerDb, uid: ownerUid }
+        );
+
+        expect(createdInv.id).toMatch(/^ESTIMATE_BILL_1$/);
+        expect(createdInv.payment.method).toBe('Mixed');
+      });
+
+      it('Owner (Trial): succeeds with GST_INVOICE and ESTIMATE_BILL with Mixed payment within trial quota', async () => {
+        const firmId = 'firm-pos-trial-1';
+        const ownerUid = 'owner-trial-1';
+        await seedUser(ownerUid, 'trial', 5, 10);
+        await seedFirmEnv(firmId, ownerUid);
+
+        const ownerDb = asModularDb(testEnv.authenticatedContext(ownerUid).firestore());
+        const inv1 = await createInvoiceAtomic(
+          firmId,
+          buildPosDraft('GST_INVOICE'),
+          [sampleItem],
+          [sampleCust],
+          'SMJ',
+          { db: ownerDb, uid: ownerUid }
+        );
+        expect(inv1.id).toBe('GST_INVOICE_1');
+        expect(inv1.payment.method).toBe('Mixed');
+
+        const inv2 = await createInvoiceAtomic(
+          firmId,
+          buildPosDraft('ESTIMATE_BILL'),
+          [sampleItem],
+          [sampleCust],
+          'EST',
+          { db: ownerDb, uid: ownerUid }
+        );
+        expect(inv2.id).toBe('ESTIMATE_BILL_2');
+        expect(inv2.payment.method).toBe('Mixed');
+      });
+
+      it('Staff Cashier: succeeds with GST_INVOICE and ESTIMATE_BILL with Mixed payment', async () => {
+        const firmId = 'firm-pos-cashier-1';
+        const ownerUid = 'owner-cashier-head';
+        const cashierUid = 'staff-cashier-pos';
+        await seedUser(ownerUid, 'active');
+        await seedUser(cashierUid, 'active');
+        await seedFirmEnv(firmId, ownerUid, cashierUid);
+
+        const cashierDb = asModularDb(testEnv.authenticatedContext(cashierUid).firestore());
+        const invGst = await createInvoiceAtomic(
+          firmId,
+          buildPosDraft('GST_INVOICE'),
+          [sampleItem],
+          [sampleCust],
+          'SMJ',
+          { db: cashierDb, uid: cashierUid }
+        );
+        expect(invGst.id).toBe('GST_INVOICE_1');
+        expect(invGst.payment.method).toBe('Mixed');
+
+        const invEst = await createInvoiceAtomic(
+          firmId,
+          buildPosDraft('ESTIMATE_BILL'),
+          [sampleItem],
+          [sampleCust],
+          'EST',
+          { db: cashierDb, uid: cashierUid }
+        );
+        expect(invEst.id).toBe('ESTIMATE_BILL_2');
+        expect(invEst.payment.method).toBe('Mixed');
+      });
+    });
   });
 });
+

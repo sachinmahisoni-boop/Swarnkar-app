@@ -606,3 +606,47 @@ export interface MasterControlSettings {
   updatedAt: string;
   updatedByUid?: string;
 }
+
+export type InvoiceTransactionStep = 'sanitize' | 'reads' | 'validation' | 'writes';
+
+export interface InvoiceCreationDiagnostics {
+  code: string;
+  message: string;
+  step: InvoiceTransactionStep;
+  firmId: string;
+  series: InvoiceType;
+  invoiceId: string;
+  uid?: string;
+  userRole?: string;
+  userStatus?: string;
+  paymentMode?: PaymentMethod;
+  itemCount: number;
+  retriesAttempted?: number;
+  offendingField?: string;
+  timestamp: string;
+  details?: string;
+}
+
+export interface BillingSelfTestCaseResult {
+  id: string;
+  title: string;
+  invoiceType: InvoiceType;
+  paymentMethod: PaymentMethod;
+  status: 'passed' | 'failed';
+  durationMs: number;
+  errorCode?: string;
+  errorMessage?: string;
+  invoiceId?: string;
+  diagnostics?: InvoiceCreationDiagnostics;
+}
+
+export interface BillingSelfTestSummary {
+  firmId: string;
+  totalCases: number;
+  passedCount: number;
+  failedCount: number;
+  results: BillingSelfTestCaseResult[];
+  startedAt: string;
+  finishedAt: string;
+}
+

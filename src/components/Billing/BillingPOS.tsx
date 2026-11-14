@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { JewelleryItem, Customer, GSTInvoice, InvoiceItem, MetalRate, OldMetalExchange, PaymentMethod, JewellerProfile, InvoiceType, MetalType } from '../../types';
-import { Search, Plus, Trash2, Calculator, ShoppingBag, Coins, Sparkles, Check, UserPlus, ArrowRight, ShieldCheck, Tag, Receipt, Gem, Scan, Edit3, X, AlertTriangle } from 'lucide-react';
+import { JewelleryItem, Customer, GSTInvoice, InvoiceItem, MetalRate, OldMetalExchange, PaymentMethod, JewellerProfile, InvoiceType, MetalType, InvoiceCreationDiagnostics } from '../../types';
+import { Search, Plus, Trash2, Calculator, ShoppingBag, Coins, Sparkles, Check, UserPlus, ArrowRight, ShieldCheck, Tag, Receipt, Gem, Scan, Edit3, X, AlertTriangle, Copy, CheckCircle2, Bug, RefreshCw } from 'lucide-react';
 import { calculateItemSubtotal, calculateOldMetalValue, getHsnAndGstRate, roundPaise, allocateBillDiscount } from '../../lib/pricing';
 import { calculateTaxBreakdown, isInterStateSupply, checkComplianceWarnings, validateGstin } from '../../lib/gst';
 import { checkStockAvailability } from '../../lib/stock';
 import { getISTDate } from '../../lib/invoiceNumber';
+import { auth } from '../../lib/firebase';
 
 interface BillingPOSProps {
   inventory: JewelleryItem[];
@@ -15,6 +16,9 @@ interface BillingPOSProps {
   onCreateInvoice: (invoiceDraft: Omit<GSTInvoice, 'id' | 'invoiceNumber'>, prefix?: string) => Promise<GSTInvoice | void> | void;
   onUpdateInventoryQty: (itemId: string, qtyDelta: number) => void;
   canCreateInvoice?: boolean;
+  userRole?: string;
+  userStatus?: string;
+  currentUserId?: string;
   invoiceQuotaStatus?: {
     allowed: boolean;
     isTrial: boolean;
@@ -37,6 +41,9 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
   onCreateInvoice,
   onUpdateInventoryQty,
   canCreateInvoice = true,
+  userRole,
+  userStatus,
+  currentUserId,
   invoiceQuotaStatus,
 }) => {
   // Billing Mode: GST Tax Invoice vs Non-GST Estimate
@@ -116,6 +123,8 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
   const [hallmarkCertified, setHallmarkCertified] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [diagnosticsModal, setDiagnosticsModal] = useState<InvoiceCreationDiagnostics | null>(null);
+  const [copiedDiagnostics, setCopiedDiagnostics] = useState(false);
 
   // Selected Customer Resolution
   const selectedCustomer: Customer = selectedCustomerId === 'walkin' ? {
@@ -483,37 +492,38 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
 
   // Finalize Invoice Creation
   const handleGenerateInvoice = async () => {
-    setSubmitError(null);
-    if (!canCreateInvoice || (invoiceQuotaStatus && !invoiceQuotaStatus.allowed)) {
-      setSubmitError(invoiceQuotaStatus?.reason || 'नया बिल बनाने की अनुमति नहीं है या ट्रायल सीमा समाप्त हो गई है।');
-      return;
-    }
-    if (cartItems.length === 0) {
-      setSubmitError("कृपया बिल में कम से कम एक आभूषण आइटम जोड़ें।");
-      return;
-    }
-
-    // Verify stock availability
-    const stockCheck = checkStockAvailability(cartItems, inventory);
-    if (!stockCheck.canFulfill) {
-      const msgs = stockCheck.issues.map(i => i.error).join(' • ');
-      setSubmitError(`स्टॉक में कमी: ${msgs}`);
-      return;
-    }
-
-    if (compliance.panMissing) {
-      setSubmitError(compliance.message || '₹2 लाख से अधिक के बिल हेतु PAN नंबर आवश्यक है।');
-      return;
-    }
-
-    if (amountPaid > grandTotal) {
-      setSubmitError(`प्राप्त राशि (₹${amountPaid}) कुल बिल राशि (₹${grandTotal}) से अधिक नहीं हो सकती।`);
-      return;
-    }
-
     setIsSubmitting(true);
+    setSubmitError(null);
 
     try {
+      if (!canCreateInvoice || (invoiceQuotaStatus && !invoiceQuotaStatus.allowed)) {
+        const reason = invoiceQuotaStatus?.reason || 'नया बिल बनाने की अनुमति नहीं है या ट्रायल सीमा समाप्त हो गई है।';
+        setSubmitError(reason);
+        return;
+      }
+      if (cartItems.length === 0) {
+        setSubmitError("कृपया बिल में कम से कम एक आभूषण आइटम जोड़ें।");
+        return;
+      }
+
+      // Verify stock availability
+      const stockCheck = checkStockAvailability(cartItems, inventory);
+      if (!stockCheck.canFulfill) {
+        const msgs = stockCheck.issues.map(i => i.error).join(' • ');
+        setSubmitError(`स्टॉक में कमी: ${msgs}`);
+        return;
+      }
+
+      if (compliance.panMissing) {
+        setSubmitError(compliance.message || '₹2 लाख से अधिक के बिल हेतु PAN नंबर आवश्यक है।');
+        return;
+      }
+
+      if (amountPaid > grandTotal) {
+        setSubmitError(`प्राप्त राशि (₹${amountPaid}) कुल बिल राशि (₹${grandTotal}) से अधिक नहीं हो सकती।`);
+        return;
+      }
+
       const prefix = isGSTEnabled ? 'SMJ' : 'EST';
       const dueAmt = Math.max(0, roundPaise(grandTotal - amountPaid));
 
@@ -558,7 +568,7 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
 
       await onCreateInvoice(invoiceDraft, prefix);
 
-      // Reset POS cart
+      // Reset POS cart on success
       setSubmitError(null);
       setCartItems([]);
       setDiscountAmount(0);
@@ -567,10 +577,55 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
       setEnableOldExchange(false);
       setCustomerPANInput('');
     } catch (err: any) {
-      console.error(err);
-      setSubmitError(err?.message || String(err) || 'इनवॉइस बनाने में त्रुटि हुई।');
+      const diag: InvoiceCreationDiagnostics = (err as any)?.diagnostics || {
+        code: (err as any)?.code || 'unknown',
+        message: err?.message || String(err) || 'इनवॉइस बनाने में अज्ञात त्रुटि हुई।',
+        step: (err as any)?.step || 'writes',
+        firmId: activeProfile?.id || '',
+        series: invoiceType,
+        invoiceId: (err as any)?.invoiceId || `${invoiceType}_pending`,
+        uid: currentUserId || auth?.currentUser?.uid || '',
+        userRole: userRole || 'owner',
+        userStatus: userStatus || 'active',
+        paymentMode: paymentMethod,
+        itemCount: cartItems.length,
+        retriesAttempted: (err as any)?.retriesAttempted ?? 0,
+        timestamp: new Date().toISOString(),
+        details: err?.message || String(err)
+      };
+
+      console.error('[BillingPOS] Invoice creation failed with diagnostics:', diag, err);
+      setSubmitError(diag.message || 'इनवॉइस बनाने में त्रुटि हुई।');
+      setDiagnosticsModal(diag);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleCopyErrorDetails = async () => {
+    if (!diagnosticsModal) return;
+    const detailsToCopy = {
+      code: diagnosticsModal.code,
+      message: diagnosticsModal.message,
+      step: diagnosticsModal.step,
+      firmId: diagnosticsModal.firmId || activeProfile?.id || 'N/A',
+      series: diagnosticsModal.series,
+      invoiceId: diagnosticsModal.invoiceId,
+      uid: diagnosticsModal.uid || currentUserId || auth?.currentUser?.uid || 'N/A',
+      roleStatus: `${userRole || diagnosticsModal.userRole || 'owner'} / ${userStatus || diagnosticsModal.userStatus || 'active'}`,
+      paymentMode: diagnosticsModal.paymentMode || paymentMethod,
+      itemCount: diagnosticsModal.itemCount,
+      retriesAttempted: diagnosticsModal.retriesAttempted ?? 0,
+      offendingField: diagnosticsModal.offendingField || null,
+      timestamp: diagnosticsModal.timestamp,
+      rawError: diagnosticsModal.details || diagnosticsModal.message
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(detailsToCopy, null, 2));
+      setCopiedDiagnostics(true);
+      setTimeout(() => setCopiedDiagnostics(false), 2500);
+    } catch (clipErr) {
+      console.warn('[BillingPOS] Clipboard write failed:', clipErr);
     }
   };
 
@@ -1750,6 +1805,141 @@ export const BillingPOS: React.FC<BillingPOSProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Diagnosable Invoice Creation Error with Copy Button */}
+      {diagnosticsModal && (
+        <div className="fixed inset-0 z-50 bg-stone-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl text-slate-900 dark:text-slate-100 my-auto">
+            <div className="flex items-start justify-between pb-3 border-b border-stone-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-400 rounded-xl">
+                  <Bug className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-stone-900 dark:text-slate-100 text-sm sm:text-base">
+                    इनवॉइस निर्माण त्रुटि विवरण (Diagnostics)
+                  </h3>
+                  <p className="text-[11px] text-stone-500 dark:text-slate-400">
+                    Firestore Transaction Failure Details &amp; Telemetry
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDiagnosticsModal(null)}
+                className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                aria-label="Close error modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Error Message & Badges */}
+            <div className="mt-4 space-y-3 text-xs">
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900/60 rounded-xl text-rose-900 dark:text-rose-200 font-semibold leading-relaxed">
+                {diagnosticsModal.message}
+              </div>
+
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                <span className="px-2.5 py-1 bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 rounded-lg font-mono font-bold text-[11px]">
+                  Code: {diagnosticsModal.code}
+                </span>
+                <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 rounded-lg font-mono font-bold text-[11px]">
+                  Step: {diagnosticsModal.step}
+                </span>
+                <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300 rounded-lg font-mono font-bold text-[11px]">
+                  Series: {diagnosticsModal.series}
+                </span>
+                <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 rounded-lg font-mono font-bold text-[11px]">
+                  Payment: {diagnosticsModal.paymentMode || paymentMethod}
+                </span>
+              </div>
+
+              {/* Technical Specifications Grid */}
+              <div className="bg-stone-50 dark:bg-slate-800/60 rounded-xl p-3 border border-stone-200 dark:border-slate-800 space-y-1.5 font-mono text-[11px]">
+                <div className="flex justify-between items-center text-stone-600 dark:text-slate-400">
+                  <span>Firm ID:</span>
+                  <span className="font-bold text-stone-900 dark:text-slate-200 truncate max-w-[200px]">
+                    {diagnosticsModal.firmId || activeProfile?.id || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-stone-600 dark:text-slate-400">
+                  <span>Invoice ID:</span>
+                  <span className="font-bold text-stone-900 dark:text-slate-200">
+                    {diagnosticsModal.invoiceId}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-stone-600 dark:text-slate-400">
+                  <span>User UID:</span>
+                  <span className="font-bold text-stone-900 dark:text-slate-200 truncate max-w-[200px]">
+                    {diagnosticsModal.uid || currentUserId || auth?.currentUser?.uid || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-stone-600 dark:text-slate-400">
+                  <span>Role / Status:</span>
+                  <span className="font-bold text-stone-900 dark:text-slate-200">
+                    {userRole || diagnosticsModal.userRole || 'owner'} / {userStatus || diagnosticsModal.userStatus || 'active'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-stone-600 dark:text-slate-400">
+                  <span>Items in Cart:</span>
+                  <span className="font-bold text-stone-900 dark:text-slate-200">
+                    {diagnosticsModal.itemCount} items
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-stone-600 dark:text-slate-400">
+                  <span>Retries Attempted:</span>
+                  <span className="font-bold text-stone-900 dark:text-slate-200">
+                    {diagnosticsModal.retriesAttempted ?? 0}
+                  </span>
+                </div>
+                {diagnosticsModal.offendingField && (
+                  <div className="flex justify-between items-center text-rose-600 dark:text-rose-400">
+                    <span>Offending Field:</span>
+                    <span className="font-bold truncate max-w-[200px]">
+                      {diagnosticsModal.offendingField}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-stone-600 dark:text-slate-400 pt-1 border-t border-stone-200 dark:border-slate-700">
+                  <span>Timestamp:</span>
+                  <span className="text-stone-500 dark:text-slate-400">
+                    {new Date(diagnosticsModal.timestamp).toLocaleTimeString('en-IN')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions: Copy Error Details & Close */}
+            <div className="mt-5 pt-3 border-t border-stone-100 dark:border-slate-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleCopyErrorDetails}
+                className="flex-1 py-2.5 px-4 bg-stone-900 hover:bg-stone-800 dark:bg-amber-600 dark:hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+              >
+                {copiedDiagnostics ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>कॉपी हो गया! (Copied)</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Copy Error Details (विवरण कॉपी करें)</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDiagnosticsModal(null)}
+                className="py-2.5 px-4 bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-700 dark:text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Close (बंद करें)
+              </button>
+            </div>
           </div>
         </div>
       )}

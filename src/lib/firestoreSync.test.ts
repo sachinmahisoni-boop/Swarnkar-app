@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createInvoiceAtomic, cancelInvoiceAtomic } from './firestoreSync';
+import {
+  createInvoiceAtomic,
+  cancelInvoiceAtomic,
+  sanitizeInvoicePayload,
+  InvoiceCreationError,
+  runBillingSelfTest
+} from './firestoreSync';
 import { GSTInvoice, JewelleryItem, Customer } from '../types';
 
 // Mock Firebase module
@@ -27,9 +33,15 @@ vi.mock('firebase/firestore', () => ({
     };
   }),
   getDocs: vi.fn(async () => ({ docs: [], empty: true })),
-  setDoc: vi.fn(),
-  updateDoc: vi.fn(),
-  deleteDoc: vi.fn(),
+  setDoc: vi.fn(async (path: string, data: any) => {
+    docStore[path] = data;
+  }),
+  updateDoc: vi.fn(async (path: string, data: any) => {
+    docStore[path] = { ...(docStore[path] || {}), ...data };
+  }),
+  deleteDoc: vi.fn(async (path: string) => {
+    delete docStore[path];
+  }),
   addDoc: vi.fn(),
   query: vi.fn(),
   where: vi.fn(),
@@ -55,6 +67,9 @@ vi.mock('firebase/firestore', () => ({
     }
     static fromMillis(ms: number) {
       return new MockTimestamp(Math.floor(ms / 1000), 0);
+    }
+    static fromDate(date: Date) {
+      return new MockTimestamp(Math.floor(date.getTime() / 1000), 0);
     }
   },
   writeBatch: vi.fn(),
@@ -362,5 +377,126 @@ describe('Firestore Atomic Operations Tests', () => {
     await expect(cancelInvoiceAtomic(firmId, invoiceToCancel, 'Repeat cancel', 'Owner')).rejects.toThrow(
       'यह इनवॉइस पहले ही रद्द (Cancel) हो चुका है।'
     );
+  });
+
+  describe('sanitizeInvoicePayload', () => {
+    it('removes undefined, sanitizes NaN and Infinity to 0, and converts Date to Timestamp', () => {
+      const input = {
+        name: 'Gold Ring',
+        notes: undefined,
+        price: NaN,
+        infiniteRate: Infinity,
+        createdAt: new Date('2026-11-14T10:00:00Z'),
+        nested: {
+          subVal: undefined,
+          margin: -Infinity,
+          validNum: 42
+        },
+        items: [
+          { tag: 'A1', badNumber: NaN }
+        ]
+      };
+
+      const sanitized = sanitizeInvoicePayload(input, 'testRoot');
+
+      expect(sanitized.notes).toBeUndefined();
+      expect('notes' in sanitized).toBe(false);
+      expect(sanitized.price).toBe(0);
+      expect(sanitized.infiniteRate).toBe(0);
+      expect(sanitized.nested.subVal).toBeUndefined();
+      expect(sanitized.nested.margin).toBe(0);
+      expect(sanitized.nested.validNum).toBe(42);
+      expect(sanitized.items[0].badNumber).toBe(0);
+      expect(typeof (sanitized.createdAt as any).toMillis).toBe('function');
+    });
+
+    it('rejects nested arrays and names the offending field', () => {
+      const badInput = {
+        validArray: [
+          ['nestedArrayItem']
+        ]
+      };
+
+      expect(() => sanitizeInvoicePayload(badInput, 'invoicePayload')).toThrow(
+        /Nested array detected at offending field: "invoicePayload\.validArray\[0\]"/
+      );
+    });
+  });
+
+  describe('createInvoiceAtomic Diagnostics & Self-Test', () => {
+    it('catches failures and throws structured InvoiceCreationError with full diagnostics', async () => {
+      // Intentionally missing owner user in docStore to trigger validation error
+      delete docStore['users/test-user-123'];
+
+      const draft: Omit<GSTInvoice, 'id' | 'invoiceNumber'> = {
+        invoiceType: 'ESTIMATE_BILL',
+        date: '2026-11-14',
+        customerId: 'walkin',
+        customerName: 'Cash Customer',
+        customerPhone: '9999999999',
+        customerAddress: 'Bhopal',
+        placeOfSupply: 'Madhya Pradesh (23)',
+        isInterState: false,
+        items: [],
+        itemsSubtotal: 0,
+        oldMetalDeduction: 0,
+        taxableAmount: 0,
+        cgstRate: 0,
+        sgstRate: 0,
+        igstRate: 0,
+        cgstAmount: 0,
+        sgstAmount: 0,
+        igstAmount: 0,
+        totalTax: 0,
+        hallmarkingTotalFee: 0,
+        discountAmount: 0,
+        grandTotal: 0,
+        payment: {
+          method: 'Mixed',
+          amountPaid: 0,
+          dueAmount: 0
+        },
+        status: 'Paid',
+        hallmarkCertified: false
+      };
+
+      try {
+        await createInvoiceAtomic(firmId, draft, [], []);
+        expect.unreachable('Should have thrown InvoiceCreationError');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(InvoiceCreationError);
+        expect(err.diagnostics).toBeDefined();
+        expect(err.diagnostics.firmId).toBe(firmId);
+        expect(err.diagnostics.series).toBe('ESTIMATE_BILL');
+        expect(err.diagnostics.step).toBe('validation');
+        expect(err.diagnostics.paymentMode).toBe('Mixed');
+      }
+    });
+
+    it('runs runBillingSelfTest across all 4 combinations and cleans up test documents', async () => {
+      docStore[`firms/${firmId}`] = { ownerUid: 'test-user-123', name: 'Test Firm', staff: {} };
+      docStore['users/test-user-123'] = { uid: 'test-user-123', status: 'active', role: 'owner' };
+
+      const summary = await runBillingSelfTest(firmId, {
+        uid: 'test-user-123',
+        isMasterAdmin: true
+      });
+
+      expect(summary.totalCases).toBe(4);
+      expect(summary.passedCount).toBe(4);
+      expect(summary.failedCount).toBe(0);
+      expect(summary.results.length).toBe(4);
+
+      // Verify each case passed
+      const caseIds = summary.results.map(r => r.id);
+      expect(caseIds).toContain('case_gst_cash');
+      expect(caseIds).toContain('case_gst_mixed');
+      expect(caseIds).toContain('case_est_cash');
+      expect(caseIds).toContain('case_est_mixed');
+
+      // Verify throwaway test items and customers were cleaned up
+      const remainingTestDocs = Object.keys(docStore).filter(k => k.includes('selftest-item') || k.includes('selftest-cust'));
+      expect(remainingTestDocs.length).toBe(0);
+    });
   });
 });

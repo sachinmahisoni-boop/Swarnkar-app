@@ -2192,6 +2192,9 @@ export default function App() {
             onUpdateInventoryQty={handleUpdateInventoryQty}
             canCreateInvoice={isDemoUser || hasActionPermission(activeUserAccess, 'canCreateInvoice', effectivePermissions, isMasterAdmin)}
             invoiceQuotaStatus={invoiceQuotaStatus}
+            userRole={isMasterAdmin ? 'master_admin' : activeUserAccess?.role}
+            userStatus={activeUserAccess?.status}
+            currentUserId={currentUserId}
           />
         )}
 
