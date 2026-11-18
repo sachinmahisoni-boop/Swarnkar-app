@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PurchaseInvoice, PurchaseItem, Vendor, MetalRate, JewelleryItem, MetalType } from '../../types';
-import { Truck, Plus, Search, Calendar, Scale, Coins, ShieldCheck, CheckCircle2, DollarSign, X, PackagePlus, Eye, Printer, Building2, ArrowDownRight, UserPlus, Receipt } from 'lucide-react';
+import { Truck, Plus, Search, Calendar, Scale, Coins, ShieldCheck, CheckCircle2, DollarSign, X, PackagePlus, Eye, Printer, Building2, ArrowDownRight, UserPlus, Receipt, AlertTriangle } from 'lucide-react';
 import { AddVendorModal } from '../Vendors/AddVendorModal';
 import { VendorList } from '../Vendors/VendorList';
 import { getISTDate } from '../../lib/invoiceNumber';
@@ -10,7 +10,7 @@ interface PurchaseManagerProps {
   vendors: Vendor[];
   categories: string[];
   rates: MetalRate[];
-  onAddPurchase: (purchase: PurchaseInvoice, stockItemsToInsert: JewelleryItem[]) => void;
+  onAddPurchase: (purchase: PurchaseInvoice, stockItemsToInsert: JewelleryItem[], vendorSnapshot?: Vendor) => Promise<void> | void;
   onUpdateVendorBalance: (vendorId: string, cashDelta: number, goldDelta: number) => void;
   onAddVendor: (vendor: Vendor) => void;
   onUpdateVendor: (vendor: Vendor) => void;
@@ -36,15 +36,32 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
   const [showNewPurchaseModal, setShowNewPurchaseModal] = useState(false);
   const [showAddVendorModal, setShowAddVendorModal] = useState(false);
   const [selectedPurchaseDetails, setSelectedPurchaseDetails] = useState<PurchaseInvoice | null>(null);
+  const [isSavingPurchase, setIsSavingPurchase] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [purchaseSuccessMsg, setPurchaseSuccessMsg] = useState<string | null>(null);
+
+  const buildNextBillNo = (count: number) =>
+    `PUR-${getISTDate().isoDateStr.slice(0, 4)}-${String(count + 1).padStart(4, '0')}`;
 
   // New Purchase Form State
   const [vendorId, setVendorId] = useState(vendors[0]?.id || '');
-  const [purchaseBillNo, setPurchaseBillNo] = useState(`PUR-2026-${String(purchases.length + 18).padStart(4, '0')}`);
+  const [purchaseBillNo, setPurchaseBillNo] = useState(() => buildNextBillNo(purchases.length));
   const [purchaseDate, setPurchaseDate] = useState(getISTDate().isoDateStr);
   const [purchaseType, setPurchaseType] = useState<'GST_INVOICE' | 'ESTIMATE_BILL'>('GST_INVOICE');
   const [paymentMode, setPaymentMode] = useState<PurchaseInvoice['paymentMode']>('Bank Transfer');
   const [amountPaid, setAmountPaid] = useState<number>(0);
   const [notes, setNotes] = useState('');
+
+  // Keep vendorId valid whenever vendors finish loading from Firestore or a vendor is added
+  useEffect(() => {
+    if (vendors.length === 0) {
+      if (vendorId !== '') setVendorId('');
+      return;
+    }
+    if (!vendorId || !vendors.some((v) => v.id === vendorId)) {
+      setVendorId(vendors[0].id);
+    }
+  }, [vendors, showNewPurchaseModal, vendorId]);
 
   // Purchase Items State
   const [items, setItems] = useState<PurchaseItem[]>([
@@ -125,31 +142,42 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
       if (i === idx) {
         const updated = { ...item, [field]: value };
         if (field === 'grossWeight' || field === 'stoneWeight') {
-          updated.netWeight = Math.max(0, updated.grossWeight - updated.stoneWeight);
+          const gWt = Number(updated.grossWeight) || 0;
+          const sWt = Number(updated.stoneWeight) || 0;
+          updated.netWeight = Number(Math.max(0, gWt - sWt).toFixed(3));
         }
 
         if (field === 'purity') {
-          // Auto-suggest wholesale billing touch based on purity
-          if (value === '24K') updated.wholesaleTouch = 99.9;
-          else if (value === '22K') updated.wholesaleTouch = 92;
-          else if (value === '18K') updated.wholesaleTouch = 80;
-          else if (value === '14K') updated.wholesaleTouch = 65;
-          else if (value === '9K') updated.wholesaleTouch = 45;
-          else if (value === '999 Fine') updated.wholesaleTouch = 99.9;
-          else if (value === '925 Sterling') updated.wholesaleTouch = 92.5;
+          // Auto-sync metal type and wholesale billing touch based on purity
+          if (value === '999 Fine' || value === '925 Sterling') {
+            updated.metal = 'Silver';
+            updated.wholesaleTouch = value === '999 Fine' ? 99.9 : 92.5;
+          } else {
+            updated.metal = 'Gold';
+            if (value === '24K') updated.wholesaleTouch = 99.9;
+            else if (value === '22K') updated.wholesaleTouch = 92;
+            else if (value === '18K') updated.wholesaleTouch = 80;
+            else if (value === '14K') updated.wholesaleTouch = 65;
+            else if (value === '9K') updated.wholesaleTouch = 45;
+          }
         }
+
+        const safeNetWt = Number(updated.netWeight) || 0;
+        const safeRate = Number(updated.ratePerGram) || 0;
+        const safeMaking = Number(updated.makingCharge) || 0;
+        const safeStoneVal = Number(updated.stoneValue) || 0;
 
         // Recalculate amount based on mode
         if (updated.calculationMode === 'wastage') {
           // Fine = Net Wt * (Wholesale Touch % / 100)
-          const touch = updated.wholesaleTouch || 0;
-          updated.fineWeight = updated.netWeight * (touch / 100);
-          updated.totalAmount = Math.round((updated.fineWeight * updated.ratePerGram) + updated.stoneValue);
+          const touch = Number(updated.wholesaleTouch) || 0;
+          updated.fineWeight = Number((safeNetWt * (touch / 100)).toFixed(3));
+          updated.totalAmount = Math.round((updated.fineWeight * safeRate) + safeStoneVal);
         } else {
           // Traditional: (Net Wt * Rate) + (Net Wt * Making) + Stone
-          const metalCost = updated.netWeight * updated.ratePerGram;
-          const makingCost = updated.netWeight * updated.makingCharge;
-          updated.totalAmount = Math.round(metalCost + makingCost + updated.stoneValue);
+          const metalCost = safeNetWt * safeRate;
+          const makingCost = safeNetWt * safeMaking;
+          updated.totalAmount = Math.round(metalCost + makingCost + safeStoneVal);
         }
         return updated;
       }
@@ -157,51 +185,107 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
     }));
   };
 
-  const handleCreatePurchase = (e: React.FormEvent) => {
+  const handleCreatePurchase = async (e: React.FormEvent) => {
     e.preventDefault();
-    const vendor = vendors.find(v => v.id === vendorId);
-    if (!vendor) return;
+    setPurchaseError(null);
 
-    const balanceDue = Math.max(0, formGrandTotal - Number(amountPaid));
+    if (vendors.length === 0) {
+      setPurchaseError('कृपया पहले सप्लायर जोड़ें (+ Add New Vendor बटन दबाएं)।');
+      return;
+    }
 
-    const totalFineWeight = items.reduce((s, i) => {
+    const vendor = vendors.find(v => v.id === vendorId) || (vendors.length === 1 ? vendors[0] : undefined);
+    if (!vendor) {
+      setPurchaseError('कृपया एक सप्लायर (Vendor) चुनें।');
+      return;
+    }
+
+    if (!purchaseBillNo.trim()) {
+      setPurchaseError('कृपया Purchase Bill No. दर्ज करें।');
+      return;
+    }
+
+    if (items.length === 0) {
+      setPurchaseError('कृपया कम से कम एक आइटम लॉट जोड़ें।');
+      return;
+    }
+
+    const sanitizedItems: PurchaseItem[] = items.map((it) => {
+      const grossWeight = Number(it.grossWeight) || 0;
+      const stoneWeight = Number(it.stoneWeight) || 0;
+      const netWeight = Number(it.netWeight) || Math.max(0, grossWeight - stoneWeight);
+      const ratePerGram = Number(it.ratePerGram) || 0;
+      const makingCharge = Number(it.makingCharge) || 0;
+      const stoneValue = Number(it.stoneValue) || 0;
+      const wholesaleTouch = Number(it.wholesaleTouch) || 0;
+      const totalAmount = Number(it.totalAmount) || 0;
+      const quantity = Math.max(1, Math.round(Number(it.quantity) || 1));
+
+      return {
+        ...it,
+        name: (it.name || 'Inward Jewellery Lot').trim(),
+        category: it.category || categories[0] || 'Necklace',
+        grossWeight,
+        stoneWeight,
+        netWeight,
+        ratePerGram,
+        makingCharge,
+        stoneValue,
+        wholesaleTouch,
+        fineWeight: Number(it.fineWeight) || 0,
+        wastagePercentage: Number(it.wastagePercentage) || 0,
+        totalAmount,
+        quantity,
+        retailMakingChargeRate: Number(it.retailMakingChargeRate) || 0,
+      };
+    });
+
+    const safePaid = Math.max(0, Number(amountPaid) || 0);
+    const safeSubtotal = sanitizedItems.reduce((s, i) => s + i.totalAmount, 0);
+    const safeGstAmount = Math.round(safeSubtotal * formGstRate);
+    const safeGrandTotal = safeSubtotal + safeGstAmount;
+    const balanceDue = Math.max(0, safeGrandTotal - safePaid);
+    const safeTotalGross = sanitizedItems.reduce((s, i) => s + i.grossWeight, 0);
+    const safeTotalNet = sanitizedItems.reduce((s, i) => s + i.netWeight, 0);
+
+    const totalFineWeight = sanitizedItems.reduce((s, i) => {
       if (i.calculationMode === 'wastage') {
         return s + (i.fineWeight || 0);
       }
-      // For making mode, assume 22K (91.6%) for gold if not specified
       const purityFactor = i.purity === '24K' ? 0.999 : i.purity === '22K' ? 0.916 : 0.75;
       return s + (i.netWeight * purityFactor);
     }, 0);
 
+    const ts = Date.now();
     // Construct Purchase Invoice
     const newPurchase: PurchaseInvoice = {
-      id: `pur-${Date.now()}`,
-      purchaseBillNo,
+      id: `pur-${ts}`,
+      purchaseBillNo: purchaseBillNo.trim(),
       vendorId: vendor.id,
-      vendorName: vendor.contactPerson,
+      vendorName: vendor.contactPerson || vendor.firmName,
       vendorFirm: vendor.firmName,
-      vendorGSTIN: vendor.gstin,
+      vendorGSTIN: vendor.gstin || '',
       purchaseType,
       date: purchaseDate,
-      items,
-      totalGrossWeight: Number(formTotalGross.toFixed(2)),
-      totalNetWeight: Number(formTotalNet.toFixed(2)),
-      subtotal: formSubtotal,
+      items: sanitizedItems,
+      totalGrossWeight: Number(safeTotalGross.toFixed(2)),
+      totalNetWeight: Number(safeTotalNet.toFixed(2)),
+      subtotal: safeSubtotal,
       gstRate: formGstRate * 100,
-      gstAmount: formGstAmount,
-      grandTotal: formGrandTotal,
+      gstAmount: safeGstAmount,
+      grandTotal: safeGrandTotal,
       paymentMode,
-      amountPaid: Number(amountPaid),
+      amountPaid: safePaid,
       balanceDue,
       fineGoldEquivalent: Number(totalFineWeight.toFixed(3)),
       notes
     };
 
     // Prepare stock inventory items for pieces marked addToStock: true
-    const stockItemsToInsert: JewelleryItem[] = items
-      .filter(it => it.addToStock)
+    const stockItemsToInsert: JewelleryItem[] = sanitizedItems
+      .filter(it => it.addToStock !== false)
       .map((it, idx) => ({
-        id: `item-${Date.now()}-${idx}`,
+        id: `item-${ts}-${idx}`,
         tagNo: `SMJ-INW-${Math.floor(1000 + Math.random() * 9000)}`,
         huid: it.huid || `SMJ${Math.floor(100 + Math.random() * 899)}`,
         name: it.name,
@@ -214,16 +298,33 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
         stoneValue: it.stoneValue,
         wastagePercentage: 2.5,
         makingChargeType: it.retailMakingChargeType || 'per_gram',
-        makingChargeRate: it.retailMakingChargeRate || 450, 
-        hsnCode: it.hsnCode,
+        makingChargeRate: it.retailMakingChargeRate || 450,
+        purchaseRatePerGram: it.ratePerGram,
+        makingCostPerGram: it.makingCharge,
+        hsnCode: it.hsnCode || '7113',
         quantity: it.quantity,
         minStockAlert: 2,
-        barcode: `SMJ${Date.now().toString().slice(-6)}${idx}`,
-        description: `Inward shipment from ${vendor.firmName} (Bill: ${purchaseBillNo})`
+        barcode: `SMJ${String(ts).slice(-6)}${idx}`,
+        description: `Inward shipment from ${vendor.firmName} (Bill: ${purchaseBillNo.trim()})`
       }));
 
-    onAddPurchase(newPurchase, stockItemsToInsert);
-    setShowNewPurchaseModal(false);
+    setIsSavingPurchase(true);
+    try {
+      await onAddPurchase(newPurchase, stockItemsToInsert, vendor);
+      setShowNewPurchaseModal(false);
+      setPurchaseError(null);
+      setAmountPaid(0);
+      setNotes('');
+      setPurchaseBillNo(buildNextBillNo(purchases.length + 1));
+      setPurchaseSuccessMsg(
+        `खरीद बिल ${newPurchase.purchaseBillNo} (${vendor.firmName}) व ${stockItemsToInsert.length} स्टॉक आइटम सेव हो गए!`
+      );
+      setTimeout(() => setPurchaseSuccessMsg(null), 5000);
+    } catch (err: any) {
+      setPurchaseError(err?.message || 'खरीद बिल व आइटम सेव करने में त्रुटि हुई। कृपया पुनः प्रयास करें।');
+    } finally {
+      setIsSavingPurchase(false);
+    }
   };
 
   // Filtered Purchases
@@ -257,6 +358,21 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
 
   return (
     <div className="space-y-6">
+      {purchaseSuccessMsg && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 px-4 py-3 rounded-xl flex items-center justify-between gap-2 text-xs font-bold shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>{purchaseSuccessMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPurchaseSuccessMsg(null)}
+            className="text-emerald-700 dark:text-emerald-300 hover:opacity-75 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       
       {/* Top Banner & Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -346,8 +462,10 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
             + Add New Vendor (सप्लायर जोड़ें)
           </button>
           <button
+            type="button"
             onClick={() => {
-              setPurchaseBillNo(`PUR-2026-${String(purchases.length + 18).padStart(4, '0')}`);
+              setPurchaseError(null);
+              setPurchaseBillNo(buildNextBillNo(purchases.length));
               setShowNewPurchaseModal(true);
             }}
             className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 dark:from-amber-500 dark:to-amber-600 dark:hover:from-amber-400 dark:hover:to-amber-500 text-white dark:text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 shadow-md transition cursor-pointer"
@@ -558,6 +676,26 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
             </div>
 
             <form onSubmit={handleCreatePurchase} className="space-y-4 text-xs">
+              {purchaseError && (
+                <div className="bg-rose-950/70 border border-rose-500/60 text-rose-200 px-3.5 py-2.5 rounded-xl flex items-center gap-2 text-xs font-bold">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{purchaseError}</span>
+                </div>
+              )}
+
+              {vendors.length === 0 && (
+                <div className="bg-amber-950/60 border border-amber-500/50 text-amber-200 px-3.5 py-2.5 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span>कोई सप्लायर (Vendor) रजिस्टर नहीं है। खरीद दर्ज करने से पहले सप्लायर जोड़ें।</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddVendorModal(true)}
+                    className="px-3 py-1 bg-amber-500 text-slate-950 font-black rounded-lg text-[11px] cursor-pointer"
+                  >
+                    + Add New Vendor
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -565,19 +703,23 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowAddVendorModal(true)}
-                      className="text-[10px] text-amber-400 font-bold hover:text-amber-300 flex items-center gap-1"
+                      className="text-[10px] text-amber-400 font-bold hover:text-amber-300 flex items-center gap-1 cursor-pointer"
                     >
                       <UserPlus className="w-3 h-3" /> Add New Vendor
                     </button>
                   </div>
                   <select
                     value={vendorId}
-                    onChange={(e) => setVendorId(e.target.value)}
+                    onChange={(e) => {
+                      setVendorId(e.target.value);
+                      setPurchaseError(null);
+                    }}
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-medium focus:outline-none focus:border-amber-500"
                     required
                   >
+                    <option value="">-- सप्लायर चुनें (Select Vendor) --</option>
                     {vendors.map(v => (
-                      <option key={v.id} value={v.id}>{v.firmName} ({v.city})</option>
+                      <option key={v.id} value={v.id}>{v.firmName}{v.city ? ` (${v.city})` : ''}</option>
                     ))}
                   </select>
                 </div>
@@ -916,16 +1058,18 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
                 <button
                   type="button"
+                  disabled={isSavingPurchase}
                   onClick={() => setShowNewPurchaseModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 font-bold rounded-xl"
+                  className="px-4 py-2 bg-slate-800 text-slate-300 font-bold rounded-xl cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg"
+                  disabled={isSavingPurchase}
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 font-bold rounded-xl shadow-lg cursor-pointer"
                 >
-                  Confirm Inward Purchase & Update Inventory
+                  {isSavingPurchase ? 'Saving Purchase & Stock...' : 'Confirm Inward Purchase & Update Inventory'}
                 </button>
               </div>
             </form>
@@ -1007,7 +1151,11 @@ export const PurchaseManager: React.FC<PurchaseManagerProps> = ({
         <AddVendorModal
           isOpen={showAddVendorModal}
           onClose={() => setShowAddVendorModal(false)}
-          onAddVendor={onAddVendor}
+          onAddVendor={(newVendor) => {
+            onAddVendor(newVendor);
+            setVendorId(newVendor.id);
+            setPurchaseError(null);
+          }}
         />
 
     </div>

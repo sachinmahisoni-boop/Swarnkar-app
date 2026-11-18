@@ -1,8 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { GSTInvoice, ShopDetails } from '../types';
 import { roundPaise } from '../lib/pricing';
 import { ShreemLogo } from './ShreemLogo';
+import {
+  buildStandaloneInvoiceHtmlDocument,
+  connectDeviceInvoiceFolder,
+  downloadInvoiceHtmlFile,
+  getConnectedDeviceFolderName,
+  isDeviceFolderPickerSupported,
+  printHtmlViaIsolatedFrame,
+  writeInvoiceToConnectedFolder,
+} from '../lib/deviceInvoiceStorage';
 import {
   X,
   Printer,
@@ -14,6 +23,9 @@ import {
   RectangleVertical,
   FileText,
   Receipt,
+  Download,
+  FolderOpen,
+  HardDrive,
 } from 'lucide-react';
 
 export type PaperSize = 'A4' | 'A5' | 'POS_80MM' | 'POS_58MM';
@@ -28,6 +40,7 @@ interface InvoicePrintModalProps {
   invoices: GSTInvoice[] | null;
   shopDetails: ShopDetails;
   customLogo?: string;
+  firmId?: string;
 }
 
 interface PrintPreferences {
@@ -82,7 +95,9 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   invoices,
   shopDetails,
   customLogo,
+  firmId,
 }) => {
+  const printContainerRef = useRef<HTMLDivElement>(null);
   const [preferences, setPreferences] = useState<PrintPreferences>(() => {
     const saved = localStorage.getItem('jewel_print_preferences');
     const shopDefault = shopDetails.defaultInvoiceLayout || 'A4';
@@ -100,6 +115,18 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
     preferences.paperSize === 'POS_58MM' ? 'POS_58MM' : 'POS_80MM'
   );
   const [showSettingsPanel, setShowSettingsPanel] = useState<boolean>(false);
+  const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  const [deviceSaveNotice, setDeviceSaveNotice] = useState<string | null>(null);
+  const effectiveFirmId = firmId || shopDetails.firmId || invoices?.[0]?.firmId || '';
+  const [connectedFolder, setConnectedFolder] = useState<string | null>(() =>
+    effectiveFirmId ? getConnectedDeviceFolderName(effectiveFirmId) : null
+  );
+
+  useEffect(() => {
+    if (effectiveFirmId) {
+      setConnectedFolder(getConnectedDeviceFolderName(effectiveFirmId));
+    }
+  }, [effectiveFirmId, isOpen]);
 
   // Respect ShopSettingsModal saved defaultInvoiceLayout whenever updated
   useEffect(() => {
@@ -138,8 +165,77 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
     setPreferences((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    setIsPrinting(true);
+    setDeviceSaveNotice(null);
+    try {
+      const sheetHtml = printContainerRef.current?.innerHTML || '';
+      if (sheetHtml) {
+        const printedViaFrame = await printHtmlViaIsolatedFrame(
+          sheetHtml,
+          pageSizeCss,
+          pageMarginCss,
+          `${activeInvoice.invoiceNumber} - ${shopDetails.name}`
+        );
+        if (printedViaFrame) {
+          return;
+        }
+      }
+      window.print();
+    } catch (err) {
+      console.warn('[InvoicePrintModal] Print fallback triggered:', err);
+      try {
+        window.print();
+      } catch {
+        // Fallback: save HTML file so user can print from device browser/viewer
+        const html = buildStandaloneInvoiceHtmlDocument(activeInvoice, shopDetails, customLogo);
+        downloadInvoiceHtmlFile(activeInvoice, html);
+        setDeviceSaveNotice('ब्राउज़र प्रिंट अवरुद्ध था — इनवॉइस फ़ाइल डिवाइस पर सेव कर दी गई है।');
+      }
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const handleSaveToDevice = async () => {
+    setDeviceSaveNotice(null);
+    let wroteToFolder = false;
+    for (const inv of invoices) {
+      const html = buildStandaloneInvoiceHtmlDocument(inv, shopDetails, customLogo);
+      if (effectiveFirmId && connectedFolder) {
+        const ok = await writeInvoiceToConnectedFolder(effectiveFirmId, inv, html);
+        if (ok) wroteToFolder = true;
+        else downloadInvoiceHtmlFile(inv, html);
+      } else {
+        downloadInvoiceHtmlFile(inv, html);
+      }
+    }
+    setDeviceSaveNotice(
+      wroteToFolder
+        ? `डिवाइस फ़ोल्डर (${connectedFolder}) में ${invoices.length} इनवॉइस सेव हो गई!`
+        : `डिवाइस डाउनलोड फ़ोल्डर में ${invoices.length} इनवॉइस फ़ाइल सेव हो गई!`
+    );
+    setTimeout(() => setDeviceSaveNotice(null), 4000);
+  };
+
+  const handleConnectFolder = async () => {
+    if (!effectiveFirmId || !isDeviceFolderPickerSupported()) return;
+    try {
+      const label = await connectDeviceInvoiceFolder(effectiveFirmId);
+      if (label) {
+        setConnectedFolder(label);
+        for (const inv of invoices) {
+          const html = buildStandaloneInvoiceHtmlDocument(inv, shopDetails, customLogo);
+          await writeInvoiceToConnectedFolder(effectiveFirmId, inv, html);
+        }
+        setDeviceSaveNotice(`डिवाइस फ़ोल्डर (${label}) लिंक व सेव हो गया!`);
+        setTimeout(() => setDeviceSaveNotice(null), 4000);
+      }
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.warn('[InvoicePrintModal] Folder selection cancelled/failed:', err);
+      }
+    }
   };
 
   const buildWhatsAppUrl = () => {
@@ -331,7 +427,7 @@ Mobile: ${shopDetails.phone}`;
             padding: 0 !important;
           }
 
-          .print-hidden {
+          .print-hidden, .print\:hidden {
             display: none !important;
           }
 
@@ -525,15 +621,39 @@ Mobile: ${shopDetails.phone}`;
                 <span className="hidden sm:inline">WhatsApp</span>
               </a>
 
+              {/* Save to Device Folder / Download Invoice */}
+              <button
+                type="button"
+                onClick={handleSaveToDevice}
+                className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                title={connectedFolder ? `Save to ${connectedFolder}` : 'Download invoice HTML file to device'}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Save on Device</span>
+              </button>
+
+              {isDeviceFolderPickerSupported() && (
+                <button
+                  type="button"
+                  onClick={handleConnectFolder}
+                  className="px-2.5 py-1.5 bg-stone-800 hover:bg-stone-700 text-amber-300 border border-stone-700 font-bold text-xs rounded-xl flex items-center gap-1 transition cursor-pointer"
+                  title={connectedFolder ? `Linked folder: ${connectedFolder}` : 'Choose a folder on your device to store Invoices'}
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">{connectedFolder ? 'Folder Linked' : 'Set Folder'}</span>
+                </button>
+              )}
+
               {/* Main Print Button */}
               <button
                 type="button"
+                disabled={isPrinting}
                 onClick={handlePrint}
-                className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-black text-xs rounded-xl flex items-center gap-1.5 shadow-md transition cursor-pointer"
+                className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-60 text-stone-950 font-black text-xs rounded-xl flex items-center gap-1.5 shadow-md transition cursor-pointer"
                 title="Print invoice with selected paper layout"
               >
                 <Printer className="w-4 h-4" />
-                <span>प्रिंट (Print)</span>
+                <span>{isPrinting ? 'Printing...' : 'प्रिंट (Print)'}</span>
               </button>
 
               <button
@@ -545,6 +665,20 @@ Mobile: ${shopDetails.phone}`;
                 <X className="w-5 h-5" />
               </button>
             </div>
+          </div>
+
+          {/* Device Storage Status Strip (Hidden during print) */}
+          <div className="px-4 py-1.5 bg-emerald-950 text-emerald-200 text-[11px] flex flex-wrap items-center justify-between gap-2 border-b border-emerald-900 print:hidden shrink-0">
+            <div className="flex items-center gap-1.5">
+              <HardDrive className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>
+                डिवाइस इनवॉइस फ़ोल्डर में सुरक्षित (Stored on Device • No Cloud Sync Required)
+                {connectedFolder ? ` • Folder: ${connectedFolder}` : ''}
+              </span>
+            </div>
+            {deviceSaveNotice && (
+              <span className="font-bold text-amber-300">{deviceSaveNotice}</span>
+            )}
           </div>
 
           {/* EXPANDABLE PRINTER CONFIGURATOR PANEL (Hidden on print) */}
@@ -756,6 +890,7 @@ Mobile: ${shopDetails.phone}`;
             id="printable-invoice-scroll-area"
             className="overflow-y-auto bg-stone-200/80 flex-1 p-3 sm:p-6 text-slate-900"
           >
+            <div ref={printContainerRef}>
             {invoices.map((invoice, invIdx) => {
               const invIsGST = invoice.invoiceType !== 'ESTIMATE_BILL';
               const invCancelled = invoice.status === 'Cancelled';
@@ -1568,6 +1703,7 @@ Mobile: ${shopDetails.phone}`;
                 </React.Fragment>
               );
             })}
+            </div>
           </div>
         </div>
       </div>

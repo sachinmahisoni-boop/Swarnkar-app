@@ -82,6 +82,16 @@ import { DataBackupModal } from './components/DataBackupModal';
 import { LegacyMigrationModal } from './components/LegacyMigrationModal';
 import { FirebaseConfigMissingScreen } from './components/FirebaseConfigMissingScreen';
 import { auth, db, firestoreDatabaseId, missingFirebaseEnvVars, firebaseConfigError } from './lib/firebase';
+import {
+  getLocalDeviceInvoices,
+  saveLocalDeviceInvoice,
+  mergeDeviceAndCloudInvoices,
+  allocateNextDeviceInvoiceNumber,
+  buildStandaloneInvoiceHtmlDocument,
+  writeInvoiceToConnectedFolder,
+  saveLocalDevicePurchase,
+  getLocalDevicePurchases
+} from './lib/deviceInvoiceStorage';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
   ensureFirmRootDoc,
@@ -109,9 +119,9 @@ import {
   updateFirmMetaByMaster,
   saveFirmDoc, 
   deleteFirmDoc, 
-  createInvoiceAtomic, 
   cancelInvoiceAtomic,
   createPurchaseAtomic,
+  sanitizeInvoicePayload,
   FirmDataSnapshot,
   SnapshotMetadataInfo
 } from './lib/firestoreSync';
@@ -615,12 +625,12 @@ export default function App() {
     updateSyncStatus('syncing');
     updateSyncError(null);
 
-    // Clear stale in-memory data from any previous firm before switching
+    // Load device-stored invoices immediately while switching firms
     setInventory([]);
     setCustomers([]);
-    setInvoices([]);
+    setInvoices(getLocalDeviceInvoices(activeProfileId));
     setVendors([]);
-    setPurchases([]);
+    setPurchases(getLocalDevicePurchases(activeProfileId));
     setExpenses([]);
     setTransfers([]);
     setKarigars([]);
@@ -795,10 +805,10 @@ export default function App() {
     if (canReadInvoices) {
       unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items, meta) => {
         markSynced('invoices', meta);
-        setInvoices(items);
+        setInvoices(mergeDeviceAndCloudInvoices(activeProfileId, items));
       }, onSubError));
     } else {
-      setInvoices([]);
+      setInvoices(getLocalDeviceInvoices(activeProfileId));
     }
 
     if (canReadVendors) {
@@ -813,10 +823,14 @@ export default function App() {
     if (canReadPurchases) {
       unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items, meta) => {
         markSynced('purchases', meta);
-        setPurchases(items);
+        const localPurchases = getLocalDevicePurchases<PurchaseInvoice>(activeProfileId);
+        const mergedMap = new Map<string, PurchaseInvoice>();
+        items.forEach(p => { if (p?.id) mergedMap.set(p.id, p); });
+        localPurchases.forEach(p => { if (p?.id && !mergedMap.has(p.id)) mergedMap.set(p.id, p); });
+        setPurchases(Array.from(mergedMap.values()));
       }, onSubError));
     } else {
-      setPurchases([]);
+      setPurchases(getLocalDevicePurchases(activeProfileId));
     }
 
     if (canReadExpensesAndTransfers) {
@@ -1293,7 +1307,7 @@ export default function App() {
         )
       : undefined;
 
-  // Sales Invoice Creation
+  // Sales Invoice Creation (Device-First: Stored locally in Device Invoice Folder without requiring Firebase server sync)
   const handleCreateInvoice = async (
     invoiceDraft: Omit<GSTInvoice, 'id' | 'invoiceNumber'>,
     prefix: string = 'SMJ'
@@ -1307,56 +1321,95 @@ export default function App() {
       throw new Error(msg);
     }
 
-    if (isDemoUser) {
-      const istInfo = getISTDate();
-      const seq = invoices.length + 1;
-      const demoInvoice: GSTInvoice = {
-        ...invoiceDraft,
-        id: `demo-inv-${Date.now()}`,
-        invoiceNumber: formatSequentialNumber(prefix, istInfo.financialYear.finYearStr, seq),
+    const series = invoiceDraft.invoiceType || 'GST_INVOICE';
+    const sanitizedDraft = sanitizeInvoicePayload(invoiceDraft, 'invoiceDraft');
+    const { invoiceNumber } = allocateNextDeviceInvoiceNumber(
+      activeProfileId,
+      series,
+      prefix,
+      invoices
+    );
+
+    const createdInvoice: GSTInvoice = sanitizeInvoicePayload(
+      {
+        ...sanitizedDraft,
+        id: isDemoUser ? `demo-inv-${Date.now()}` : `local-inv-${Date.now()}`,
+        series,
+        invoiceType: series,
+        invoiceNumber,
         firmId: activeProfileId
-      };
-      setInvoices(prev => [demoInvoice, ...prev]);
-      setInventory(prev =>
-        prev.map(it => {
-          const soldQty = invoiceDraft.items
-            .filter(c => c.itemId === it.id)
-            .reduce((s, c) => s + (c.quantity || 1), 0);
-          return soldQty > 0 ? { ...it, quantity: Math.max(0, it.quantity - soldQty) } : it;
+      },
+      'createdInvoice'
+    );
+
+    // 1. Update local inventory & customer ledger state immediately
+    const updatedInventoryItems: JewelleryItem[] = [];
+    setInventory(prev =>
+      prev.map(it => {
+        const soldQty = sanitizedDraft.items
+          .filter(c => c.itemId === it.id)
+          .reduce((s, c) => s + (c.quantity || 1), 0);
+        if (soldQty > 0) {
+          const nextItem = { ...it, quantity: Math.max(0, it.quantity - soldQty) };
+          updatedInventoryItems.push(nextItem);
+          return nextItem;
+        }
+        return it;
+      })
+    );
+
+    let updatedCustomer: Customer | null = null;
+    if (sanitizedDraft.customerId && sanitizedDraft.customerId !== 'walkin') {
+      setCustomers(prev =>
+        prev.map(c => {
+          if (c.id === sanitizedDraft.customerId) {
+            const nextCust: Customer = {
+              ...c,
+              totalPurchases: (Number(c.totalPurchases) || 0) + (Number(sanitizedDraft.grandTotal) || 0),
+              outstandingBalance:
+                (Number(c.outstandingBalance) || 0) + (Number(sanitizedDraft.payment?.dueAmount) || 0)
+            };
+            updatedCustomer = nextCust;
+            return nextCust;
+          }
+          return c;
         })
       );
-      setPrintingInvoices([demoInvoice]);
-      return demoInvoice;
     }
 
-    if (!isFirmRootReady) {
-      throw new Error('फर्म रूट डॉक्यूमेंट तैयार नहीं है। कृपया सिंक पूरा होने दें या ऊपर Retry Sync दबाएं।');
+    // 2. Save invoice locally on the device (and linked device Invoices folder if configured)
+    setInvoices(prev => [createdInvoice, ...prev.filter(i => i.id !== createdInvoice.id)]);
+    saveLocalDeviceInvoice(activeProfileId, createdInvoice);
+    const htmlSnapshot = buildStandaloneInvoiceHtmlDocument(
+      createdInvoice,
+      shopDetails,
+      activeProfile?.logoUrl || shopDetails.logoUrl
+    );
+    writeInvoiceToConnectedFolder(activeProfileId, createdInvoice, htmlSnapshot).catch(() => {});
+
+    // 3. Best-effort silent background stock/customer sync when online (never blocks or fails invoice/print)
+    if (!isDemoUser && navigator.onLine && isFirmRootReady) {
+      updatedInventoryItems.forEach((item) => {
+        saveFirmDoc(activeProfileId, 'inventory', { id: item.id, quantity: item.quantity }, {
+          uid: currentUserId,
+          isMasterAdmin
+        }).catch(() => {});
+      });
+      if (updatedCustomer) {
+        const c: Customer = updatedCustomer;
+        saveFirmDoc(
+          activeProfileId,
+          'customers',
+          { id: c.id, totalPurchases: c.totalPurchases, outstandingBalance: c.outstandingBalance },
+          { uid: currentUserId, isMasterAdmin }
+        ).catch(() => {});
+      }
     }
 
-    if (!navigator.onLine) {
-      updateSyncStatus('offline');
-      throw new Error('इंटरनेट ऑफ़लाइन है। पक्का बिल / इनवॉइस नंबर ऑनलाइन सर्वर से ही जनरेट होता है — कृपया नेटवर्क चालू करके पुनः प्रयास करें।');
-    }
-
-    updateSyncError(null);
-    beginSyncWrite('Saving invoice...');
-    try {
-      const createdInvoice = await createInvoiceAtomic(
-        activeProfileId,
-        invoiceDraft,
-        inventory,
-        customers,
-        prefix,
-        { uid: currentUserId, isMasterAdmin }
-      );
-      endSyncWrite(`Invoice ${createdInvoice.invoiceNumber} synced`, true);
-      setPrintingInvoices([createdInvoice]);
-      return createdInvoice;
-    } catch (err: any) {
-      endSyncWrite('Invoice sync failed', false);
-      handleFirestoreError(err);
-      throw err;
-    }
+    setLastSyncedAt(Date.now());
+    setLastSyncEventLabel(`Invoice ${createdInvoice.invoiceNumber} saved on device`);
+    setPrintingInvoices([createdInvoice]);
+    return createdInvoice;
   };
 
   const handleDeleteInvoice = (id: string) => {
@@ -1377,53 +1430,102 @@ export default function App() {
       },
       status
     };
-    if (isDemoUser) setInvoices(prev => prev.map(i => i.id === id ? updated : i));
-    persistFirmDoc('invoices', updated);
+    setInvoices(prev => prev.map(i => i.id === id ? updated : i));
+    saveLocalDeviceInvoice(activeProfileId, updated);
+    if (!isDemoUser && !id.startsWith('local-inv-') && !id.startsWith('demo-inv-') && navigator.onLine && isFirmRootReady) {
+      persistFirmDoc('invoices', updated);
+    }
   };
 
   // Inward Purchase Creation
-  const handleAddPurchase = async (newPurchase: PurchaseInvoice, stockItemsToInsert: JewelleryItem[]) => {
-    if (!activeProfileId) return;
-    const taggedPurchase = { ...newPurchase, firmId: activeProfileId };
-    const taggedItems = stockItemsToInsert.map(it => ({ ...it, firmId: activeProfileId }));
-    const vendor = vendors.find(v => v.id === newPurchase.vendorId);
+  const handleAddPurchase = async (
+    newPurchase: PurchaseInvoice,
+    stockItemsToInsert: JewelleryItem[],
+    vendorSnapshot?: Vendor
+  ) => {
+    if (!activeProfileId) {
+      throw new Error('कोई फर्म सक्रिय नहीं है। कृपया पहले अपनी फर्म चुनें।');
+    }
+
+    const taggedPurchase = sanitizeInvoicePayload({ ...newPurchase, firmId: activeProfileId }, 'purchase');
+    const taggedItems = stockItemsToInsert.map(it =>
+      sanitizeInvoicePayload({ ...it, firmId: activeProfileId }, `stock.${it.id}`)
+    );
+    const vendor = vendors.find(v => v.id === newPurchase.vendorId) || vendorSnapshot;
+
+    // Optimistically update React state & local fallback immediately so items and bill are always recorded
+    setPurchases(prev => [taggedPurchase, ...prev.filter(p => p.id !== taggedPurchase.id)]);
+    saveLocalDevicePurchase(activeProfileId, taggedPurchase);
+
+    if (vendor) {
+      const updatedVendor: Vendor = {
+        ...vendor,
+        firmId: activeProfileId,
+        cashBalanceDue: (Number(vendor.cashBalanceDue) || 0) + (Number(taggedPurchase.balanceDue) || 0),
+        totalPurchasesAmount: (Number(vendor.totalPurchasesAmount) || 0) + (Number(taggedPurchase.grandTotal) || 0)
+      };
+      setVendors(prev => {
+        const exists = prev.some(v => v.id === vendor.id);
+        return exists ? prev.map(v => (v.id === vendor.id ? updatedVendor : v)) : [updatedVendor, ...prev];
+      });
+    }
+
+    if (taggedItems.length > 0) {
+      setInventory(prev => {
+        const existingIds = new Set(prev.map(i => i.id));
+        const fresh = taggedItems.filter(it => !existingIds.has(it.id));
+        return [...fresh, ...prev];
+      });
+    }
 
     if (isDemoUser) {
-      setPurchases(prev => [taggedPurchase, ...prev]);
-      if (vendor) {
-        const updatedVendor: Vendor = {
-          ...vendor,
-          cashBalanceDue: vendor.cashBalanceDue + newPurchase.balanceDue,
-          totalPurchasesAmount: vendor.totalPurchasesAmount + newPurchase.grandTotal
-        };
-        setVendors(prev => prev.map(v => v.id === vendor.id ? updatedVendor : v));
-      }
-      if (taggedItems.length > 0) {
-        setInventory(prev => [...taggedItems, ...prev]);
-      }
       return;
     }
 
-    if (!isFirmRootReady) {
-      handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। खरीद सेव रोकी गई।`));
+    if (!isFirmRootReady || !navigator.onLine) {
+      setLastSyncEventLabel('Purchase & stock saved locally (offline/pending sync)');
       return;
     }
 
     beginSyncWrite('Saving purchase...');
     try {
-      await createPurchaseAtomic(activeProfileId, taggedPurchase, taggedItems, vendor);
+      await createPurchaseAtomic(activeProfileId, taggedPurchase, taggedItems, vendor, {
+        uid: currentUserId,
+        isMasterAdmin
+      });
       endSyncWrite('Purchase & stock synced', true);
     } catch (err: any) {
-      endSyncWrite('Purchase sync failed', false);
-      handleFirestoreError(err);
-      alert(`खरीद बिल सेव करने में त्रुटि: ${err?.message || err}`);
+      endSyncWrite('Purchase saved locally', false);
+      console.warn('[App] createPurchaseAtomic failed, keeping local state & retrying individual doc saves:', err);
+      // Fallback individual saves so offline persistence / Firestore still receives items when possible
+      try {
+        await saveFirmDoc(activeProfileId, 'purchases', taggedPurchase, { uid: currentUserId, isMasterAdmin });
+        for (const it of taggedItems) {
+          await saveFirmDoc(activeProfileId, 'inventory', it, { uid: currentUserId, isMasterAdmin });
+        }
+        if (vendor) {
+          await saveFirmDoc(
+            activeProfileId,
+            'vendors',
+            {
+              ...vendor,
+              firmId: activeProfileId,
+              cashBalanceDue: (Number(vendor.cashBalanceDue) || 0) + (Number(taggedPurchase.balanceDue) || 0),
+              totalPurchasesAmount: (Number(vendor.totalPurchasesAmount) || 0) + (Number(taggedPurchase.grandTotal) || 0)
+            },
+            { uid: currentUserId, isMasterAdmin }
+          );
+        }
+      } catch (fallbackErr) {
+        console.warn('[App] Fallback purchase save failed; kept locally on device:', fallbackErr);
+      }
     }
   };
 
   // Vendors Handlers
   const handleAddVendor = (newVendor: Vendor) => {
     const tagged = { ...newVendor, firmId: activeProfileId };
-    if (isDemoUser) setVendors(prev => [tagged, ...prev]);
+    setVendors(prev => (prev.some(v => v.id === tagged.id) ? prev : [tagged, ...prev]));
     persistFirmDoc('vendors', tagged);
   };
 
@@ -2344,6 +2446,9 @@ export default function App() {
         {activeTab === 'invoices' && (
           <InvoiceList
             invoices={invoices}
+            shopDetails={shopDetails}
+            firmId={activeProfileId}
+            customLogo={activeProfile?.logoUrl || shopDetails.logoUrl}
             onViewPrintInvoice={(inv) => setPrintingInvoices([inv])}
             onBatchPrintInvoices={(invs) => setPrintingInvoices(invs)}
             onDeleteInvoice={handleDeleteInvoice}
@@ -2354,14 +2459,17 @@ export default function App() {
                 alert(msg);
                 throw new Error(msg);
               }
-              if (isDemoUser) {
-                setInvoices(prev => prev.map(i => i.id === inv.id ? {
-                  ...i,
-                  status: 'Cancelled',
-                  cancelReason: reason,
-                  cancelledBy: shopDetails.name || 'Owner',
-                  cancelledAt: getISTDate().isoDateStr
-                } : i));
+              const cancelledInv: GSTInvoice = {
+                ...inv,
+                status: 'Cancelled',
+                cancelReason: reason,
+                cancelledBy: shopDetails.name || 'Owner',
+                cancelledAt: getISTDate().isoDateStr
+              };
+
+              const updateLocalCancelled = () => {
+                setInvoices(prev => prev.map(i => (i.id === inv.id ? cancelledInv : i)));
+                saveLocalDeviceInvoice(activeProfileId, cancelledInv);
                 setInventory(prev =>
                   prev.map(it => {
                     const restoreQty = inv.items
@@ -2370,28 +2478,24 @@ export default function App() {
                     return restoreQty > 0 ? { ...it, quantity: it.quantity + restoreQty } : it;
                   })
                 );
-                return;
-              }
+              };
 
-              if (!activeProfileId || !isFirmRootReady) {
-                const msg = 'फर्म रूट डॉक्यूमेंट तैयार नहीं है। इनवॉइस रद्द नहीं किया जा सकता।';
-                alert(msg);
-                throw new Error(msg);
+              if (isDemoUser || inv.id.startsWith('local-inv-') || inv.id.startsWith('demo-inv-') || !navigator.onLine || !isFirmRootReady) {
+                updateLocalCancelled();
+                return;
               }
 
               beginSyncWrite('Cancelling invoice...');
               try {
-                // Only call cancelInvoiceAtomic and await it; UI updates from Firestore snapshot
                 await cancelInvoiceAtomic(activeProfileId, inv, reason, shopDetails.name || 'Owner', {
                   uid: currentUserId,
                   isMasterAdmin
                 });
+                updateLocalCancelled();
                 endSyncWrite(`Invoice ${inv.invoiceNumber} cancelled`, true);
               } catch (err: any) {
-                endSyncWrite('Cancel invoice failed', false);
-                handleFirestoreError(err);
-                alert(`इनवॉइस रद्द करने में त्रुटि: ${err?.message || err}`);
-                throw err;
+                updateLocalCancelled();
+                endSyncWrite(`Invoice ${inv.invoiceNumber} cancelled locally`, true);
               }
             }}
             onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
@@ -2589,6 +2693,7 @@ export default function App() {
         onClose={() => setPrintingInvoices(null)}
         invoices={printingInvoices}
         shopDetails={shopDetails}
+        firmId={activeProfileId}
         customLogo={activeProfile?.logoUrl || shopDetails.logoUrl}
       />
 

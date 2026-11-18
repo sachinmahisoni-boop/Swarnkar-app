@@ -556,27 +556,33 @@ export async function createPurchaseAtomic(
     throw new Error(`Firm root document firms/${firmId} is not initialized yet.`);
   }
 
+  const sanitizedPurchase = sanitizeInvoicePayload({ ...purchase, firmId }, 'purchase');
   const batch = writeBatch(targetDb);
-  const purRef = doc(targetDb, 'firms', firmId, 'purchases', purchase.id);
-  batch.set(purRef, stripUndefined({ ...purchase, firmId }), { merge: true });
+  const purRef = doc(targetDb, 'firms', firmId, 'purchases', sanitizedPurchase.id);
+  batch.set(purRef, sanitizedPurchase, { merge: true });
 
   if (vendor) {
     const venRef = doc(targetDb, 'firms', firmId, 'vendors', vendor.id);
+    const nextCashDue = (Number(vendor.cashBalanceDue) || 0) + (Number(sanitizedPurchase.balanceDue) || 0);
+    const nextTotalPurchases = (Number(vendor.totalPurchasesAmount) || 0) + (Number(sanitizedPurchase.grandTotal) || 0);
     batch.set(
       venRef,
-      stripUndefined({
-        ...vendor,
-        firmId,
-        cashBalanceDue: vendor.cashBalanceDue + purchase.balanceDue,
-        totalPurchasesAmount: vendor.totalPurchasesAmount + purchase.grandTotal
-      }),
+      sanitizeInvoicePayload(
+        {
+          ...vendor,
+          firmId,
+          cashBalanceDue: nextCashDue,
+          totalPurchasesAmount: nextTotalPurchases
+        },
+        'vendor'
+      ),
       { merge: true }
     );
   }
 
   for (const item of stockItemsToInsert) {
     const itemRef = doc(targetDb, 'firms', firmId, 'inventory', item.id);
-    batch.set(itemRef, stripUndefined({ ...item, firmId }), { merge: true });
+    batch.set(itemRef, sanitizeInvoicePayload({ ...item, firmId }, `inventory.${item.id}`), { merge: true });
   }
 
   await batch.commit();
@@ -701,7 +707,7 @@ export async function createInvoiceAtomic(
 
   // 1. Sanitize payload BEFORE runTransaction:
   // Remove undefined, NaN, and Infinity numbers, convert Dates to Timestamps, and reject nested arrays.
-  let currentStep: InvoiceTransactionStep = 'sanitize';
+  let currentStep: InvoiceTransactionStep = 'sanitize' as InvoiceTransactionStep;
   let calculatedInvoiceId: string = `${series}_pending`;
   let sanitizedDraft: Omit<GSTInvoice, 'id' | 'invoiceNumber'>;
   try {
@@ -1152,8 +1158,6 @@ export async function runBillingSelfTest(
       wastagePercentage: 0,
       makingChargeType: 'flat',
       makingChargeRate: 50,
-      makingCharge: 50,
-      subtotal: 800,
       hsnCode: '7113',
       quantity: 5,
       minStockAlert: 1,

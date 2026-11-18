@@ -22,12 +22,26 @@ import {
   Phone,
   Tag,
   CreditCard,
-  X
+  X,
+  FolderOpen,
+  HardDrive
 } from 'lucide-react';
 import { getISTDate } from '../../lib/invoiceNumber';
+import { ShopDetails } from '../../types';
+import {
+  buildStandaloneInvoiceHtmlDocument,
+  connectDeviceInvoiceFolder,
+  downloadInvoiceHtmlFile,
+  getConnectedDeviceFolderName,
+  isDeviceFolderPickerSupported,
+  writeInvoiceToConnectedFolder,
+} from '../../lib/deviceInvoiceStorage';
 
 interface InvoiceListProps {
   invoices: GSTInvoice[];
+  shopDetails?: ShopDetails;
+  firmId?: string;
+  customLogo?: string;
   onViewPrintInvoice: (invoice: GSTInvoice) => void;
   onBatchPrintInvoices?: (invoices: GSTInvoice[]) => void;
   onDeleteInvoice: (id: string) => void;
@@ -38,6 +52,9 @@ interface InvoiceListProps {
 
 export const InvoiceList: React.FC<InvoiceListProps> = ({
   invoices,
+  shopDetails,
+  firmId,
+  customLogo,
   onViewPrintInvoice,
   onBatchPrintInvoices,
   onDeleteInvoice,
@@ -56,6 +73,65 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   // Quick Payment Update Modal State
   const [paymentModalInvoice, setPaymentModalInvoice] = useState<GSTInvoice | null>(null);
   const [payingAmount, setPayingAmount] = useState<number>(0);
+
+  // Device Folder State
+  const effectiveFirmId = firmId || shopDetails?.firmId || invoices[0]?.firmId || '';
+  const [connectedFolder, setConnectedFolder] = useState<string | null>(() =>
+    effectiveFirmId ? getConnectedDeviceFolderName(effectiveFirmId) : null
+  );
+  const [folderStatusMsg, setFolderStatusMsg] = useState<string | null>(null);
+
+  const fallbackShopDetails: ShopDetails = shopDetails || {
+    firmId: effectiveFirmId,
+    name: 'Jewellery Showroom',
+    tagline: '',
+    address: '',
+    cityStatePincode: '',
+    phone: '',
+    email: '',
+    gstin: '',
+    bisHallmarkRegNo: '',
+    panNo: '',
+    bankName: '',
+    accountNo: '',
+    ifscCode: '',
+    terms: [],
+  };
+
+  const handleSaveSingleToDevice = async (inv: GSTInvoice) => {
+    const html = buildStandaloneInvoiceHtmlDocument(inv, fallbackShopDetails, customLogo);
+    if (effectiveFirmId && connectedFolder) {
+      const ok = await writeInvoiceToConnectedFolder(effectiveFirmId, inv, html);
+      if (ok) {
+        setFolderStatusMsg(`${inv.invoiceNumber} डिवाइस फ़ोल्डर (${connectedFolder}) में सेव हो गया!`);
+        setTimeout(() => setFolderStatusMsg(null), 3500);
+        return;
+      }
+    }
+    downloadInvoiceHtmlFile(inv, html);
+    setFolderStatusMsg(`${inv.invoiceNumber}.html डिवाइस में डाउनलोड हो गया!`);
+    setTimeout(() => setFolderStatusMsg(null), 3500);
+  };
+
+  const handleConnectFolder = async () => {
+    if (!effectiveFirmId || !isDeviceFolderPickerSupported()) return;
+    try {
+      const label = await connectDeviceInvoiceFolder(effectiveFirmId);
+      if (label) {
+        setConnectedFolder(label);
+        for (const inv of invoices) {
+          const html = buildStandaloneInvoiceHtmlDocument(inv, fallbackShopDetails, customLogo);
+          await writeInvoiceToConnectedFolder(effectiveFirmId, inv, html);
+        }
+        setFolderStatusMsg(`फ़ोल्डर "${label}" सेट हो गया और ${invoices.length} इनवॉइस सेव किए गए!`);
+        setTimeout(() => setFolderStatusMsg(null), 4000);
+      }
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.warn('[InvoiceList] Connect folder aborted/failed:', err);
+      }
+    }
+  };
 
   // Unique counters
   const counters = Array.from(new Set(invoices.map(i => i.counterName || 'Main Showroom Counter')));
@@ -120,7 +196,14 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
     
     const cleanPhone = inv.customerPhone.replace(/[^0-9]/g, '');
     const fullPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-    window.open(`https://api.whatsapp.com/send?phone=${fullPhone}&text=${text}`, '_blank');
+    const url = `https://api.whatsapp.com/send?phone=${fullPhone}&text=${text}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   // Export to CSV
@@ -205,7 +288,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {selectedInvoiceIds.length > 0 && (
               <button
                 type="button"
@@ -214,6 +297,18 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print Selected ({selectedInvoiceIds.length})</span>
+              </button>
+            )}
+
+            {isDeviceFolderPickerSupported() && effectiveFirmId && (
+              <button
+                type="button"
+                onClick={handleConnectFolder}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                title="Create & link an Invoices folder on your device to auto-save all bills"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>{connectedFolder ? `Folder: ${connectedFolder}` : 'Device Invoices Folder'}</span>
               </button>
             )}
 
@@ -227,6 +322,20 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
               <span>Export CSV</span>
             </button>
           </div>
+        </div>
+
+        {/* Device Invoice Folder Status Bar */}
+        <div className="mb-3 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-900 dark:text-emerald-200">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>
+              <strong>Device Invoice Folder:</strong> सभी बिल सीधे डिवाइस पर सेव होते हैं (बिना क्लाउड सिंक के प्रिंट व सेव उपलब्ध)।
+              {connectedFolder ? ` • Linked: ${connectedFolder}` : ''}
+            </span>
+          </div>
+          {folderStatusMsg && (
+            <span className="font-bold text-amber-700 dark:text-amber-300">{folderStatusMsg}</span>
+          )}
         </div>
 
         {/* 4 Financial Stat Cards */}
@@ -551,12 +660,23 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                           
                           {/* View & Print Invoice */}
                           <button
+                            type="button"
                             onClick={() => onViewPrintInvoice(inv)}
-                            className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                            className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 dark:text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold flex items-center gap-1 transition cursor-pointer"
                             title="Print / View Invoice"
                           >
                             <Printer className="w-3.5 h-3.5" />
                             <span>Print</span>
+                          </button>
+
+                          {/* Save Invoice to Device Folder / Download */}
+                          <button
+                            type="button"
+                            onClick={() => handleSaveSingleToDevice(inv)}
+                            className="p-1.5 bg-sky-500/15 hover:bg-sky-500/30 text-sky-700 dark:text-sky-300 border border-sky-500/30 rounded-lg transition cursor-pointer"
+                            title="Save Invoice file to Device Folder"
+                          >
+                            <Download className="w-3.5 h-3.5" />
                           </button>
 
                           {/* Share on WhatsApp */}
