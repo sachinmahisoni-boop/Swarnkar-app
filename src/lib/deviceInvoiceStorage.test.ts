@@ -5,6 +5,7 @@ import {
   deleteLocalDeviceInvoice,
   getLocalDeviceInvoices,
   mergeDeviceAndCloudInvoices,
+  printHtmlViaIsolatedFrame,
   sanitizeInvoiceFileName,
   saveLocalDeviceInvoice,
 } from './deviceInvoiceStorage';
@@ -153,5 +154,31 @@ describe('deviceInvoiceStorage', () => {
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).toContain('Shreem Mahal &amp; Sons &lt;Jewellers&gt;');
     expect(html).toContain('22K Gold Ring');
+    expect(html).toContain('onclick="window.print()"');
+
+    const thermalHtml = buildStandaloneInvoiceHtmlDocument(makeSampleInvoice(), shop, undefined, {
+      paperSize: 'POS_80MM',
+      orientation: 'portrait',
+    });
+    expect(thermalHtml).toContain('@page { size: 80mm auto; margin: 2mm; }');
+  });
+
+  it('returns false from printHtmlViaIsolatedFrame on mobile user agents so native window.print() handles printing', async () => {
+    const origDoc = (globalThis as any).document;
+    const origNav = (globalThis as any).navigator;
+    try {
+      (globalThis as any).document = { getElementById: () => null };
+      Object.defineProperty(globalThis, 'navigator', {
+        configurable: true,
+        value: { userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/126.0 Mobile Safari/537.36' },
+      });
+      const result = await printHtmlViaIsolatedFrame('<div>Invoice</div>', 'A4 portrait', '10mm', 'INV-1');
+      expect(result).toBe(false);
+    } finally {
+      (globalThis as any).document = origDoc;
+      if (origNav !== undefined) {
+        Object.defineProperty(globalThis, 'navigator', { configurable: true, value: origNav });
+      }
+    }
   });
 });

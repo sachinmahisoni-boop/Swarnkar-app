@@ -342,12 +342,36 @@ export async function writeInvoiceToConnectedFolder(
 export function buildStandaloneInvoiceHtmlDocument(
   invoice: GSTInvoice,
   shopDetails: ShopDetails,
-  customLogo?: string
+  customLogo?: string,
+  options?: {
+    paperSize?: 'A4' | 'A5' | 'POS_80MM' | 'POS_58MM';
+    orientation?: 'portrait' | 'landscape';
+  }
 ): string {
   const isGST = invoice.invoiceType !== 'ESTIMATE_BILL';
   const fmt = (n: number) =>
     Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
   const logoSrc = customLogo || shopDetails.logoUrl || '';
+  const paperSize = options?.paperSize || shopDetails.defaultInvoiceLayout || 'A4';
+  const orientation = options?.orientation || 'portrait';
+  const isThermal = paperSize === 'POS_80MM' || paperSize === 'POS_58MM';
+  const pageCss = isThermal
+    ? paperSize === 'POS_58MM'
+      ? '58mm auto'
+      : '80mm auto'
+    : `${paperSize} ${orientation}`;
+  const pageMarginCss = isThermal ? '2mm' : paperSize === 'A5' ? '7mm' : '10mm';
+  const sheetMaxWidth = isThermal
+    ? paperSize === 'POS_58MM'
+      ? '54mm'
+      : '76mm'
+    : paperSize === 'A5'
+    ? orientation === 'landscape'
+      ? '794px'
+      : '560px'
+    : orientation === 'landscape'
+    ? '1100px'
+    : '794px';
 
   const rowsHtml = (invoice.items || [])
     .map(
@@ -355,7 +379,7 @@ export function buildStandaloneInvoiceHtmlDocument(
       <tr>
         <td style="text-align:center;">${idx + 1}</td>
         <td>
-          <strong>${escapeHtml(item.name)}${item.quantity > 1 ? ` (×${item.quantity})` : ''}</strong><br/>
+          <strong>${escapeHtml(item.name)}${(item.quantity || 1) > 1 ? ` (×${item.quantity})` : ''}</strong><br/>
           <small style="color:#555;">Tag: ${escapeHtml(item.tagNo)} | HSN: ${escapeHtml(item.hsnCode)}${item.huid ? ` | HUID: ${escapeHtml(item.huid)}` : ''}</small>
         </td>
         <td style="text-align:center;">${escapeHtml(item.purity)}</td>
@@ -372,34 +396,41 @@ export function buildStandaloneInvoiceHtmlDocument(
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(invoice.invoiceNumber)} - ${escapeHtml(shopDetails.name)}</title>
   <style>
-    @page { size: A4 portrait; margin: 10mm; }
+    @page { size: ${pageCss}; margin: ${pageMarginCss}; }
     * { box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; margin: 0; padding: 18px; font-size: 12px; }
-    .sheet { max-width: 780px; margin: 0 auto; border: 1px solid #d4d4d8; padding: 18px; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #111; background: #f5f5f4; margin: 0; padding: 14px; font-size: ${isThermal ? '11px' : '12px'}; }
+    .action-bar { max-width: ${sheetMaxWidth}; margin: 0 auto 12px auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #1c1917; color: #fff; padding: 10px 14px; border-radius: 10px; }
+    .print-btn { background: #f59e0b; color: #1c1917; border: none; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 13px; cursor: pointer; }
+    .sheet { max-width: ${sheetMaxWidth}; margin: 0 auto; background: #fff; border: 1px solid #d4d4d8; padding: ${isThermal ? '10px' : '18px'}; }
     .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #b45309; padding-bottom: 10px; margin-bottom: 12px; gap: 12px; }
     .shop-left { display: flex; align-items: center; gap: 10px; }
     .logo { width: 52px; height: 52px; object-fit: contain; border-radius: 6px; }
-    h1 { margin: 0; font-size: 20px; color: #451a03; text-transform: uppercase; }
+    h1 { margin: 0; font-size: ${isThermal ? '15px' : '20px'}; color: #451a03; text-transform: uppercase; }
     .badge { display: inline-block; padding: 4px 10px; font-weight: bold; border-radius: 4px; font-size: 11px; background: ${isGST ? '#fef3c7' : '#e2e8f0'}; border: 1px solid #d97706; }
     .meta { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; margin-bottom: 12px; gap: 12px; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11px; }
     th, td { border: 1px solid #cbd5e1; padding: 6px; vertical-align: top; }
     th { background: #f1f5f9; text-align: left; }
     .totals-wrap { display: flex; justify-content: space-between; gap: 16px; margin-top: 8px; }
-    .totals-box { width: 290px; margin-left: auto; }
+    .totals-box { width: ${isThermal ? '100%' : '290px'}; margin-left: auto; }
     .tot-row { display: flex; justify-content: space-between; padding: 3px 0; }
     .grand { background: #fef3c7; border: 1px solid #f59e0b; padding: 7px 10px; font-size: 14px; font-weight: bold; margin-top: 6px; display: flex; justify-content: space-between; border-radius: 4px; }
     .sigs { display: flex; justify-content: space-between; margin-top: 32px; padding-top: 12px; border-top: 1px solid #cbd5e1; font-size: 11px; }
     @media print {
-      body { padding: 0; }
+      body { padding: 0; background: #fff; }
       .sheet { border: none; max-width: none; padding: 0; }
       .no-print { display: none !important; }
     }
   </style>
 </head>
 <body>
+  <div class="action-bar no-print">
+    <span style="font-size:12px;"><strong>${escapeHtml(invoice.invoiceNumber)}</strong> • ${escapeHtml(shopDetails.name)}</span>
+    <button type="button" class="print-btn" onclick="window.print()">🖨️ Print / Save PDF</button>
+  </div>
   <div class="sheet">
     ${invoice.status === 'Cancelled' ? '<div style="padding:8px;border:2px solid #dc2626;color:#dc2626;text-align:center;font-weight:bold;margin-bottom:10px;">CANCELLED INVOICE</div>' : ''}
     <div class="header">
@@ -465,7 +496,7 @@ export function buildStandaloneInvoiceHtmlDocument(
           : `<div class="tot-row"><span>CGST (${invoice.cgstRate || 1.5}%):</span><span>₹${fmt(invoice.cgstAmount)}</span></div>
              <div class="tot-row"><span>SGST (${invoice.sgstRate || 1.5}%):</span><span>₹${fmt(invoice.sgstAmount)}</span></div>`) : ''}
         <div class="grand"><span>GRAND TOTAL:</span><span>₹${fmt(invoice.grandTotal)}</span></div>
-        <div class="tot-row" style="margin-top:4px;"><span>Paid (${escapeHtml(invoice.payment?.method)}):</span><strong>₹${fmt(invoice.payment?.amountPaid)}</strong></div>
+        <div class="tot-row" style="margin-top:4px;"><span>Paid (${escapeHtml(invoice.payment?.method || 'Cash')}):</span><strong>₹${fmt(invoice.payment?.amountPaid)}</strong></div>
         ${(invoice.payment?.dueAmount || 0) > 0 ? `<div class="tot-row" style="color:#b91c1c;font-weight:bold;"><span>Balance Due:</span><span>₹${fmt(invoice.payment.dueAmount)}</span></div>` : ''}
       </div>
     </div>
@@ -497,8 +528,8 @@ export function downloadInvoiceHtmlFile(invoice: GSTInvoice, htmlContent: string
 }
 
 /**
- * Prints an invoice sheet via a clean isolated iframe (copying active Tailwind/head styles + @page CSS).
- * Returns true if print dialog was triggered cleanly, false if caller should fall back to window.print().
+ * Fallback helper: prints an invoice sheet via a clean isolated iframe.
+ * Skips silently-failing mobile/WebView hidden-iframe paths so callers immediately use native window.print().
  */
 export async function printHtmlViaIsolatedFrame(
   sheetInnerHtml: string,
@@ -506,7 +537,14 @@ export async function printHtmlViaIsolatedFrame(
   pageMarginCss: string,
   documentTitle: string
 ): Promise<boolean> {
-  if (typeof document === 'undefined') return false;
+  if (typeof document === 'undefined' || typeof navigator === 'undefined') return false;
+
+  // Android Chrome, iOS Safari, and embedded mobile WebViews silently ignore iframe.contentWindow.print()
+  // and lose user activation after async waits — caller must use synchronous window.print() there.
+  const ua = navigator.userAgent || '';
+  if (/Android|iPhone|iPad|iPod|Mobile|wv\b/i.test(ua)) {
+    return false;
+  }
 
   const existingFrame = document.getElementById('swarnkar-isolated-print-frame') as HTMLIFrameElement | null;
   if (existingFrame) {
@@ -529,19 +567,17 @@ export async function printHtmlViaIsolatedFrame(
   iframe.id = 'swarnkar-isolated-print-frame';
   iframe.setAttribute('aria-hidden', 'true');
   iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '100%';
-  iframe.style.height = '100%';
-  iframe.style.opacity = '0';
-  iframe.style.pointerEvents = 'none';
-  iframe.style.zIndex = '-1';
+  iframe.style.left = '-9999px';
+  iframe.style.top = '0';
+  iframe.style.width = '210mm';
+  iframe.style.height = '297mm';
   iframe.style.border = '0';
+  iframe.style.visibility = 'hidden';
   document.body.appendChild(iframe);
 
   const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
   const frameWin = iframe.contentWindow;
-  if (!frameDoc || !frameWin) {
+  if (!frameDoc || !frameWin || typeof frameWin.print !== 'function') {
     iframe.remove();
     return false;
   }
@@ -560,6 +596,7 @@ export async function printHtmlViaIsolatedFrame(
     html, body {
       background: #ffffff !important;
       color: #000000 !important;
+      color-scheme: light !important;
       margin: 0 !important;
       padding: 0 !important;
       width: 100% !important;
@@ -568,7 +605,10 @@ export async function printHtmlViaIsolatedFrame(
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
-    .print-hidden, .print\\:hidden {
+    .print-hidden {
+      display: none !important;
+    }
+    .print\\:hidden {
       display: none !important;
     }
     .printable-paper-sheet {
@@ -600,10 +640,10 @@ export async function printHtmlViaIsolatedFrame(
     const finish = () => {
       if (settled) return;
       settled = true;
-      setTimeout(resolve, 180);
+      setTimeout(resolve, 120);
     };
     iframe.onload = finish;
-    setTimeout(finish, 350);
+    setTimeout(finish, 300);
   });
 
   try {

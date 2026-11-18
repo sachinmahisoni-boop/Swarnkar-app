@@ -165,35 +165,72 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
     setPreferences((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handlePrint = async () => {
-    setIsPrinting(true);
+  const handlePrint = () => {
     setDeviceSaveNotice(null);
+    const prevTitle = document.title;
+    const targetTitle = `${activeInvoice.invoiceNumber || 'Invoice'} - ${shopDetails.name || 'Swarnkar'}`;
+    let restored = false;
+
+    const cleanupAfterPrint = () => {
+      if (restored) return;
+      restored = true;
+      document.title = prevTitle;
+      setIsPrinting(false);
+    };
+
     try {
+      document.title = targetTitle;
+      if (typeof window.print === 'function') {
+        setIsPrinting(true);
+        window.addEventListener('afterprint', cleanupAfterPrint, { once: true });
+        setTimeout(cleanupAfterPrint, 2500);
+        // Call synchronously inside user click gesture so Android Chrome, iOS Safari, and Desktop browsers never drop it
+        window.print();
+        return;
+      }
+      throw new Error('window.print is not available');
+    } catch (err) {
+      cleanupAfterPrint();
+      console.warn('[InvoicePrintModal] Native window.print failed, trying fallback:', err);
       const sheetHtml = printContainerRef.current?.innerHTML || '';
       if (sheetHtml) {
-        const printedViaFrame = await printHtmlViaIsolatedFrame(
+        void printHtmlViaIsolatedFrame(
           sheetHtml,
           pageSizeCss,
           pageMarginCss,
-          `${activeInvoice.invoiceNumber} - ${shopDetails.name}`
+          targetTitle
+        ).then((printedViaFrame) => {
+          if (!printedViaFrame) {
+            const html = buildStandaloneInvoiceHtmlDocument(
+              activeInvoice,
+              shopDetails,
+              customLogo,
+              {
+                paperSize: preferences.paperSize,
+                orientation: preferences.orientation,
+              }
+            );
+            downloadInvoiceHtmlFile(activeInvoice, html);
+            setDeviceSaveNotice(
+              'ब्राउज़र प्रिंट उपलब्ध नहीं था — प्रिंट करने योग्य इनवॉइस फ़ाइल डिवाइस पर सेव कर दी गई है।'
+            );
+          }
+        });
+      } else {
+        const html = buildStandaloneInvoiceHtmlDocument(
+          activeInvoice,
+          shopDetails,
+          customLogo,
+          {
+            paperSize: preferences.paperSize,
+            orientation: preferences.orientation,
+          }
         );
-        if (printedViaFrame) {
-          return;
-        }
-      }
-      window.print();
-    } catch (err) {
-      console.warn('[InvoicePrintModal] Print fallback triggered:', err);
-      try {
-        window.print();
-      } catch {
-        // Fallback: save HTML file so user can print from device browser/viewer
-        const html = buildStandaloneInvoiceHtmlDocument(activeInvoice, shopDetails, customLogo);
         downloadInvoiceHtmlFile(activeInvoice, html);
-        setDeviceSaveNotice('ब्राउज़र प्रिंट अवरुद्ध था — इनवॉइस फ़ाइल डिवाइस पर सेव कर दी गई है।');
+        setDeviceSaveNotice(
+          'ब्राउज़र प्रिंट उपलब्ध नहीं था — प्रिंट करने योग्य इनवॉइस फ़ाइल डिवाइस पर सेव कर दी गई है।'
+        );
       }
-    } finally {
-      setIsPrinting(false);
     }
   };
 
@@ -201,7 +238,10 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
     setDeviceSaveNotice(null);
     let wroteToFolder = false;
     for (const inv of invoices) {
-      const html = buildStandaloneInvoiceHtmlDocument(inv, shopDetails, customLogo);
+      const html = buildStandaloneInvoiceHtmlDocument(inv, shopDetails, customLogo, {
+        paperSize: preferences.paperSize,
+        orientation: preferences.orientation,
+      });
       if (effectiveFirmId && connectedFolder) {
         const ok = await writeInvoiceToConnectedFolder(effectiveFirmId, inv, html);
         if (ok) wroteToFolder = true;
@@ -225,7 +265,10 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
       if (label) {
         setConnectedFolder(label);
         for (const inv of invoices) {
-          const html = buildStandaloneInvoiceHtmlDocument(inv, shopDetails, customLogo);
+          const html = buildStandaloneInvoiceHtmlDocument(inv, shopDetails, customLogo, {
+            paperSize: preferences.paperSize,
+            orientation: preferences.orientation,
+          });
           await writeInvoiceToConnectedFolder(effectiveFirmId, inv, html);
         }
         setDeviceSaveNotice(`डिवाइस फ़ोल्डर (${label}) लिंक व सेव हो गया!`);
@@ -385,6 +428,7 @@ Mobile: ${shopDetails.phone}`;
           html, body {
             background: #ffffff !important;
             color: #000000 !important;
+            color-scheme: light !important;
             margin: 0 !important;
             padding: 0 !important;
             width: auto !important;
@@ -410,6 +454,7 @@ Mobile: ${shopDetails.phone}`;
             max-height: none !important;
             overflow: visible !important;
             background: #ffffff !important;
+            -webkit-backdrop-filter: none !important;
             backdrop-filter: none !important;
             border: none !important;
             border-radius: 0 !important;
@@ -425,9 +470,14 @@ Mobile: ${shopDetails.phone}`;
             border-radius: 0 !important;
             margin: 0 auto !important;
             padding: 0 !important;
+            overflow: visible !important;
           }
 
-          .print-hidden, .print\:hidden {
+          .print-hidden {
+            display: none !important;
+          }
+
+          .print\\:hidden {
             display: none !important;
           }
 
@@ -1030,12 +1080,12 @@ Mobile: ${shopDetails.phone}`;
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200">
-                                  {invoice.items.map((item, i) => (
+                                  {(invoice.items || []).map((item, i) => (
                                     <tr key={i}>
                                       <td className="py-1 pr-1 align-top">
                                         <span className="font-bold block">
                                           {item.name}
-                                          {item.quantity > 1 ? ` ×${item.quantity}` : ''}
+                                          {(item.quantity || 1) > 1 ? ` ×${item.quantity}` : ''}
                                         </span>
                                         <span className="text-[8.5px] text-slate-600 block">
                                           {item.purity} • {item.tagNo} • HSN:{item.hsnCode}
@@ -1047,7 +1097,7 @@ Mobile: ${shopDetails.phone}`;
                                         )}
                                       </td>
                                       <td className="py-1 text-right align-top whitespace-nowrap">
-                                        {item.netWeight.toFixed(2)}g
+                                        {Number(item.netWeight || 0).toFixed(2)}g
                                       </td>
                                       <td className="py-1 text-right align-top font-bold whitespace-nowrap">
                                         ₹{formatCurrency(item.subtotal)}
@@ -1070,7 +1120,7 @@ Mobile: ${shopDetails.phone}`;
                                   </div>
                                   <div className="text-[8.5px] text-slate-600">
                                     {invoice.oldMetalExchange.purity} {invoice.oldMetalExchange.metal}{' '}
-                                    ({invoice.oldMetalExchange.grossWeight.toFixed(2)}g)
+                                    ({Number(invoice.oldMetalExchange.grossWeight || 0).toFixed(2)}g)
                                   </div>
                                 </div>
                               )}
@@ -1128,16 +1178,16 @@ Mobile: ${shopDetails.phone}`;
                               </div>
 
                               <div className="flex justify-between text-[9.5px] pt-0.5">
-                                <span>Paid ({invoice.payment.method}):</span>
+                                <span>Paid ({invoice.payment?.method || 'Cash'}):</span>
                                 <span className="font-bold">
-                                  ₹{formatCurrency(invoice.payment.amountPaid)}
+                                  ₹{formatCurrency(invoice.payment?.amountPaid || 0)}
                                 </span>
                               </div>
 
-                              {invoice.payment.dueAmount > 0 && (
+                              {(invoice.payment?.dueAmount || 0) > 0 && (
                                 <div className="flex justify-between font-bold text-rose-700 text-[9.5px]">
                                   <span>Balance Due:</span>
-                                  <span>₹{formatCurrency(invoice.payment.dueAmount)}</span>
+                                  <span>₹{formatCurrency(invoice.payment?.dueAmount || 0)}</span>
                                 </div>
                               )}
                             </div>
@@ -1350,7 +1400,7 @@ Mobile: ${shopDetails.phone}`;
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-200">
-                                    {invoice.items.map((item, idx) => (
+                                    {(invoice.items || []).map((item, idx) => (
                                       <tr key={idx}>
                                         <td className="px-1.5 py-1 text-center border-r border-slate-200 font-mono align-top">
                                           {idx + 1}
@@ -1358,7 +1408,7 @@ Mobile: ${shopDetails.phone}`;
                                         <td className="px-1.5 py-1 border-r border-slate-200 align-top">
                                           <span className="font-bold text-slate-900 block leading-tight">
                                             {item.name}
-                                            {item.quantity > 1 ? ` (×${item.quantity})` : ''}
+                                            {(item.quantity || 1) > 1 ? ` (×${item.quantity})` : ''}
                                           </span>
                                           <span className="text-[9px] text-slate-600 font-mono block">
                                             HSN:{item.hsnCode} • {item.tagNo}
@@ -1374,10 +1424,10 @@ Mobile: ${shopDetails.phone}`;
                                         </td>
                                         <td className="px-1.5 py-1 text-right border-r border-slate-200 font-mono align-top whitespace-nowrap">
                                           <div className="text-slate-600 text-[9px]">
-                                            G: {item.grossWeight.toFixed(2)}g
+                                            G: {Number(item.grossWeight || 0).toFixed(2)}g
                                           </div>
                                           <div className="font-bold text-slate-900">
-                                            N: {item.netWeight.toFixed(2)}g
+                                            N: {Number(item.netWeight || 0).toFixed(2)}g
                                           </div>
                                         </td>
                                         <td className="px-1.5 py-1 text-right border-r border-slate-200 font-mono align-top whitespace-nowrap">
@@ -1430,7 +1480,7 @@ Mobile: ${shopDetails.phone}`;
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-200">
-                                    {invoice.items.map((item, idx) => (
+                                    {(invoice.items || []).map((item, idx) => (
                                       <tr key={idx} className="hover:bg-slate-50">
                                         <td className="p-1.5 text-center border-r border-slate-200 font-mono">
                                           {idx + 1}
@@ -1438,7 +1488,7 @@ Mobile: ${shopDetails.phone}`;
                                         <td className="p-1.5 border-r border-slate-200">
                                           <span className="font-bold text-slate-900 block">
                                             {item.name}
-                                            {item.quantity > 1 ? ` (×${item.quantity})` : ''}
+                                            {(item.quantity || 1) > 1 ? ` (×${item.quantity})` : ''}
                                           </span>
                                           <div className="flex items-center gap-2 text-[10px] text-slate-600 font-mono flex-wrap">
                                             <span>Tag: {item.tagNo}</span>
@@ -1456,15 +1506,15 @@ Mobile: ${shopDetails.phone}`;
                                           {item.purity}
                                         </td>
                                         <td className="p-1.5 text-right border-r border-slate-200 font-mono">
-                                          {item.grossWeight.toFixed(2)}g
+                                          {Number(item.grossWeight || 0).toFixed(2)}g
                                         </td>
                                         <td className="p-1.5 text-right border-r border-slate-200 font-mono text-slate-600">
-                                          {item.stoneWeight > 0
-                                            ? `${item.stoneWeight.toFixed(2)}g`
+                                          {Number(item.stoneWeight || 0) > 0
+                                            ? `${Number(item.stoneWeight || 0).toFixed(2)}g`
                                             : '-'}
                                         </td>
                                         <td className="p-1.5 text-right border-r border-slate-200 font-mono font-bold text-slate-900">
-                                          {item.netWeight.toFixed(2)}g
+                                          {Number(item.netWeight || 0).toFixed(2)}g
                                         </td>
                                         <td className="p-1.5 text-right border-r border-slate-200 font-mono">
                                           ₹{formatCurrency(item.metalRateApplied)}
@@ -1504,13 +1554,13 @@ Mobile: ${shopDetails.phone}`;
                                     <div>
                                       Gross Wt:{' '}
                                       <strong>
-                                        {invoice.oldMetalExchange.grossWeight.toFixed(2)}g
+                                        {Number(invoice.oldMetalExchange.grossWeight || 0).toFixed(2)}g
                                       </strong>
                                     </div>
                                     <div>
                                       Melt Loss:{' '}
                                       <strong>
-                                        {invoice.oldMetalExchange.dustWastageGram.toFixed(2)}g
+                                        {Number(invoice.oldMetalExchange.dustWastageGram || 0).toFixed(2)}g
                                       </strong>
                                     </div>
                                     <div className="text-right font-bold text-rose-700">
@@ -1647,15 +1697,15 @@ Mobile: ${shopDetails.phone}`;
 
                                 <div className="p-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] space-y-0.5">
                                   <div className="flex justify-between text-slate-700">
-                                    <span>Payment ({invoice.payment.method}):</span>
+                                    <span>Payment ({invoice.payment?.method || 'Cash'}):</span>
                                     <span className="font-bold text-emerald-700">
-                                      Paid ₹{formatCurrency(invoice.payment.amountPaid)}
+                                      Paid ₹{formatCurrency(invoice.payment?.amountPaid || 0)}
                                     </span>
                                   </div>
-                                  {invoice.payment.dueAmount > 0 && (
+                                  {(invoice.payment?.dueAmount || 0) > 0 && (
                                     <div className="flex justify-between text-rose-700 font-bold">
                                       <span>Balance Due:</span>
-                                      <span>₹{formatCurrency(invoice.payment.dueAmount)}</span>
+                                      <span>₹{formatCurrency(invoice.payment?.dueAmount || 0)}</span>
                                     </div>
                                   )}
                                 </div>
