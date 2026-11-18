@@ -425,9 +425,7 @@ describe('Firestore Atomic Operations Tests', () => {
 
   describe('createInvoiceAtomic Diagnostics & Self-Test', () => {
     it('catches failures and throws structured InvoiceCreationError with full diagnostics', async () => {
-      // Intentionally missing owner user in docStore to trigger validation error
-      delete docStore['users/test-user-123'];
-
+      // Intentionally reference a missing inventory item to trigger a validation error
       const draft: Omit<GSTInvoice, 'id' | 'invoiceNumber'> = {
         invoiceType: 'ESTIMATE_BILL',
         date: '2026-11-14',
@@ -437,10 +435,33 @@ describe('Firestore Atomic Operations Tests', () => {
         customerAddress: 'Bhopal',
         placeOfSupply: 'Madhya Pradesh (23)',
         isInterState: false,
-        items: [],
-        itemsSubtotal: 0,
+        items: [
+          {
+            itemId: 'missing-item-id',
+            tagNo: 'MISSING',
+            name: 'Missing Gold Ring',
+            category: 'Gold',
+            hsnCode: '7113',
+            metal: 'Gold',
+            purity: '22K',
+            grossWeight: 5,
+            netWeight: 5,
+            stoneWeight: 0,
+            stoneValue: 0,
+            metalRateApplied: 7000,
+            metalCost: 35000,
+            wastagePercentage: 2,
+            wastageCost: 700,
+            makingChargeType: 'per_gram',
+            makingChargeRate: 400,
+            makingCharge: 2000,
+            subtotal: 37700,
+            quantity: 1
+          }
+        ],
+        itemsSubtotal: 37700,
         oldMetalDeduction: 0,
-        taxableAmount: 0,
+        taxableAmount: 37700,
         cgstRate: 0,
         sgstRate: 0,
         igstRate: 0,
@@ -450,10 +471,10 @@ describe('Firestore Atomic Operations Tests', () => {
         totalTax: 0,
         hallmarkingTotalFee: 0,
         discountAmount: 0,
-        grandTotal: 0,
+        grandTotal: 37700,
         payment: {
           method: 'Mixed',
-          amountPaid: 0,
+          amountPaid: 37700,
           dueAmount: 0
         },
         status: 'Paid',

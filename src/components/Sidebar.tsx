@@ -22,13 +22,11 @@ import {
   Gem,
   Coins,
   X,
-  LogOut,
-  ShieldCheck
+  LogOut
 } from 'lucide-react';
 import { TabType } from './Navigation';
 import { ShreemLogo } from './ShreemLogo';
 import { AppUserAccessRecord, UserPermissions } from '../types';
-import { canUserAccessTab } from '../lib/accessControl';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -92,29 +90,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   userAccess,
   effectivePermissions,
-  isMasterAdmin = false,
 }) => {
 
-  const masterSections: NavSection[] = isMasterAdmin
-    ? [
-        {
-          title: 'Super Admin',
-          hindiTitle: 'मास्टर नियंत्रण',
-          items: [
-            {
-              id: 'master_control',
-              label: 'Master Control Panel',
-              hindiLabel: 'यूज़र, ट्रायल व फर्म कंट्रोल',
-              icon: ShieldCheck,
-              badge: null
-            }
-          ]
-        }
-      ]
-    : [];
-
   const rawSections: NavSection[] = [
-    ...masterSections,
     {
       title: 'Executive Desk',
       hindiTitle: 'मुख्य कार्यपालक डेस्क',
@@ -309,20 +287,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   ];
 
-  const isDemoMode = !userAccess && !isMasterAdmin;
-  const sections: NavSection[] = isDemoMode
-    ? rawSections
-    : rawSections
-        .map((sec) => ({
-          ...sec,
-          items: sec.items.filter((item) =>
-            canUserAccessTab(userAccess, item.id, effectivePermissions, isMasterAdmin)
-          )
-        }))
-        .filter((sec) => sec.items.length > 0);
-
-  const canViewCashBank =
-    isDemoMode || canUserAccessTab(userAccess, 'cashbank', effectivePermissions, isMasterAdmin);
+  const sections: NavSection[] = rawSections;
+  const canViewCashBank = true;
 
   const handleItemClick = (id: TabType) => {
     onSelectTab(id);

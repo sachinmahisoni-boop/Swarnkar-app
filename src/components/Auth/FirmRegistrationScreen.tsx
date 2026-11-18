@@ -150,36 +150,7 @@ export const FirmRegistrationScreen: React.FC<FirmRegistrationScreenProps> = ({
 
   return (
     <div className="min-h-screen bg-stone-100 flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 font-sans selection:bg-amber-500 selection:text-white">
-      {/* Container Card */}
       <div className="w-full max-w-3xl bg-white border border-stone-200 rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto">
-
-        {/* Top Signed-in Session Bar with Login / Switch Account / Logout */}
-        {(userEmail || onLogout) && (
-          <div className="bg-stone-950 text-stone-200 px-4 sm:px-6 py-2.5 border-b border-stone-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex flex-wrap items-center gap-2 min-w-0">
-              <span className="text-stone-400">Signed in as:</span>
-              <span className="font-bold text-white truncate max-w-[220px] sm:max-w-xs">
-                {userEmail || 'Authenticated User'}
-              </span>
-              {accountStatus && (
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase">
-                  {accountStatus}
-                </span>
-              )}
-            </div>
-            {onLogout && (
-              <button
-                type="button"
-                onClick={onLogout}
-                data-testid="firm-screen-logout-btn"
-                className="px-3 py-1 bg-stone-800 hover:bg-rose-600 text-stone-100 hover:text-white border border-stone-700 hover:border-rose-500 font-bold rounded-xl text-[11px] flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>लॉगिन / साइन-अप (Switch Account)</span>
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Banner Header */}
         <div className="bg-gradient-to-r from-stone-900 via-stone-850 to-stone-900 text-stone-100 p-6 sm:p-8 border-b border-amber-500/20 text-center relative overflow-hidden">

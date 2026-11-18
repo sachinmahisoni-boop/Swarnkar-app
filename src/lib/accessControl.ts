@@ -192,162 +192,43 @@ export function isApprovedOrTrialStatus(status?: string | null): boolean {
   return status === 'active' || status === 'trial' || status === 'approved';
 }
 
-export function resolveEffectivePermissions(params: {
+export function resolveEffectivePermissions(_params: {
   isPlatformAdmin?: boolean;
   userAccess?: AppUserAccessRecord | null;
   firmProfile?: JewellerProfile | null;
   uid?: string | null;
   ownerAccess?: AppUserAccessRecord | null;
 }): UserPermissions {
-  const { isPlatformAdmin, userAccess, firmProfile, uid, ownerAccess } = params;
-  if (isPlatformAdmin) return { ...FULL_PERMISSIONS };
-  if (!userAccess || !isApprovedOrTrialStatus(userAccess.status)) {
-    return { ...RESTRICTED_PERMISSIONS };
-  }
-
-  const userPerms = normalizePermissions(userAccess.permissions, RESTRICTED_PERMISSIONS);
-  if (!firmProfile || !uid) return userPerms;
-
-  const isOwner = firmProfile.ownerUid === uid;
-  if (isOwner) return userPerms;
-
-  // Staff member: intersect staff firm permissions, user's own permissions, and owner's permissions
-  const firmStaffPerms = firmProfile.staffPermissions?.[uid];
-  const ownerPerms = ownerAccess
-    ? normalizePermissions(ownerAccess.permissions, RESTRICTED_PERMISSIONS)
-    : FULL_PERMISSIONS;
-  const staffRole = firmProfile.staff?.[uid];
-  const roleDefault =
-    staffRole === 'manager'
-      ? MANAGER_PERMISSIONS
-      : staffRole === 'cashier'
-        ? CASHIER_PERMISSIONS
-        : RESTRICTED_PERMISSIONS;
-
-  const effectiveStaffPerms = firmStaffPerms
-    ? normalizePermissions(firmStaffPerms, RESTRICTED_PERMISSIONS)
-    : roleDefault;
-
-  return capStaffPermissionsToOwner(
-    capStaffPermissionsToOwner(effectiveStaffPerms, userPerms),
-    ownerPerms
-  );
+  return { ...FULL_PERMISSIONS };
 }
 
-/**
- * Validates that a user access record satisfies every requirement checked by firestore.rules
- * before executing an invoice or operational write transaction.
- */
 export function validateTrialFirestoreReadiness(
-  record?: AppUserAccessRecord | null,
-  nowMs: number = Date.now()
+  _record?: AppUserAccessRecord | null,
+  _nowMs: number = Date.now()
 ): {
   valid: boolean;
   reason?: string;
 } {
-  if (!record) {
-    return {
-      valid: false,
-      reason: 'यूज़र एक्सेस प्रोफ़ाइल लोड नहीं हुई है। कृपया पेज रिफ्रेश करें।'
-    };
-  }
-  const perms = normalizePermissions(record.permissions, record.status === 'active' ? FULL_PERMISSIONS : RESTRICTED_PERMISSIONS);
-  if (record.status === 'active') {
-    if (!perms.billing && !perms.estimates) {
-      return {
-        valid: false,
-        reason: 'आपके खाते के लिए Billing या Estimates अनुमति चालू नहीं है। कृपया Master Control में Permissions सेव करें।'
-      };
-    }
-    return { valid: true };
-  }
-  if (record.status !== 'trial') {
-    return {
-      valid: false,
-      reason: `आपका खाता अभी "${record.status}" स्थिति में है। बिलिंग के लिए Master Admin स्वीकृति आवश्यक है।`
-    };
-  }
-  if (
-    typeof record.trialInvoiceLimit !== 'number' ||
-    !Number.isInteger(record.trialInvoiceLimit) ||
-    record.trialInvoiceLimit <= 0
-  ) {
-    return {
-      valid: false,
-      reason: 'ट्रायल बिल सीमा (Trial Invoice Limit) सेट नहीं है। कृपया Master Control में Permissions & Trial सेव करें।'
-    };
-  }
-  const endsAtMs = toEpochMs(record.trialEndsAt);
-  const isTimestampLike =
-    record.trialEndsAt !== null &&
-    record.trialEndsAt !== undefined &&
-    typeof record.trialEndsAt === 'object' &&
-    (typeof (record.trialEndsAt as any).toMillis === 'function' ||
-      typeof (record.trialEndsAt as any).seconds === 'number');
-
-  if (endsAtMs === null || !isTimestampLike) {
-    return {
-      valid: false,
-      reason: 'ट्रायल समाप्ति तिथि (trialEndsAt) मान्य Timestamp के रूप में सेट नहीं है। कृपया Master Control में Permissions & Trial खोलकर Save करें।'
-    };
-  }
-  if (nowMs >= endsAtMs) {
-    return {
-      valid: false,
-      reason: 'ट्रायल अवधि समाप्त हो गई है (Trial period expired)। कृपया Master Admin से संपर्क करें।'
-    };
-  }
-  if (!perms.billing && !perms.estimates) {
-    return {
-      valid: false,
-      reason: 'ट्रायल खाते के लिए Billing/Estimates अनुमति चालू नहीं है। कृपया Master Control में Permissions सेव करें।'
-    };
-  }
   return { valid: true };
 }
 
 export function canUserAccessApp(
-  record?: AppUserAccessRecord | null,
-  isPlatformAdmin: boolean = false
+  _record?: AppUserAccessRecord | null,
+  _isPlatformAdmin: boolean = false
 ): {
   allowed: boolean;
   status: UserApprovalStatus | 'unregistered';
   message?: string;
 } {
-  if (isPlatformAdmin) {
-    return { allowed: true, status: 'active' };
-  }
-  if (!record) {
-    return {
-      allowed: false,
-      status: 'unregistered',
-      message: 'आपका यूज़र प्रोफ़ाइल सत्यापित किया जा रहा है...',
-    };
-  }
-  if (isApprovedOrTrialStatus(record.status)) {
-    const normalized: UserApprovalStatus = record.status === 'trial' ? 'trial' : 'active';
-    return { allowed: true, status: normalized };
-  }
-  if (record.status === 'pending') {
-    return {
-      allowed: false,
-      status: 'pending',
-      message: 'आपका खाता अभी Master Admin की स्वीकृति (Approval) की प्रतीक्षा में है।',
-    };
-  }
-  return {
-    allowed: false,
-    status: 'suspended',
-    message: 'Master Admin द्वारा आपका खाता अस्थायी रूप से रोका (Suspended) गया है।',
-  };
+  return { allowed: true, status: 'active' };
 }
 
 export function canUserCreateInvoice(
   record?: AppUserAccessRecord | null,
   firmUsageCount?: number | null,
-  nowMs: number = Date.now(),
-  isPlatformAdmin: boolean = false,
-  effectivePerms?: UserPermissions | null
+  _nowMs: number = Date.now(),
+  _isPlatformAdmin: boolean = false,
+  _effectivePerms?: UserPermissions | null
 ): {
   allowed: boolean;
   isTrial: boolean;
@@ -359,117 +240,12 @@ export function canUserCreateInvoice(
   limitReached: boolean;
   reason?: string;
 } {
-  if (isPlatformAdmin) {
-    return {
-      allowed: true,
-      isTrial: false,
-      remaining: null,
-      limit: null,
-      used: firmUsageCount ?? 0,
-      daysRemaining: null,
-      isExpired: false,
-      limitReached: false,
-    };
-  }
-
-  if (!record) {
-    return {
-      allowed: false,
-      isTrial: false,
-      remaining: 0,
-      limit: 0,
-      used: 0,
-      daysRemaining: null,
-      isExpired: false,
-      limitReached: false,
-      reason: 'User access record not loaded.',
-    };
-  }
-
-  if (!isApprovedOrTrialStatus(record.status)) {
-    return {
-      allowed: false,
-      isTrial: false,
-      remaining: 0,
-      limit: 0,
-      used: firmUsageCount ?? record.invoicesCreatedCount ?? 0,
-      daysRemaining: null,
-      isExpired: false,
-      limitReached: false,
-      reason: 'Account is not approved for billing.',
-    };
-  }
-
-  const perms = effectivePerms || normalizePermissions(record.permissions, record.status === 'active' ? FULL_PERMISSIONS : RESTRICTED_PERMISSIONS);
-  if (!perms.billing && !perms.estimates) {
-    return {
-      allowed: false,
-      isTrial: record.status === 'trial',
-      remaining: 0,
-      limit: record.status === 'trial' ? (record.trialInvoiceLimit ?? DEFAULT_TRIAL_INVOICE_LIMIT) : null,
-      used: firmUsageCount ?? record.invoicesCreatedCount ?? 0,
-      daysRemaining: record.status === 'trial' ? getTrialDaysRemaining(record.trialEndsAt, nowMs) : null,
-      isExpired: false,
-      limitReached: false,
-      reason: 'Master Admin द्वारा आपको नया बिल बनाने की अनुमति (Billing Permission) नहीं दी गई है।',
-    };
-  }
-
-  const used = Math.max(0, firmUsageCount ?? record.invoicesCreatedCount ?? 0);
-  if (record.status === 'trial') {
-    const limit = Math.max(0, record.trialInvoiceLimit ?? DEFAULT_TRIAL_INVOICE_LIMIT);
-    const remaining = Math.max(0, limit - used);
-    const endsAtMs = toEpochMs(record.trialEndsAt);
-    const daysRemaining = getTrialDaysRemaining(record.trialEndsAt, nowMs);
-    const isExpired = endsAtMs !== null && nowMs >= endsAtMs;
-    const limitReached = used >= limit;
-
-    if (isExpired) {
-      return {
-        allowed: false,
-        isTrial: true,
-        remaining,
-        limit,
-        used,
-        daysRemaining: 0,
-        isExpired: true,
-        limitReached,
-        reason: 'ट्रायल अवधि समाप्त हो गई है (Trial period expired)। कृपया Master Admin से संपर्क करें।',
-      };
-    }
-
-    if (limitReached) {
-      return {
-        allowed: false,
-        isTrial: true,
-        remaining: 0,
-        limit,
-        used,
-        daysRemaining,
-        isExpired: false,
-        limitReached: true,
-        reason: `ट्रायल बिल सीमा समाप्त (${used}/${limit} इनवॉइस)। आगे बिल बनाने के लिए Master Admin से संपर्क करें।`,
-      };
-    }
-
-    return {
-      allowed: true,
-      isTrial: true,
-      remaining,
-      limit,
-      used,
-      daysRemaining,
-      isExpired: false,
-      limitReached: false,
-    };
-  }
-
   return {
     allowed: true,
     isTrial: false,
     remaining: null,
     limit: null,
-    used,
+    used: Math.max(0, firmUsageCount ?? record?.invoicesCreatedCount ?? 0),
     daysRemaining: null,
     isExpired: false,
     limitReached: false,
@@ -478,8 +254,6 @@ export function canUserCreateInvoice(
 
 export function mapTabToPermissionKey(tab: TabType): PermissionKey | null {
   switch (tab) {
-    case 'master_control':
-      return null;
     case 'dashboard':
       return 'reports';
     case 'pos':
@@ -519,58 +293,22 @@ export function mapTabToPermissionKey(tab: TabType): PermissionKey | null {
 }
 
 export function canUserAccessTab(
-  record: AppUserAccessRecord | null | undefined,
+  _record: AppUserAccessRecord | null | undefined,
   tab: TabType,
-  effectivePerms?: UserPermissions | null,
-  isPlatformAdmin: boolean = false
+  _effectivePerms?: UserPermissions | null,
+  _isPlatformAdmin: boolean = false
 ): boolean {
-  if (tab === 'master_control') {
-    return isPlatformAdmin;
+  if ((tab as string) === 'master_control') {
+    return false;
   }
-  if (isPlatformAdmin) return true;
-  if (!record || !isApprovedOrTrialStatus(record.status)) return false;
-
-  const perms = effectivePerms || normalizePermissions(record.permissions, RESTRICTED_PERMISSIONS);
-  if (tab === 'dashboard') {
-    // Allow dashboard for any active/trial user who has at least one operational permission
-    return Object.values(perms).some(Boolean);
-  }
-  const key = mapTabToPermissionKey(tab);
-  if (!key) return false;
-  if (tab === 'invoices') {
-    return Boolean(perms.billing || perms.estimates);
-  }
-  return Boolean(perms[key]);
+  return true;
 }
 
 export function getFirstAllowedTab(
-  record: AppUserAccessRecord | null | undefined,
-  effectivePerms?: UserPermissions | null,
-  isPlatformAdmin: boolean = false
+  _record: AppUserAccessRecord | null | undefined,
+  _effectivePerms?: UserPermissions | null,
+  _isPlatformAdmin: boolean = false
 ): TabType {
-  if (isPlatformAdmin) return 'master_control';
-  if (!record) return 'dashboard';
-  const orderedTabs: TabType[] = [
-    'dashboard',
-    'pos',
-    'invoices',
-    'inventory',
-    'customers',
-    'orders',
-    'purchases',
-    'vendors',
-    'expenses',
-    'karigar',
-    'girvi',
-    'gemstones',
-    'reports',
-    'profit',
-  ];
-  for (const tab of orderedTabs) {
-    if (canUserAccessTab(record, tab, effectivePerms, isPlatformAdmin)) {
-      return tab;
-    }
-  }
   return 'dashboard';
 }
 
@@ -583,31 +321,12 @@ export type LegacyActionKey =
   | 'canExportBackup';
 
 export function hasActionPermission(
-  record: AppUserAccessRecord | null | undefined,
-  action: LegacyActionKey | PermissionKey,
-  effectivePerms?: UserPermissions | null,
-  isPlatformAdmin: boolean = false
+  _record: AppUserAccessRecord | null | undefined,
+  _action: LegacyActionKey | PermissionKey,
+  _effectivePerms?: UserPermissions | null,
+  _isPlatformAdmin: boolean = false
 ): boolean {
-  if (isPlatformAdmin) return true;
-  if (!record || !isApprovedOrTrialStatus(record.status)) return false;
-  const perms = effectivePerms || normalizePermissions(record.permissions, RESTRICTED_PERMISSIONS);
-
-  switch (action) {
-    case 'canCreateInvoice':
-      return Boolean(perms.billing || perms.estimates);
-    case 'canCancelInvoice':
-      return Boolean(perms.invoiceCancel);
-    case 'canEditRates':
-      return Boolean(perms.rates);
-    case 'canEditSettings':
-      return Boolean(perms.staffManagement);
-    case 'canExportBackup':
-      return Boolean(perms.backupExport);
-    case 'canDeleteRecords':
-      return Boolean(perms.inventory || perms.expenses);
-    default:
-      return Boolean(perms[action as PermissionKey]);
-  }
+  return true;
 }
 
 export function mapCollectionToPermissionKey(collectionName: string): PermissionKey | null {

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MetalRate, ShopDetails, JewellerProfile, AppUserAccessRecord, UserPermissions } from '../types';
 import { ShreemLogo } from './ShreemLogo';
-import { canUserAccessTab, hasActionPermission, getTrialDaysRemaining, DEFAULT_TRIAL_INVOICE_LIMIT } from '../lib/accessControl';
 import { 
   RefreshCw, 
   Bell, 
@@ -111,16 +110,11 @@ export const Header: React.FC<HeaderProps> = ({
   userAccess,
   effectivePermissions,
   firmUsageCount,
-  isMasterAdmin = false
 }) => {
-  const isDemoMode = !userAccess && !isMasterAdmin;
-  const canTab = (tab: any) => isDemoMode || canUserAccessTab(userAccess, tab, effectivePermissions, isMasterAdmin);
-  const canEditRates = isDemoMode || hasActionPermission(userAccess, 'canEditRates', effectivePermissions, isMasterAdmin);
-  const canEditSettings = isDemoMode || hasActionPermission(userAccess, 'canEditSettings', effectivePermissions, isMasterAdmin);
-  const canExportBackup = isDemoMode || hasActionPermission(userAccess, 'canExportBackup', effectivePermissions, isMasterAdmin);
-  const trialLimit = userAccess?.trialInvoiceLimit ?? DEFAULT_TRIAL_INVOICE_LIMIT;
-  const trialUsed = firmUsageCount ?? userAccess?.invoicesCreatedCount ?? 0;
-  const trialDaysLeft = userAccess?.status === 'trial' ? getTrialDaysRemaining(userAccess.trialEndsAt) : null;
+  const canTab = (_tab: any) => true;
+  const canEditRates = true;
+  const canEditSettings = true;
+  const canExportBackup = true;
 
   const gold24k = rates.find(r => r.metal === 'Gold' && r.purity === '24K')?.ratePerGram || 0;
   const gold22k = rates.find(r => r.metal === 'Gold' && r.purity === '22K')?.ratePerGram || 0;
@@ -425,33 +419,6 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
             </div>
-          )}
-
-          {/* Trial Quota Badge */}
-          {userAccess?.status === 'trial' && !isMasterAdmin && (
-            <span
-              className={`px-2.5 py-1 rounded-xl border text-[10px] font-black font-mono shrink-0 ${
-                trialUsed >= trialLimit || trialDaysLeft === 0
-                  ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-700'
-                  : 'bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-700'
-              }`}
-              title="Trial Plan Invoice Quota & Expiry"
-            >
-              Trial: {trialUsed}/{trialLimit} Bills{trialDaysLeft !== null ? ` • ${trialDaysLeft}d` : ''}
-            </span>
-          )}
-
-          {/* Master Control Quick Trigger */}
-          {isMasterAdmin && (
-            <button
-              type="button"
-              onClick={() => onSelectTab('master_control')}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-400 border border-amber-500/40 text-[11px] font-black transition cursor-pointer shadow-2xs shrink-0"
-              title="Open Master Control Panel"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Master Control</span>
-            </button>
           )}
 
           {/* Backup / Export Trigger Button */}

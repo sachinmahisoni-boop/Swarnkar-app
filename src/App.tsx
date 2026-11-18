@@ -16,29 +16,14 @@ import {
   CertifiedGemstone,
   GemstoneRate,
   AppUserAccessRecord,
-  FirmUsageInvoicesDoc,
-  MasterControlSettings,
-  PublicSupportConfig,
   StaffInviteRecord
 } from './types';
 import { 
-  initialShopDetails, 
   initialProfiles,
   initialRates, 
-  initialInventory, 
-  initialCustomers, 
-  initialInvoices, 
-  initialKarigars, 
-  initialKarigarJobCards, 
-  initialGirviLoans, 
   initialCategories,
-  initialVendors,
-  initialPurchases,
-  initialExpenses,
   initialCashInHand,
   initialBankBalance,
-  initialTransfers,
-  initialGemstones,
   initialGemstoneRates,
   defaultCity, 
   cityRatesPresets 
@@ -68,9 +53,6 @@ import { ExpenseManager } from './components/Expenses/ExpenseManager';
 import { CashBankDashboard } from './components/CashBank/CashBankDashboard';
 import { CategoryModal } from './components/Categories/CategoryModal';
 import { QuickGenerateItemModal } from './components/Inventory/QuickGenerateItemModal';
-import { Login, SignupMetadata } from './components/Auth/Login';
-import { ApprovalGateScreen } from './components/Auth/ApprovalGateScreen';
-import { MasterControlPanel } from './components/MasterAdmin/MasterControlPanel';
 import { FirmRegistrationScreen } from './components/Auth/FirmRegistrationScreen';
 import { MMIDashboard } from './components/Dashboard/MMIDashboard';
 import { CustomerOrderManager } from './components/Orders/CustomerOrderManager';
@@ -80,8 +62,7 @@ import { CRMManager } from './components/CRM/CRMManager';
 import { StaffPayrollManager } from './components/Payroll/StaffPayrollManager';
 import { DataBackupModal } from './components/DataBackupModal';
 import { LegacyMigrationModal } from './components/LegacyMigrationModal';
-import { FirebaseConfigMissingScreen } from './components/FirebaseConfigMissingScreen';
-import { auth, db, firestoreDatabaseId, missingFirebaseEnvVars, firebaseConfigError } from './lib/firebase';
+import { auth, db } from './lib/firebase';
 import {
   getLocalDeviceInvoices,
   saveLocalDeviceInvoice,
@@ -92,13 +73,25 @@ import {
   saveLocalDevicePurchase,
   getLocalDevicePurchases
 } from './lib/deviceInvoiceStorage';
+import {
+  DEFAULT_LOCAL_FIRM_PROFILE,
+  loadLocalFirmProfiles,
+  saveLocalFirmProfiles,
+  getActiveLocalFirmId,
+  setActiveLocalFirmId,
+  loadLocalFirmCollection,
+  saveLocalFirmCollectionDoc,
+  deleteLocalFirmCollectionDoc,
+  replaceLocalFirmCollection,
+  loadLocalShopDetails,
+  saveLocalShopDetails
+} from './lib/localFirmStorage';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
   ensureFirmRootDoc,
   isFirmRootReady as isFirmRootReadyFn,
   clearFirmRootReady,
   fetchUserFirms,
-  fetchAllFirmsForMaster,
   checkFirmHasFirestoreData,
   getLegacyLocalStorageData,
   subscribeToFirmCollection,
@@ -106,11 +99,6 @@ import {
   subscribeToSnapshotsInSync,
   subscribeToUserAccess,
   ensureUserAccessRecord,
-  fetchUserAccessOnce,
-  checkIsPlatformAdmin,
-  getPublicSupportConfig,
-  getMasterControlSettings,
-  subscribeToUserInvoiceUsage,
   subscribeToFirmStaffInvites,
   createOrUpdateStaffInvite,
   updateFirmStaffPermissions,
@@ -126,77 +114,25 @@ import {
   SnapshotMetadataInfo
 } from './lib/firestoreSync';
 import {
-  DEFAULT_TRIAL_INVOICE_LIMIT,
-  DEFAULT_TRIAL_DAYS,
   FULL_PERMISSIONS,
-  resolveEffectivePermissions,
-  canUserAccessApp,
-  canUserAccessTab,
-  canUserCreateInvoice,
-  getFirstAllowedTab,
-  hasActionPermission
 } from './lib/accessControl';
-import { getISTDate, formatSequentialNumber } from './lib/invoiceNumber';
+import { getISTDate } from './lib/invoiceNumber';
 
 export default function App() {
-  if (missingFirebaseEnvVars.length > 0 || !auth || !db) {
-    return (
-      <FirebaseConfigMissingScreen
-        missingVars={missingFirebaseEnvVars}
-        errorMsg={firebaseConfigError || 'Firebase Auth/Firestore could not be initialized.'}
-      />
-    );
-  }
-
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isDemoUser, setIsDemoUser] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string>(() => auth.currentUser?.uid || '');
+  const hasCloudSupport = Boolean(auth && db);
+  const [isDemoUser] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string>(() => auth?.currentUser?.uid || '');
   const [userAccess, setUserAccess] = useState<AppUserAccessRecord | null>(null);
-  const [userAccessLoaded, setUserAccessLoaded] = useState<boolean>(false);
-  const [isPlatformAdmin, setIsPlatformAdmin] = useState<boolean>(false);
   const [userAccessRefreshNonce, setUserAccessRefreshNonce] = useState<number>(0);
-  const [masterSettings, setMasterSettings] = useState<MasterControlSettings>({
-    id: 'master',
-    defaultTrialInvoiceLimit: DEFAULT_TRIAL_INVOICE_LIMIT,
-    defaultTrialDays: DEFAULT_TRIAL_DAYS,
-    requireApprovalForNewSignups: true,
-    updatedAt: ''
-  });
-  const [supportConfig, setSupportConfig] = useState<PublicSupportConfig>({
-    id: 'public',
-    supportName: 'Platform Support Desk',
-    supportPhone: '',
-    supportEmail: ''
-  });
-  const [firmUsage, setFirmUsage] = useState<FirmUsageInvoicesDoc | null>(null);
-  const [firmOwnerAccess, setFirmOwnerAccess] = useState<AppUserAccessRecord | null>(null);
   const [staffInvites, setStaffInvites] = useState<StaffInviteRecord[]>([]);
-  const [inspectedFirm, setInspectedFirm] = useState<JewellerProfile | null>(null);
-  const [trialReadOnlyMode, setTrialReadOnlyMode] = useState<boolean>(false);
-  const pendingSignupMetaRef = useRef<SignupMetadata | null>(null);
 
   const getEffectiveUserId = (): string => {
-    if (auth.currentUser?.uid) return auth.currentUser.uid;
-    if (isDemoUser) return 'demo';
+    if (auth?.currentUser?.uid) return auth.currentUser.uid;
     return currentUserId || '';
   };
 
-  const getUserProfiles = (uid: string): JewellerProfile[] => {
-    if (!uid) return [];
-    const key = `jewel_user_${uid}_profiles`;
-    const saved = localStorage.getItem(key);
-    if (saved !== null) {
-      try { return JSON.parse(saved); } catch (e) { return []; }
-    }
-    if (uid === 'demo') {
-      return initialProfiles;
-    }
-    return [];
-  };
-
-  // Firm onboarding & selection state
-  const [isFirmActive, setIsFirmActive] = useState<boolean>(false);
+  // Firm onboarding & selection state (always ready immediately without login)
+  const [isFirmActive, setIsFirmActive] = useState<boolean>(true);
 
   // Light / Dark Theme State with local storage persistence
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -213,184 +149,80 @@ export default function App() {
     }
   }, [theme]);
 
-  const [activeProfileId, setActiveProfileId] = useState<string>('');
-  const [profiles, setProfiles] = useState<JewellerProfile[]>([]);
+  const [profiles, setProfiles] = useState<JewellerProfile[]>(() => loadLocalFirmProfiles());
+  const [activeProfileId, setActiveProfileId] = useState<string>(() => {
+    const initialList = loadLocalFirmProfiles();
+    return getActiveLocalFirmId(initialList);
+  });
 
   useEffect(() => {
+    if (!hasCloudSupport || !auth) return;
     let cancelled = false;
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (cancelled) return;
-      setIsLoading(false);
       if (user) {
         setCurrentUserId(user.uid);
-        setIsDemoUser(false);
-        setIsAuthenticated(true);
-        setUserAccessLoaded(false);
-
-        let accessRecord: AppUserAccessRecord | null = null;
         try {
-          const signupMeta = pendingSignupMetaRef.current;
-          pendingSignupMetaRef.current = null;
-          accessRecord = await ensureUserAccessRecord(user, signupMeta || undefined);
-          if (cancelled) return;
-          setUserAccess(accessRecord);
-          setUserAccessLoaded(true);
-        } catch (err: any) {
-          if (!cancelled) {
-            setUserAccessLoaded(true);
-            handleFirestoreError(err);
-          }
-        }
-
-        const platformAdminVerified = await checkIsPlatformAdmin(user.uid);
-        if (cancelled) return;
-        setIsPlatformAdmin(platformAdminVerified);
-
-        try {
-          const [cfg, pubSupport] = await Promise.all([
-            getMasterControlSettings(),
-            getPublicSupportConfig()
-          ]);
-          if (!cancelled) {
-            setMasterSettings(cfg);
-            setSupportConfig(pubSupport);
-          }
+          const accessRecord = await ensureUserAccessRecord(user);
+          if (!cancelled) setUserAccess(accessRecord);
         } catch {
-          // Ignore non-fatal config read error
+          // Non-fatal
         }
-
-        const accessCheck = canUserAccessApp(accessRecord, platformAdminVerified);
-
-        if (!platformAdminVerified && !accessCheck.allowed) {
-          setProfiles([]);
-          setActiveProfileId('');
-          setIsFirmActive(false);
-          return;
-        }
-
-        if (!platformAdminVerified) {
-          try {
-            await claimStaffInvitesForUser(user);
-          } catch {
-            // Non-fatal
-          }
-        }
-
-        const localProfs = getUserProfiles(user.uid);
-        let mergedProfs = [...localProfs];
 
         try {
-          const cloudProfs = platformAdminVerified
-            ? await fetchAllFirmsForMaster()
-            : await fetchUserFirms(user.uid);
+          await claimStaffInvitesForUser(user);
+        } catch {
+          // Non-fatal
+        }
+
+        try {
+          const cloudProfs = await fetchUserFirms(user.uid);
           if (cancelled) return;
-          const byId = new Map<string, JewellerProfile>();
-          localProfs.forEach(p => byId.set(p.id, p));
-          cloudProfs.forEach(p => byId.set(p.id, { ...byId.get(p.id), ...p }));
-          mergedProfs = Array.from(byId.values());
+          if (cloudProfs.length > 0) {
+            setProfiles((prev) => {
+              const byId = new Map<string, JewellerProfile>();
+              prev.forEach(p => byId.set(p.id, p));
+              cloudProfs.forEach(p => byId.set(p.id, { ...byId.get(p.id), ...p }));
+              const merged = Array.from(byId.values());
+              saveLocalFirmProfiles(merged);
+              return merged;
+            });
+          }
         } catch (err: any) {
           if (!cancelled) {
             handleFirestoreError(err);
           }
         }
-
-        setProfiles(mergedProfs);
-        if (mergedProfs.length > 0) {
-          const savedActive = localStorage.getItem(`jewel_user_${user.uid}_active_profile`);
-          const chosen = mergedProfs.some(p => p.id === savedActive) ? savedActive! : mergedProfs[0].id;
-          setActiveProfileId(chosen);
-          setIsFirmActive(true);
-          if (platformAdminVerified) {
-            setActiveTab('master_control');
-          }
-        } else if (platformAdminVerified) {
-          setActiveProfileId('');
-          setIsFirmActive(true);
-          setActiveTab('master_control');
-        } else {
-          setActiveProfileId('');
-          setIsFirmActive(false);
-        }
-      } else if (!isDemoUser) {
+      } else {
         clearFirmRootReady();
         setIsFirmRootReady(false);
-        setIsAuthenticated(false);
         setCurrentUserId('');
         setUserAccess(null);
-        setUserAccessLoaded(false);
-        setIsPlatformAdmin(false);
-        setFirmUsage(null);
-        setFirmOwnerAccess(null);
         setStaffInvites([]);
-        setInspectedFirm(null);
-        setProfiles([]);
-        setActiveProfileId('');
-        setIsFirmActive(false);
       }
     });
     return () => {
       cancelled = true;
       unsubscribe();
     };
-  }, [isDemoUser, userAccessRefreshNonce]);
+  }, [hasCloudSupport, userAccessRefreshNonce]);
 
-  // Realtime listener on /users/{uid} so approvals, suspensions, trial limits & permissions sync immediately
+  // Realtime listener on /users/{uid} profile metadata when signed in
   useEffect(() => {
-    if (!isAuthenticated || isDemoUser || !currentUserId) return;
+    if (!hasCloudSupport || !currentUserId) return;
     const unsub = subscribeToUserAccess(
       currentUserId,
       (record) => {
         if (record) {
           setUserAccess(record);
         }
-        setUserAccessLoaded(true);
       },
       (err) => {
-        console.error('User access subscription error:', err);
-        setUserAccessLoaded(true);
+        console.warn('User profile subscription warning:', err);
       }
     );
     return () => unsub();
-  }, [isAuthenticated, isDemoUser, currentUserId, userAccessRefreshNonce]);
-
-  // If a pending user gets approved in real-time while logged in, load their firms & staff invites immediately
-  const prevApprovedRef = useRef<boolean>(false);
-  useEffect(() => {
-    if (!isAuthenticated || isDemoUser || !currentUserId) {
-      prevApprovedRef.current = false;
-      return;
-    }
-    const approvedNow = canUserAccessApp(userAccess, isPlatformAdmin).allowed;
-    const wasApproved = prevApprovedRef.current;
-    prevApprovedRef.current = approvedNow;
-    if (!wasApproved && approvedNow && profiles.length === 0) {
-      let cancelled = false;
-      (async () => {
-        try {
-          if (!isPlatformAdmin && auth.currentUser) {
-            await claimStaffInvitesForUser(auth.currentUser);
-          }
-          const cloudProfs = isPlatformAdmin
-            ? await fetchAllFirmsForMaster()
-            : await fetchUserFirms(currentUserId);
-          if (cancelled) return;
-          if (cloudProfs.length > 0) {
-            setProfiles(cloudProfs);
-            const savedActive = localStorage.getItem(`jewel_user_${currentUserId}_active_profile`);
-            const chosen = cloudProfs.some(p => p.id === savedActive) ? savedActive! : cloudProfs[0].id;
-            setActiveProfileId(chosen);
-            setIsFirmActive(true);
-            setActiveTab(isPlatformAdmin ? 'master_control' : 'dashboard');
-          }
-        } catch {
-          // Non-fatal background sync on approval transition
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }
-  }, [isAuthenticated, isDemoUser, currentUserId, userAccess, isPlatformAdmin, profiles.length]);
+  }, [hasCloudSupport, currentUserId, userAccessRefreshNonce]);
 
   const buildDefaultShopDetails = (firmId: string, prof?: JewellerProfile): ShopDetails => ({
     firmId,
@@ -582,22 +414,12 @@ export default function App() {
   const [printingInvoices, setPrintingInvoices] = useState<GSTInvoice[] | null>(null);
 
   // Step 1: Ensure `firms/{firmId}` root document exists BEFORE any subcollection read/write
-  const isMasterAdmin = !isDemoUser && isPlatformAdmin;
   const activeUserAccess = isDemoUser ? null : userAccess;
-  const isUserApproved = isDemoUser || canUserAccessApp(userAccess, isPlatformAdmin).allowed;
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || initialProfiles[0];
-  const effectivePermissions = !isDemoUser && (isMasterAdmin || activeUserAccess)
-    ? resolveEffectivePermissions({
-        isPlatformAdmin: isMasterAdmin,
-        userAccess: activeUserAccess,
-        firmProfile: activeProfile,
-        uid: currentUserId,
-        ownerAccess: firmOwnerAccess
-      })
-    : undefined;
+  const effectivePermissions = FULL_PERMISSIONS;
 
   useEffect(() => {
-    if (!isAuthenticated || isDemoUser || !activeProfileId || !isFirmActive || !currentUserId || !isUserApproved) {
+    if (!activeProfileId || !isFirmActive) {
       clearFirmRootReady();
       setIsFirmRootReady(false);
       return;
@@ -605,9 +427,40 @@ export default function App() {
 
     let cancelled = false;
     const prof = profiles.find(p => p.id === activeProfileId);
-    setShopDetails((prev) =>
-      prev.firmId === activeProfileId ? prev : buildDefaultShopDetails(activeProfileId, prof)
-    );
+
+    // Load all device-stored firm collections immediately (works 100% without login)
+    const savedShop = loadLocalShopDetails(activeProfileId);
+    setShopDetails(savedShop || buildDefaultShopDetails(activeProfileId, prof));
+    setInventory(loadLocalFirmCollection<JewelleryItem>(activeProfileId, 'inventory'));
+    setCustomers(loadLocalFirmCollection<Customer>(activeProfileId, 'customers'));
+    setInvoices(getLocalDeviceInvoices(activeProfileId));
+    setVendors(loadLocalFirmCollection<Vendor>(activeProfileId, 'vendors'));
+    const storedLocalPurchases = loadLocalFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases');
+    const devicePurchases = getLocalDevicePurchases<PurchaseInvoice>(activeProfileId);
+    const purchaseMap = new Map<string, PurchaseInvoice>();
+    [...devicePurchases, ...storedLocalPurchases].forEach(p => {
+      if (p?.id) purchaseMap.set(p.id, p);
+    });
+    setPurchases(Array.from(purchaseMap.values()));
+    setExpenses(loadLocalFirmCollection<ShopExpense>(activeProfileId, 'expenses'));
+    setTransfers(loadLocalFirmCollection<CashBankTransfer>(activeProfileId, 'transfers'));
+    setKarigars(loadLocalFirmCollection<Karigar>(activeProfileId, 'karigars'));
+    setJobCards(loadLocalFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards'));
+    setGirviLoans(loadLocalFirmCollection<GirviLoan>(activeProfileId, 'girvi'));
+    setGemstones(loadLocalFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones'));
+    updateSyncError(null);
+
+    if (!hasCloudSupport || !currentUserId) {
+      clearFirmRootReady(activeProfileId);
+      setIsFirmRootReady(false);
+      setIsSynced(true);
+      updateSyncStatus('synced');
+      setSyncSource('cache');
+      setLastSyncedAt(Date.now());
+      setLastSyncEventLabel('Saved on this device');
+      setSyncPulseKey(k => k + 1);
+      return;
+    }
 
     if (isFirmRootReadyFn(activeProfileId, currentUserId)) {
       setIsFirmRootReady(true);
@@ -623,20 +476,6 @@ export default function App() {
     setIsFirmRootReady(false);
     clearFirmRootReady(activeProfileId);
     updateSyncStatus('syncing');
-    updateSyncError(null);
-
-    // Load device-stored invoices immediately while switching firms
-    setInventory([]);
-    setCustomers([]);
-    setInvoices(getLocalDeviceInvoices(activeProfileId));
-    setVendors([]);
-    setPurchases(getLocalDevicePurchases(activeProfileId));
-    setExpenses([]);
-    setTransfers([]);
-    setKarigars([]);
-    setJobCards([]);
-    setGirviLoans([]);
-    setGemstones([]);
 
     (async () => {
       try {
@@ -652,7 +491,7 @@ export default function App() {
             operatorName: prof?.operatorName,
             logoUrl: prof?.logoUrl || undefined
           },
-          { uid: currentUserId, isMasterAdmin }
+          { uid: currentUserId }
         );
         if (cancelled) return;
 
@@ -664,7 +503,6 @@ export default function App() {
         setLastSyncEventLabel('Firm workspace connected');
         setSyncPulseKey(k => k + 1);
 
-        // Check one-time legacy localStorage migration ONLY if Firestore is empty and user hasn't migrated
         const alreadyMigrated = localStorage.getItem(`jewel_migration_done_${activeProfileId}`);
         if (!alreadyMigrated) {
           const legacyCheck = getLegacyLocalStorageData(activeProfileId);
@@ -691,11 +529,11 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, isDemoUser, activeProfileId, isFirmActive, currentUserId, isUserApproved, isMasterAdmin, syncRetryNonce]);
+  }, [hasCloudSupport, activeProfileId, isFirmActive, currentUserId, syncRetryNonce]);
 
-  // Step 2: Firestore Realtime Subscriptions (blocked until firms/{firmId} root doc is ready)
+  // Step 2: Optional Firestore Realtime Subscriptions (only when signed in with Firebase)
   useEffect(() => {
-    if (!activeProfileId || !isFirmRootReady || isDemoUser || !isAuthenticated) return;
+    if (!hasCloudSupport || !activeProfileId || !isFirmRootReady || !currentUserId) return;
 
     pendingCollectionsRef.current.clear();
     recomputeSyncCounts();
@@ -766,17 +604,6 @@ export default function App() {
       })
     );
 
-    const perms = effectivePermissions;
-    const canReadInventory = isMasterAdmin || Boolean(perms && (perms.inventory || perms.billing || perms.estimates || perms.purchases));
-    const canReadCustomers = isMasterAdmin || Boolean(perms && (perms.customers || perms.billing || perms.estimates));
-    const canReadInvoices = isMasterAdmin || Boolean(perms && (perms.billing || perms.estimates || perms.reports || perms.gstReports));
-    const canReadVendors = isMasterAdmin || Boolean(perms && (perms.vendors || perms.purchases));
-    const canReadPurchases = isMasterAdmin || Boolean(perms && (perms.purchases || perms.reports));
-    const canReadExpensesAndTransfers = isMasterAdmin || Boolean(perms && (perms.expenses || perms.reports));
-    const canReadKarigar = isMasterAdmin || Boolean(perms?.karigar);
-    const canReadGirvi = isMasterAdmin || Boolean(perms && (perms.girvi || perms.expenses));
-    const canReadGemstones = isMasterAdmin || Boolean(perms?.gemstones);
-
     unsubs.push(subscribeToFirmDoc<ShopDetails>(activeProfileId, 'shop_details', 'main', (docData, meta) => {
       markSynced('shop_details', meta);
       if (docData) {
@@ -784,146 +611,99 @@ export default function App() {
       }
     }, onSubError));
 
-    if (canReadInventory) {
-      unsubs.push(subscribeToFirmCollection<JewelleryItem>(activeProfileId, 'inventory', (items, meta) => {
-        markSynced('inventory', meta);
-        setInventory(items);
-      }, onSubError));
-    } else {
-      setInventory([]);
-    }
+    unsubs.push(subscribeToFirmCollection<JewelleryItem>(activeProfileId, 'inventory', (items, meta) => {
+      markSynced('inventory', meta);
+      setInventory(items);
+    }, onSubError));
 
-    if (canReadCustomers) {
-      unsubs.push(subscribeToFirmCollection<Customer>(activeProfileId, 'customers', (items, meta) => {
-        markSynced('customers', meta);
-        setCustomers(items);
-      }, onSubError));
-    } else {
-      setCustomers([]);
-    }
+    unsubs.push(subscribeToFirmCollection<Customer>(activeProfileId, 'customers', (items, meta) => {
+      markSynced('customers', meta);
+      setCustomers(items);
+    }, onSubError));
 
-    if (canReadInvoices) {
-      unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items, meta) => {
-        markSynced('invoices', meta);
-        setInvoices(mergeDeviceAndCloudInvoices(activeProfileId, items));
-      }, onSubError));
-    } else {
-      setInvoices(getLocalDeviceInvoices(activeProfileId));
-    }
+    unsubs.push(subscribeToFirmCollection<GSTInvoice>(activeProfileId, 'invoices', (items, meta) => {
+      markSynced('invoices', meta);
+      setInvoices(mergeDeviceAndCloudInvoices(activeProfileId, items));
+    }, onSubError));
 
-    if (canReadVendors) {
-      unsubs.push(subscribeToFirmCollection<Vendor>(activeProfileId, 'vendors', (items, meta) => {
-        markSynced('vendors', meta);
-        setVendors(items);
-      }, onSubError));
-    } else {
-      setVendors([]);
-    }
+    unsubs.push(subscribeToFirmCollection<Vendor>(activeProfileId, 'vendors', (items, meta) => {
+      markSynced('vendors', meta);
+      setVendors(items);
+    }, onSubError));
 
-    if (canReadPurchases) {
-      unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items, meta) => {
-        markSynced('purchases', meta);
-        const localPurchases = getLocalDevicePurchases<PurchaseInvoice>(activeProfileId);
-        const mergedMap = new Map<string, PurchaseInvoice>();
-        items.forEach(p => { if (p?.id) mergedMap.set(p.id, p); });
-        localPurchases.forEach(p => { if (p?.id && !mergedMap.has(p.id)) mergedMap.set(p.id, p); });
-        setPurchases(Array.from(mergedMap.values()));
-      }, onSubError));
-    } else {
-      setPurchases(getLocalDevicePurchases(activeProfileId));
-    }
+    unsubs.push(subscribeToFirmCollection<PurchaseInvoice>(activeProfileId, 'purchases', (items, meta) => {
+      markSynced('purchases', meta);
+      const localPurchases = getLocalDevicePurchases<PurchaseInvoice>(activeProfileId);
+      const mergedMap = new Map<string, PurchaseInvoice>();
+      items.forEach(p => { if (p?.id) mergedMap.set(p.id, p); });
+      localPurchases.forEach(p => { if (p?.id && !mergedMap.has(p.id)) mergedMap.set(p.id, p); });
+      setPurchases(Array.from(mergedMap.values()));
+    }, onSubError));
 
-    if (canReadExpensesAndTransfers) {
-      unsubs.push(subscribeToFirmCollection<ShopExpense>(activeProfileId, 'expenses', (items, meta) => {
-        markSynced('expenses', meta);
-        setExpenses(items);
-      }, onSubError));
+    unsubs.push(subscribeToFirmCollection<ShopExpense>(activeProfileId, 'expenses', (items, meta) => {
+      markSynced('expenses', meta);
+      setExpenses(items);
+    }, onSubError));
 
-      unsubs.push(subscribeToFirmCollection<CashBankTransfer>(activeProfileId, 'transfers', (items, meta) => {
-        markSynced('transfers', meta);
-        setTransfers(items);
-      }, onSubError));
-    } else {
-      setExpenses([]);
-      setTransfers([]);
-    }
+    unsubs.push(subscribeToFirmCollection<CashBankTransfer>(activeProfileId, 'transfers', (items, meta) => {
+      markSynced('transfers', meta);
+      setTransfers(items);
+    }, onSubError));
 
-    if (canReadKarigar) {
-      unsubs.push(subscribeToFirmCollection<Karigar>(activeProfileId, 'karigars', (items, meta) => {
-        markSynced('karigars', meta);
-        setKarigars(items);
-      }, onSubError));
+    unsubs.push(subscribeToFirmCollection<Karigar>(activeProfileId, 'karigars', (items, meta) => {
+      markSynced('karigars', meta);
+      setKarigars(items);
+    }, onSubError));
 
-      unsubs.push(subscribeToFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards', (items, meta) => {
-        markSynced('jobcards', meta);
-        setJobCards(items);
-      }, onSubError));
-    } else {
-      setKarigars([]);
-      setJobCards([]);
-    }
+    unsubs.push(subscribeToFirmCollection<KarigarJobCard>(activeProfileId, 'jobcards', (items, meta) => {
+      markSynced('jobcards', meta);
+      setJobCards(items);
+    }, onSubError));
 
-    if (canReadGirvi) {
-      unsubs.push(subscribeToFirmCollection<GirviLoan>(activeProfileId, 'girvi', (items, meta) => {
-        markSynced('girvi', meta);
-        setGirviLoans(items);
-      }, onSubError));
-    } else {
-      setGirviLoans([]);
-    }
+    unsubs.push(subscribeToFirmCollection<GirviLoan>(activeProfileId, 'girvi', (items, meta) => {
+      markSynced('girvi', meta);
+      setGirviLoans(items);
+    }, onSubError));
 
-    if (canReadGemstones) {
-      unsubs.push(subscribeToFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones', (items, meta) => {
-        markSynced('gemstones', meta);
-        setGemstones(items);
-      }, onSubError));
-    } else {
-      setGemstones([]);
-    }
+    unsubs.push(subscribeToFirmCollection<CertifiedGemstone>(activeProfileId, 'gemstones', (items, meta) => {
+      markSynced('gemstones', meta);
+      setGemstones(items);
+    }, onSubError));
 
     return () => {
       pendingCollectionsRef.current.clear();
       unsubs.forEach(unsub => unsub());
     };
   }, [
+    hasCloudSupport,
     activeProfileId,
     isFirmRootReady,
-    isDemoUser,
-    isAuthenticated,
-    isMasterAdmin,
-    effectivePermissions?.inventory,
-    effectivePermissions?.customers,
-    effectivePermissions?.billing,
-    effectivePermissions?.estimates,
-    effectivePermissions?.vendors,
-    effectivePermissions?.purchases,
-    effectivePermissions?.expenses,
-    effectivePermissions?.reports,
-    effectivePermissions?.gstReports,
-    effectivePermissions?.karigar,
-    effectivePermissions?.girvi,
-    effectivePermissions?.gemstones
+    currentUserId,
   ]);
 
 
-  // Persist ONLY UI preferences in localStorage (NEVER firm ERP collections)
+  // Persist UI preferences & firm profiles locally on device
   useEffect(() => {
     localStorage.setItem('jewel_sidebar_collapsed', String(isSidebarCollapsed));
   }, [isSidebarCollapsed]);
 
   useEffect(() => {
+    saveLocalFirmProfiles(profiles);
     const uid = getEffectiveUserId();
     if (uid && uid !== 'demo') {
       localStorage.setItem(`jewel_user_${uid}_profiles`, JSON.stringify(profiles));
     }
-  }, [profiles, isDemoUser, currentUserId]);
+  }, [profiles, currentUserId]);
 
   useEffect(() => {
-    const uid = getEffectiveUserId();
-    if (uid && uid !== 'demo' && activeProfileId) {
-      localStorage.setItem(`jewel_user_${uid}_active_profile`, activeProfileId);
+    if (activeProfileId) {
+      setActiveLocalFirmId(activeProfileId);
+      const uid = getEffectiveUserId();
+      if (uid && uid !== 'demo') {
+        localStorage.setItem(`jewel_user_${uid}_active_profile`, activeProfileId);
+      }
     }
-  }, [activeProfileId, isDemoUser, currentUserId]);
+  }, [activeProfileId, currentUserId]);
 
   useEffect(() => {
     localStorage.setItem('jewel_selected_city', selectedCity);
@@ -941,19 +721,116 @@ export default function App() {
     localStorage.setItem('jewel_gemstone_rates_v1', JSON.stringify(gemstoneRates));
   }, [gemstoneRates]);
 
-  // Helper wrappers for gated Firestore writes (never swallow errors)
+  const upsertLocalCollectionState = <T extends { id: string }>(colName: string, data: T) => {
+    if (!activeProfileId) return;
+    if (colName === 'shop_details') {
+      const nextShop = data as unknown as ShopDetails;
+      saveLocalShopDetails(activeProfileId, nextShop);
+      setShopDetails(nextShop);
+      return;
+    }
+    if (colName === 'invoices') {
+      const inv = data as unknown as GSTInvoice;
+      saveLocalDeviceInvoice(activeProfileId, inv);
+      setInvoices(prev => {
+        const exists = prev.some(i => i.id === inv.id);
+        return exists ? prev.map(i => (i.id === inv.id ? inv : i)) : [inv, ...prev];
+      });
+      return;
+    }
+    if (colName === 'purchases') {
+      const p = data as unknown as PurchaseInvoice;
+      saveLocalDevicePurchase(activeProfileId, p);
+    }
+
+    const updated = saveLocalFirmCollectionDoc<T>(activeProfileId, colName, data);
+    switch (colName) {
+      case 'inventory':
+        setInventory(updated as unknown as JewelleryItem[]);
+        break;
+      case 'customers':
+        setCustomers(updated as unknown as Customer[]);
+        break;
+      case 'vendors':
+        setVendors(updated as unknown as Vendor[]);
+        break;
+      case 'purchases':
+        setPurchases(updated as unknown as PurchaseInvoice[]);
+        break;
+      case 'expenses':
+        setExpenses(updated as unknown as ShopExpense[]);
+        break;
+      case 'transfers':
+        setTransfers(updated as unknown as CashBankTransfer[]);
+        break;
+      case 'karigars':
+        setKarigars(updated as unknown as Karigar[]);
+        break;
+      case 'jobcards':
+        setJobCards(updated as unknown as KarigarJobCard[]);
+        break;
+      case 'girvi':
+        setGirviLoans(updated as unknown as GirviLoan[]);
+        break;
+      case 'gemstones':
+        setGemstones(updated as unknown as CertifiedGemstone[]);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const deleteLocalCollectionState = (colName: string, docId: string) => {
+    if (!activeProfileId) return;
+    const updated = deleteLocalFirmCollectionDoc<any>(activeProfileId, colName, docId);
+    switch (colName) {
+      case 'inventory':
+        setInventory(updated as JewelleryItem[]);
+        break;
+      case 'customers':
+        setCustomers(updated as Customer[]);
+        break;
+      case 'vendors':
+        setVendors(updated as Vendor[]);
+        break;
+      case 'expenses':
+        setExpenses(updated as ShopExpense[]);
+        break;
+      case 'transfers':
+        setTransfers(updated as CashBankTransfer[]);
+        break;
+      case 'karigars':
+        setKarigars(updated as Karigar[]);
+        break;
+      case 'jobcards':
+        setJobCards(updated as KarigarJobCard[]);
+        break;
+      case 'girvi':
+        setGirviLoans(updated as GirviLoan[]);
+        break;
+      case 'gemstones':
+        setGemstones(updated as CertifiedGemstone[]);
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Device-first writes (with optional Firestore sync if user happens to be signed in)
   const persistFirmDoc = <T extends { id: string }>(colName: string, data: T) => {
-    if (isDemoUser) {
+    if (!activeProfileId) return;
+    upsertLocalCollectionState(colName, data);
+
+    if (!hasCloudSupport || !currentUserId || !isFirmRootReady) {
+      setIsSynced(true);
+      updateSyncStatus('synced');
+      setSyncSource('cache');
       setLastSyncedAt(Date.now());
-      setLastSyncEventLabel(`Updated ${colName} (Demo)`);
+      setLastSyncEventLabel(`Saved ${colName} on device`);
       setSyncPulseKey(k => k + 1);
       return;
     }
-    if (!activeProfileId) return;
-    if (!isFirmRootReady) {
-      handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। सेव रोका गया।`));
-      return;
-    }
+
     if (!navigator.onLine) {
       setSyncSource('cache');
       updateSyncStatus('offline');
@@ -973,17 +850,19 @@ export default function App() {
   };
 
   const removeFirmDoc = (colName: string, docId: string) => {
-    if (isDemoUser) {
+    if (!activeProfileId) return;
+    deleteLocalCollectionState(colName, docId);
+
+    if (!hasCloudSupport || !currentUserId || !isFirmRootReady) {
+      setIsSynced(true);
+      updateSyncStatus('synced');
+      setSyncSource('cache');
       setLastSyncedAt(Date.now());
-      setLastSyncEventLabel(`Deleted from ${colName} (Demo)`);
+      setLastSyncEventLabel(`Removed from ${colName} on device`);
       setSyncPulseKey(k => k + 1);
       return;
     }
-    if (!activeProfileId) return;
-    if (!isFirmRootReady) {
-      handleFirestoreError(new Error(`फर्म रूट डॉक्यूमेंट (firms/${activeProfileId}) तैयार नहीं है। डिलीट रोका गया।`));
-      return;
-    }
+
     if (!navigator.onLine) {
       setSyncSource('cache');
       updateSyncStatus('offline');
@@ -1002,53 +881,13 @@ export default function App() {
       });
   };
 
-  // Subscribe to per-owner invoice usage counter: users/{ownerUid}/usage/invoices
-  const effectiveUsageOwnerUid = !isDemoUser
-    ? (activeProfile?.ownerUid || currentUserId)
-    : '';
-
-  useEffect(() => {
-    if (!isAuthenticated || isDemoUser || !isUserApproved || !effectiveUsageOwnerUid) {
-      setFirmUsage(null);
-      return;
-    }
-    const unsub = subscribeToUserInvoiceUsage(
-      effectiveUsageOwnerUid,
-      (usage) => {
-        setFirmUsage(usage);
-      },
-      (err) => {
-        console.warn('User invoice usage listener error:', err);
-      }
-    );
-    return () => unsub();
-  }, [isAuthenticated, isDemoUser, isUserApproved, effectiveUsageOwnerUid]);
-
-  useEffect(() => {
-    if (isDemoUser || !isAuthenticated || !activeProfile?.ownerUid || activeProfile.ownerUid === currentUserId) {
-      setFirmOwnerAccess(null);
-      return;
-    }
-    let cancelled = false;
-    fetchUserAccessOnce(activeProfile.ownerUid)
-      .then((rec) => {
-        if (!cancelled) setFirmOwnerAccess(rec);
-      })
-      .catch(() => {
-        if (!cancelled) setFirmOwnerAccess(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isDemoUser, isAuthenticated, activeProfile?.ownerUid, currentUserId]);
-
   useEffect(() => {
     if (
-      isDemoUser ||
-      !isAuthenticated ||
+      !hasCloudSupport ||
+      !currentUserId ||
       !isFirmRootReady ||
       !activeProfileId ||
-      (!isMasterAdmin && activeProfile?.ownerUid !== currentUserId)
+      activeProfile?.ownerUid !== currentUserId
     ) {
       setStaffInvites([]);
       return;
@@ -1059,69 +898,56 @@ export default function App() {
       () => setStaffInvites([])
     );
     return () => unsub();
-  }, [isDemoUser, isAuthenticated, isFirmRootReady, activeProfileId, isMasterAdmin, activeProfile?.ownerUid, currentUserId]);
+  }, [hasCloudSupport, isFirmRootReady, activeProfileId, activeProfile?.ownerUid, currentUserId]);
 
-  // Redirect activeTab cleanly if user permissions disallow current tab
+  // Global Keyboard Shortcuts (F1-F12 + Girvi)
   useEffect(() => {
-    if (!isDemoUser && (activeUserAccess || isMasterAdmin)) {
-      if (!canUserAccessTab(activeUserAccess, activeTab, effectivePermissions, isMasterAdmin)) {
-        setActiveTab(getFirstAllowedTab(activeUserAccess, effectivePermissions, isMasterAdmin));
-      }
-    }
-  }, [isDemoUser, activeUserAccess, activeTab, effectivePermissions, isMasterAdmin]);
-
-  // Global Keyboard Shortcuts (F1-F12 + Girvi) gated by user permissions
-  useEffect(() => {
-    const canGo = (tab: TabType) =>
-      isDemoUser || canUserAccessTab(activeUserAccess, tab, effectivePermissions, isMasterAdmin);
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F1') {
         e.preventDefault();
-        if (canGo('dashboard')) setActiveTab('dashboard');
+        setActiveTab('dashboard');
       } else if (e.key === 'F2') {
         e.preventDefault();
-        if (canGo('pos')) setActiveTab('pos');
+        setActiveTab('pos');
       } else if (e.key === 'F3') {
         e.preventDefault();
-        if (canGo('purchases')) setActiveTab('purchases');
+        setActiveTab('purchases');
       } else if (e.key === 'F4') {
         e.preventDefault();
-        if (canGo('inventory')) setActiveTab('inventory');
+        setActiveTab('inventory');
       } else if (e.key === 'F5') {
         e.preventDefault();
-        if (canGo('cashbank')) setActiveTab('cashbank');
+        setActiveTab('cashbank');
       } else if (e.key === 'F6') {
         e.preventDefault();
-        if (canGo('expenses')) setActiveTab('expenses');
+        setActiveTab('expenses');
       } else if (e.key === 'F7') {
         e.preventDefault();
-        if (canGo('vendors')) setActiveTab('vendors');
+        setActiveTab('vendors');
       } else if (e.key === 'F8') {
         e.preventDefault();
-        if (canGo('barcode')) setActiveTab('barcode');
+        setActiveTab('barcode');
       } else if (e.key === 'F9') {
         e.preventDefault();
-        if (canGo('karigar')) setActiveTab('karigar');
+        setActiveTab('karigar');
       } else if (e.key === 'F10') {
         e.preventDefault();
-        if (canGo('gemstones')) setActiveTab('gemstones');
+        setActiveTab('gemstones');
       } else if (e.key === 'F11') {
         e.preventDefault();
-        if (canGo('profit')) setActiveTab('profit');
+        setActiveTab('profit');
       } else if (e.altKey && e.key.toLowerCase() === 'g') {
         e.preventDefault();
-        if (canGo('girvi')) setActiveTab('girvi');
+        setActiveTab('girvi');
       } else if (e.key === 'F12') {
         e.preventDefault();
-        if (isDemoUser || hasActionPermission(activeUserAccess, 'canEditSettings', effectivePermissions, isMasterAdmin)) {
-          setIsSettingsModalOpen(true);
-        }
+        setIsSettingsModalOpen(true);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDemoUser, activeUserAccess, effectivePermissions, isMasterAdmin]);
+  }, []);
 
   // Compute Live Cash In Hand & Bank Balance
   const salesCashIn = invoices
@@ -1186,8 +1012,15 @@ export default function App() {
       userId: uid,
       ownerUid: uid || newProfile.ownerUid
     };
-    setProfiles(prev => [...prev, enriched]);
-    if (!isDemoUser && uid) {
+    setProfiles(prev => {
+      const next = [...prev, enriched];
+      saveLocalFirmProfiles(next);
+      return next;
+    });
+    setActiveProfileId(enriched.id);
+    setActiveLocalFirmId(enriched.id);
+
+    if (hasCloudSupport && uid) {
       try {
         await ensureFirmRootDoc(
           enriched.id,
@@ -1201,28 +1034,36 @@ export default function App() {
             operatorName: enriched.operatorName,
             logoUrl: enriched.logoUrl || undefined
           },
-          { uid, isMasterAdmin }
+          { uid }
         );
       } catch (err: any) {
         handleFirestoreError(err);
       }
     }
-    setActiveTab(isMasterAdmin ? 'master_control' : 'dashboard');
+    setActiveTab('dashboard');
     setIsFirmActive(true);
   };
 
   const handleUpdateProfile = (updatedProfile: JewellerProfile) => {
-    setProfiles(prev => prev.map(p => p.id === updatedProfile.id ? updatedProfile : p));
+    setProfiles(prev => {
+      const next = prev.map(p => p.id === updatedProfile.id ? updatedProfile : p);
+      saveLocalFirmProfiles(next);
+      return next;
+    });
     if (updatedProfile.id === activeProfileId) {
-      setShopDetails(prev => ({
-        ...prev,
-        name: updatedProfile.name,
-        gstin: updatedProfile.gstin,
-        phone: updatedProfile.phone,
-        logoUrl: updatedProfile.logoUrl || ''
-      }));
+      setShopDetails(prev => {
+        const nextShop = {
+          ...prev,
+          name: updatedProfile.name,
+          gstin: updatedProfile.gstin,
+          phone: updatedProfile.phone,
+          logoUrl: updatedProfile.logoUrl || ''
+        };
+        saveLocalShopDetails(activeProfileId, nextShop);
+        return nextShop;
+      });
     }
-    if (!isDemoUser && currentUserId) {
+    if (hasCloudSupport && currentUserId) {
       updateFirmMetaByMaster(updatedProfile.id, {
         name: updatedProfile.name,
         counterName: updatedProfile.counterName,
@@ -1238,22 +1079,15 @@ export default function App() {
   // Gemstone Handlers
   const handleAddGemstone = (newGem: CertifiedGemstone) => {
     const tagged = { ...newGem, firmId: activeProfileId };
-    if (isDemoUser) setGemstones(prev => [tagged, ...prev]);
     persistFirmDoc('gemstones', tagged);
   };
 
   const handleUpdateGemstone = (updatedGem: CertifiedGemstone) => {
     const tagged = { ...updatedGem, firmId: activeProfileId };
-    if (isDemoUser) setGemstones(prev => prev.map(g => g.id === updatedGem.id ? tagged : g));
     persistFirmDoc('gemstones', tagged);
   };
 
   const handleDeleteGemstone = (id: string) => {
-    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
-      alert('Master Admin द्वारा आपको रिकॉर्ड डिलीट करने की अनुमति नहीं दी गई है।');
-      return;
-    }
-    if (isDemoUser) setGemstones(prev => prev.filter(g => g.id !== id));
     removeFirmDoc('gemstones', id);
   };
 
@@ -1272,40 +1106,17 @@ export default function App() {
 
   const handleAddCustomer = (newCust: Customer) => {
     const tagged = { ...newCust, firmId: activeProfileId };
-    if (isDemoUser) setCustomers(prev => [tagged, ...prev]);
     persistFirmDoc('customers', tagged);
   };
 
   const handleUpdateCustomer = (updatedCust: Customer) => {
     const tagged = { ...updatedCust, firmId: activeProfileId };
-    if (isDemoUser) setCustomers(prev => prev.map(c => c.id === updatedCust.id ? tagged : c));
     persistFirmDoc('customers', tagged);
   };
 
   const handleDeleteCustomer = (id: string) => {
-    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
-      alert('Master Admin द्वारा आपको रिकॉर्ड डिलीट करने की अनुमति नहीं दी गई है।');
-      return;
-    }
-    if (isDemoUser) setCustomers(prev => prev.filter(c => c.id !== id));
     removeFirmDoc('customers', id);
   };
-
-  const trialOwnerRecord =
-    activeProfile?.ownerUid && activeProfile.ownerUid !== currentUserId && firmOwnerAccess
-      ? firmOwnerAccess
-      : activeUserAccess;
-
-  const invoiceQuotaStatus =
-    !isDemoUser && (isMasterAdmin || trialOwnerRecord)
-      ? canUserCreateInvoice(
-          trialOwnerRecord,
-          firmUsage?.count ?? 0,
-          Date.now(),
-          isMasterAdmin,
-          effectivePermissions
-        )
-      : undefined;
 
   // Sales Invoice Creation (Device-First: Stored locally in Device Invoice Folder without requiring Firebase server sync)
   const handleCreateInvoice = async (
@@ -1314,11 +1125,6 @@ export default function App() {
   ): Promise<GSTInvoice | undefined> => {
     if (!activeProfileId) {
       throw new Error('कोई फर्म सक्रिय नहीं है। कृपया पहले अपनी फर्म चुनें या रजिस्टर करें।');
-    }
-
-    if (invoiceQuotaStatus && !invoiceQuotaStatus.allowed) {
-      const msg = invoiceQuotaStatus.reason || 'इनवॉइस बनाने की अनुमति नहीं है।';
-      throw new Error(msg);
     }
 
     const series = invoiceDraft.invoiceType || 'GST_INVOICE';
@@ -1342,10 +1148,10 @@ export default function App() {
       'createdInvoice'
     );
 
-    // 1. Update local inventory & customer ledger state immediately
+    // 1. Update local inventory & customer ledger state + local storage immediately
     const updatedInventoryItems: JewelleryItem[] = [];
-    setInventory(prev =>
-      prev.map(it => {
+    setInventory(prev => {
+      const next = prev.map(it => {
         const soldQty = sanitizedDraft.items
           .filter(c => c.itemId === it.id)
           .reduce((s, c) => s + (c.quantity || 1), 0);
@@ -1355,13 +1161,15 @@ export default function App() {
           return nextItem;
         }
         return it;
-      })
-    );
+      });
+      replaceLocalFirmCollection(activeProfileId, 'inventory', next);
+      return next;
+    });
 
     let updatedCustomer: Customer | null = null;
     if (sanitizedDraft.customerId && sanitizedDraft.customerId !== 'walkin') {
-      setCustomers(prev =>
-        prev.map(c => {
+      setCustomers(prev => {
+        const next = prev.map(c => {
           if (c.id === sanitizedDraft.customerId) {
             const nextCust: Customer = {
               ...c,
@@ -1373,8 +1181,10 @@ export default function App() {
             return nextCust;
           }
           return c;
-        })
-      );
+        });
+        replaceLocalFirmCollection(activeProfileId, 'customers', next);
+        return next;
+      });
     }
 
     // 2. Save invoice locally on the device (and linked device Invoices folder if configured)
@@ -1387,12 +1197,11 @@ export default function App() {
     );
     writeInvoiceToConnectedFolder(activeProfileId, createdInvoice, htmlSnapshot).catch(() => {});
 
-    // 3. Best-effort silent background stock/customer sync when online (never blocks or fails invoice/print)
-    if (!isDemoUser && navigator.onLine && isFirmRootReady) {
+    // 3. Best-effort silent background stock/customer sync when signed in & online
+    if (hasCloudSupport && currentUserId && navigator.onLine && isFirmRootReady) {
       updatedInventoryItems.forEach((item) => {
         saveFirmDoc(activeProfileId, 'inventory', { id: item.id, quantity: item.quantity }, {
-          uid: currentUserId,
-          isMasterAdmin
+          uid: currentUserId
         }).catch(() => {});
       });
       if (updatedCustomer) {
@@ -1401,7 +1210,7 @@ export default function App() {
           activeProfileId,
           'customers',
           { id: c.id, totalPurchases: c.totalPurchases, outstandingBalance: c.outstandingBalance },
-          { uid: currentUserId, isMasterAdmin }
+          { uid: currentUserId }
         ).catch(() => {});
       }
     }
@@ -1432,7 +1241,7 @@ export default function App() {
     };
     setInvoices(prev => prev.map(i => i.id === id ? updated : i));
     saveLocalDeviceInvoice(activeProfileId, updated);
-    if (!isDemoUser && !id.startsWith('local-inv-') && !id.startsWith('demo-inv-') && navigator.onLine && isFirmRootReady) {
+    if (hasCloudSupport && currentUserId && !id.startsWith('local-inv-') && !id.startsWith('demo-inv-') && navigator.onLine && isFirmRootReady) {
       persistFirmDoc('invoices', updated);
     }
   };
@@ -1453,8 +1262,12 @@ export default function App() {
     );
     const vendor = vendors.find(v => v.id === newPurchase.vendorId) || vendorSnapshot;
 
-    // Optimistically update React state & local fallback immediately so items and bill are always recorded
-    setPurchases(prev => [taggedPurchase, ...prev.filter(p => p.id !== taggedPurchase.id)]);
+    // Persist purchase, updated vendor, and stock items locally immediately
+    setPurchases(prev => {
+      const next = [taggedPurchase, ...prev.filter(p => p.id !== taggedPurchase.id)];
+      replaceLocalFirmCollection(activeProfileId, 'purchases', next);
+      return next;
+    });
     saveLocalDevicePurchase(activeProfileId, taggedPurchase);
 
     if (vendor) {
@@ -1464,6 +1277,7 @@ export default function App() {
         cashBalanceDue: (Number(vendor.cashBalanceDue) || 0) + (Number(taggedPurchase.balanceDue) || 0),
         totalPurchasesAmount: (Number(vendor.totalPurchasesAmount) || 0) + (Number(taggedPurchase.grandTotal) || 0)
       };
+      saveLocalFirmCollectionDoc(activeProfileId, 'vendors', updatedVendor);
       setVendors(prev => {
         const exists = prev.some(v => v.id === vendor.id);
         return exists ? prev.map(v => (v.id === vendor.id ? updatedVendor : v)) : [updatedVendor, ...prev];
@@ -1471,6 +1285,7 @@ export default function App() {
     }
 
     if (taggedItems.length > 0) {
+      taggedItems.forEach(it => saveLocalFirmCollectionDoc(activeProfileId, 'inventory', it));
       setInventory(prev => {
         const existingIds = new Set(prev.map(i => i.id));
         const fresh = taggedItems.filter(it => !existingIds.has(it.id));
@@ -1478,30 +1293,25 @@ export default function App() {
       });
     }
 
-    if (isDemoUser) {
-      return;
-    }
-
-    if (!isFirmRootReady || !navigator.onLine) {
-      setLastSyncEventLabel('Purchase & stock saved locally (offline/pending sync)');
+    if (!hasCloudSupport || !currentUserId || !isFirmRootReady || !navigator.onLine) {
+      setLastSyncedAt(Date.now());
+      setLastSyncEventLabel('Purchase & stock saved on device');
       return;
     }
 
     beginSyncWrite('Saving purchase...');
     try {
       await createPurchaseAtomic(activeProfileId, taggedPurchase, taggedItems, vendor, {
-        uid: currentUserId,
-        isMasterAdmin
+        uid: currentUserId
       });
       endSyncWrite('Purchase & stock synced', true);
     } catch (err: any) {
       endSyncWrite('Purchase saved locally', false);
       console.warn('[App] createPurchaseAtomic failed, keeping local state & retrying individual doc saves:', err);
-      // Fallback individual saves so offline persistence / Firestore still receives items when possible
       try {
-        await saveFirmDoc(activeProfileId, 'purchases', taggedPurchase, { uid: currentUserId, isMasterAdmin });
+        await saveFirmDoc(activeProfileId, 'purchases', taggedPurchase, { uid: currentUserId });
         for (const it of taggedItems) {
-          await saveFirmDoc(activeProfileId, 'inventory', it, { uid: currentUserId, isMasterAdmin });
+          await saveFirmDoc(activeProfileId, 'inventory', it, { uid: currentUserId });
         }
         if (vendor) {
           await saveFirmDoc(
@@ -1513,7 +1323,7 @@ export default function App() {
               cashBalanceDue: (Number(vendor.cashBalanceDue) || 0) + (Number(taggedPurchase.balanceDue) || 0),
               totalPurchasesAmount: (Number(vendor.totalPurchasesAmount) || 0) + (Number(taggedPurchase.grandTotal) || 0)
             },
-            { uid: currentUserId, isMasterAdmin }
+            { uid: currentUserId }
           );
         }
       } catch (fallbackErr) {
@@ -1525,22 +1335,15 @@ export default function App() {
   // Vendors Handlers
   const handleAddVendor = (newVendor: Vendor) => {
     const tagged = { ...newVendor, firmId: activeProfileId };
-    setVendors(prev => (prev.some(v => v.id === tagged.id) ? prev : [tagged, ...prev]));
     persistFirmDoc('vendors', tagged);
   };
 
   const handleUpdateVendor = (updatedVendor: Vendor) => {
     const tagged = { ...updatedVendor, firmId: activeProfileId };
-    if (isDemoUser) setVendors(prev => prev.map(v => v.id === updatedVendor.id ? tagged : v));
     persistFirmDoc('vendors', tagged);
   };
 
   const handleDeleteVendor = (id: string) => {
-    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
-      alert('Master Admin द्वारा आपको रिकॉर्ड डिलीट करने की अनुमति नहीं दी गई है।');
-      return;
-    }
-    if (isDemoUser) setVendors(prev => prev.filter(v => v.id !== id));
     removeFirmDoc('vendors', id);
   };
 
@@ -1552,7 +1355,6 @@ export default function App() {
         cashBalanceDue: vendor.cashBalanceDue + cashDelta,
         goldBalanceOwed: vendor.goldBalanceOwed + goldDelta
       };
-      if (isDemoUser) setVendors(prev => prev.map(v => v.id === vendorId ? updated : v));
       persistFirmDoc('vendors', updated);
     }
   };
@@ -1560,23 +1362,16 @@ export default function App() {
   // Expenses Handlers
   const handleAddExpense = (newExpense: ShopExpense) => {
     const tagged = { ...newExpense, firmId: activeProfileId };
-    if (isDemoUser) setExpenses(prev => [tagged, ...prev]);
     persistFirmDoc('expenses', tagged);
   };
 
   const handleDeleteExpense = (id: string) => {
-    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
-      alert('Master Admin द्वारा आपको रिकॉर्ड डिलीट करने की अनुमति नहीं दी गई है।');
-      return;
-    }
-    if (isDemoUser) setExpenses(prev => prev.filter(e => e.id !== id));
     removeFirmDoc('expenses', id);
   };
 
   // Contra Transfer Handlers
   const handleAddTransfer = (newTransfer: CashBankTransfer) => {
     const tagged = { ...newTransfer, firmId: activeProfileId };
-    if (isDemoUser) setTransfers(prev => [tagged, ...prev]);
     persistFirmDoc('transfers', tagged);
   };
 
@@ -1586,33 +1381,20 @@ export default function App() {
     if (!item || !activeProfileId) return;
     const newQty = qtyDeltaOrNewValue < 0 ? Math.max(0, item.quantity + qtyDeltaOrNewValue) : qtyDeltaOrNewValue;
     const updated = { ...item, quantity: newQty, firmId: activeProfileId };
-    if (isDemoUser) setInventory(prev => prev.map(i => i.id === itemId ? updated : i));
     persistFirmDoc('inventory', updated);
   };
 
   const handleSaveInventoryItem = (item: JewelleryItem) => {
     const tagged = { ...item, firmId: activeProfileId };
-    if (isDemoUser) {
-      setInventory(prev => {
-        const exists = prev.some(i => i.id === item.id);
-        return exists ? prev.map(i => i.id === item.id ? tagged : i) : [tagged, ...prev];
-      });
-    }
     persistFirmDoc('inventory', tagged);
   };
 
   const handleItemGenerated = (newItem: JewelleryItem) => {
     const tagged = { ...newItem, firmId: activeProfileId };
-    if (isDemoUser) setInventory(prev => [tagged, ...prev]);
     persistFirmDoc('inventory', tagged);
   };
 
   const handleDeleteInventoryItem = (id: string) => {
-    if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canDeleteRecords', effectivePermissions, isMasterAdmin)) {
-      alert('Master Admin द्वारा आपको स्टॉक आइटम डिलीट करने की अनुमति नहीं दी गई है।');
-      return;
-    }
-    if (isDemoUser) setInventory(prev => prev.filter(i => i.id !== id));
     removeFirmDoc('inventory', id);
   };
 
@@ -1620,7 +1402,6 @@ export default function App() {
   const handleAddJobCard = (card: KarigarJobCard) => {
     if (!activeProfileId) return;
     const tagged = { ...card, firmId: activeProfileId };
-    if (isDemoUser) setJobCards(prev => [tagged, ...prev]);
     persistFirmDoc('jobcards', tagged);
 
     const karigar = karigars.find(k => k.id === card.karigarId);
@@ -1631,7 +1412,6 @@ export default function App() {
         silverBalanceGram: card.metal === 'Silver' ? karigar.silverBalanceGram + card.rawMetalIssuedWeight : karigar.silverBalanceGram,
         activeJobsCount: karigar.activeJobsCount + 1,
       };
-      if (isDemoUser) setKarigars(prev => prev.map(k => k.id === karigar.id ? updatedK : k));
       persistFirmDoc('karigars', updatedK);
     }
   };
@@ -1639,7 +1419,6 @@ export default function App() {
   const handleUpdateJobCard = (updatedCard: KarigarJobCard) => {
     if (!activeProfileId) return;
     const tagged = { ...updatedCard, firmId: activeProfileId };
-    if (isDemoUser) setJobCards(prev => prev.map(c => c.id === updatedCard.id ? tagged : c));
     persistFirmDoc('jobcards', tagged);
 
     if (updatedCard.status === 'Received') {
@@ -1651,7 +1430,6 @@ export default function App() {
           goldBalanceGram: Math.max(0, karigar.goldBalanceGram - goldRet),
           activeJobsCount: Math.max(0, karigar.activeJobsCount - 1),
         };
-        if (isDemoUser) setKarigars(prev => prev.map(k => k.id === karigar.id ? updatedK : k));
         persistFirmDoc('karigars', updatedK);
       }
     }
@@ -1659,20 +1437,17 @@ export default function App() {
 
   const handleAddKarigar = (newKg: Karigar) => {
     const tagged = { ...newKg, firmId: activeProfileId };
-    if (isDemoUser) setKarigars(prev => [...prev, tagged]);
     persistFirmDoc('karigars', tagged);
   };
 
   // Girvi Handlers
   const handleAddGirviLoan = (newLoan: GirviLoan) => {
     const tagged = { ...newLoan, firmId: activeProfileId };
-    if (isDemoUser) setGirviLoans(prev => [tagged, ...prev]);
     persistFirmDoc('girvi', tagged);
   };
 
   const handleUpdateGirviLoan = (updatedLoan: GirviLoan) => {
     const tagged = { ...updatedLoan, firmId: activeProfileId };
-    if (isDemoUser) setGirviLoans(prev => prev.map(l => l.id === updatedLoan.id ? tagged : l));
     persistFirmDoc('girvi', tagged);
   };
 
@@ -1704,7 +1479,7 @@ export default function App() {
       logoUrl: shopUpdate?.logoUrl || undefined
     };
 
-    if (!isDemoUser && uid) {
+    if (hasCloudSupport && uid) {
       try {
         await ensureFirmRootDoc(
           newFirmId,
@@ -1718,7 +1493,7 @@ export default function App() {
             operatorName: newProfile.operatorName,
             logoUrl: newProfile.logoUrl || undefined
           },
-          { uid, isMasterAdmin }
+          { uid }
         );
       } catch (err: any) {
         handleFirestoreError(err);
@@ -1728,13 +1503,15 @@ export default function App() {
       try {
         await saveFirmDoc(newFirmId, 'shop_details', { id: 'main', ...newShopDetails }, { uid });
       } catch (err: any) {
-        // Non-fatal if firm root exists (e.g. trial expired/quota reached); allow user onto Dashboard / Trial screen
         console.warn('Initial shop_details write deferred:', err);
       }
     }
 
+    saveLocalShopDetails(newFirmId, newShopDetails);
     const updatedProfiles = [newProfile, ...profiles];
     setProfiles(updatedProfiles);
+    saveLocalFirmProfiles(updatedProfiles);
+    setActiveLocalFirmId(newFirmId);
     if (uid && uid !== 'demo') {
       localStorage.setItem(`jewel_user_${uid}_profiles`, JSON.stringify(updatedProfiles));
       localStorage.setItem(`jewel_user_${uid}_active_profile`, newFirmId);
@@ -1758,7 +1535,7 @@ export default function App() {
     setGirviLoans([]);
     setGemstones([]);
 
-    setIsFirmRootReady(true);
+    setIsFirmRootReady(Boolean(hasCloudSupport && uid));
     setActiveTab('dashboard');
     setIsFirmActive(true);
   };
@@ -1767,6 +1544,7 @@ export default function App() {
     const uid = getEffectiveUserId();
     setSyncError(null);
     setActiveProfileId(firmId);
+    setActiveLocalFirmId(firmId);
     setActiveTab('dashboard');
     setIsFirmActive(true);
     if (uid && uid !== 'demo') {
@@ -1775,160 +1553,37 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    const uid = getEffectiveUserId();
-    if (uid && uid !== 'demo') {
-      localStorage.removeItem(`jewel_user_${uid}_firm_confirmed`);
-    }
-    clearFirmRootReady();
-    setIsFirmRootReady(false);
-    setSyncError(null);
-    setActiveTab('dashboard');
-    setIsFirmActive(false);
-    setActiveProfileId('');
-    setIsDemoUser(false);
-    setCurrentUserId('');
-    setUserAccess(null);
-    setUserAccessLoaded(false);
-    setIsPlatformAdmin(false);
-    setFirmUsage(null);
-    setFirmOwnerAccess(null);
-    setStaffInvites([]);
-    setInspectedFirm(null);
-    setProfiles([]);
-    
-    // Clear all in-memory React state
-    setInventory([]);
-    setCustomers([]);
-    setInvoices([]);
-    setVendors([]);
-    setPurchases([]);
-    setExpenses([]);
-    setTransfers([]);
-    setKarigars([]);
-    setJobCards([]);
-    setGirviLoans([]);
-    setGemstones([]);
-
-    if (auth.currentUser) {
-      auth.signOut();
-    }
-    setIsAuthenticated(false);
-  };
-
   const handleDeleteFirm = (firmIdToDelete: string) => {
     const uid = getEffectiveUserId();
-    const updatedProfiles = profiles.filter(p => p.id !== firmIdToDelete);
+    const filtered = profiles.filter(p => p.id !== firmIdToDelete);
+    const updatedProfiles = filtered.length > 0 ? filtered : [{ ...DEFAULT_LOCAL_FIRM_PROFILE }];
     setProfiles(updatedProfiles);
+    saveLocalFirmProfiles(updatedProfiles);
     if (uid && uid !== 'demo') {
       localStorage.setItem(`jewel_user_${uid}_profiles`, JSON.stringify(updatedProfiles));
     }
 
     if (activeProfileId === firmIdToDelete) {
-      if (updatedProfiles.length > 0) {
-        setActiveProfileId(updatedProfiles[0].id);
-      } else {
-        handleLogout();
-      }
+      const nextId = updatedProfiles[0].id;
+      setActiveProfileId(nextId);
+      setActiveLocalFirmId(nextId);
     }
   };
 
-  if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center bg-stone-50">Loading...</div>;
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <Login 
-        onLogin={(firmProfile, shopUpdate, isDemo, signupMeta) => {
-          if (isDemo) {
-            setIsDemoUser(true);
-            setIsAuthenticated(true);
-            setCurrentUserId('demo');
-            setUserAccess(null);
-            setUserAccessLoaded(true);
-            const demoProfs = getUserProfiles('demo');
-            setProfiles(demoProfs);
-            setActiveProfileId(demoProfs[0]?.id || 'prof-main');
-            setShopDetails(initialShopDetails);
-            setInventory(initialInventory);
-            setCustomers(initialCustomers);
-            setInvoices(initialInvoices);
-            setVendors(initialVendors);
-            setPurchases(initialPurchases);
-            setExpenses(initialExpenses);
-            setTransfers(initialTransfers);
-            setKarigars(initialKarigars);
-            setJobCards(initialKarigarJobCards);
-            setGirviLoans(initialGirviLoans);
-            setGemstones(initialGemstones);
-            setIsFirmActive(true);
-            return;
-          }
-
-          if (signupMeta) {
-            pendingSignupMetaRef.current = signupMeta;
-          }
-
-          setIsAuthenticated(true);
-          if (firmProfile && auth.currentUser) {
-            // Defer firm creation until Master Admin approves user (stored in userAccess.firmName)
-            const uid = auth.currentUser.uid;
-            setCurrentUserId(uid);
-          } else {
-            const uid = auth.currentUser?.uid || '';
-            setCurrentUserId(uid);
-          }
-        }} 
-      />
-    );
-  }
-
-  // Enforce Master Admin Approval Gate for all real registered users
-  if (!isDemoUser && currentUserId) {
-    if (!userAccessLoaded) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-stone-100 dark:bg-slate-950 text-xs font-bold text-stone-600 dark:text-slate-300">
-          खाते की स्वीकृति व अनुमतियाँ जाँची जा रही हैं (Verifying Account Access)...
-        </div>
-      );
-    }
-
-    const accessCheck = canUserAccessApp(userAccess, isPlatformAdmin);
-    if (!accessCheck.allowed && !isMasterAdmin) {
-      return (
-        <ApprovalGateScreen
-          userAccess={userAccess}
-          userEmail={auth.currentUser?.email}
-          userUid={currentUserId}
-          supportConfig={supportConfig}
-          permissionError={syncError}
-          databaseId={firestoreDatabaseId}
-          onRefresh={() => {
-            setSyncError(null);
-            setUserAccessRefreshNonce(n => n + 1);
-          }}
-          onLogout={handleLogout}
-        />
-      );
-    }
-  }
-
-  if (!isFirmActive && !isMasterAdmin) {
+  if (!isFirmActive) {
     return (
       <FirmRegistrationScreen
         existingFirms={profiles}
         initialFirmName={userAccess?.firmName || ''}
         initialOwnerName={userAccess?.displayName || ''}
         initialPhone={userAccess?.phone || ''}
-        userEmail={auth.currentUser?.email || userAccess?.email}
-        accountStatus={userAccess?.status}
+        userEmail={auth?.currentUser?.email || userAccess?.email}
+        accountStatus="active"
         syncError={syncError}
         onRetryLoad={() => {
           setSyncError(null);
           setUserAccessRefreshNonce(n => n + 1);
         }}
-        onLogout={handleLogout}
         onRegisterFirm={handleRegisterFirmFromScreen}
         onSelectExistingFirm={handleSelectExistingFirmFromScreen}
       />
@@ -1956,7 +1611,6 @@ export default function App() {
         onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
         onToggleDesktopSidebar={() => setIsSidebarCollapsed(prev => !prev)}
         isDesktopSidebarCollapsed={isSidebarCollapsed}
-        onLogout={handleLogout}
         theme={theme}
         onToggleTheme={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
         isOnline={isOnline}
@@ -1972,108 +1626,7 @@ export default function App() {
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
         userAccess={activeUserAccess}
         effectivePermissions={effectivePermissions}
-        firmUsageCount={firmUsage?.count ?? 0}
-        isMasterAdmin={isMasterAdmin}
       />
-
-      {/* Trial Quota & Limit Reached Banner */}
-      {!isDemoUser && !isMasterAdmin && trialOwnerRecord?.status === 'trial' && invoiceQuotaStatus && (
-        (() => {
-          const cleanPhone = (supportConfig.supportPhone || '').replace(/[^\d+]/g, '');
-          const waDigits = cleanPhone.replace(/^\+/, '');
-          const isBlocked = invoiceQuotaStatus.limitReached || invoiceQuotaStatus.isExpired;
-          if (isBlocked) {
-            return (
-              <div
-                data-testid="trial-limit-reached-banner"
-                className="bg-rose-600 text-white px-4 py-2.5 text-xs font-bold flex flex-wrap items-center justify-between gap-2 shadow-sm"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span>
-                    {invoiceQuotaStatus.isExpired
-                      ? `Trial expired (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit} invoices used). Read-only mode, backup/export & invoice cancel remain active.`
-                      : `Trial limit reached (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit} invoices used). Read-only mode, backup/export & invoice cancel remain active.`}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {waDigits && (
-                    <a
-                      href={`https://wa.me/${waDigits}?text=${encodeURIComponent(`Hello Admin, my trial (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit}) on Swarnkar ERP needs renewal. Account: ${auth.currentUser?.email || currentUserId}`)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-black rounded-lg text-[11px]"
-                    >
-                      WhatsApp Admin
-                    </a>
-                  )}
-                  {cleanPhone && (
-                    <a
-                      href={`tel:${cleanPhone}`}
-                      className="px-3 py-1 bg-white/15 hover:bg-white/25 text-white font-bold rounded-lg text-[11px]"
-                    >
-                      Call {supportConfig.supportPhone}
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setIsBackupModalOpen(true)}
-                    className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-stone-950 font-black rounded-lg text-[11px] cursor-pointer"
-                  >
-                    Backup / Export Data
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTrialReadOnlyMode((prev) => !prev)}
-                    className="px-3 py-1 bg-stone-950/60 hover:bg-stone-950 text-white font-bold rounded-lg text-[11px] cursor-pointer"
-                  >
-                    {trialReadOnlyMode ? 'Trial Expired Screen' : 'Read-Only & Cancel Bills'}
-                  </button>
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <div
-              data-testid="trial-active-banner"
-              className="bg-sky-50 dark:bg-sky-950/60 border-b border-sky-200 dark:border-sky-800 px-4 py-1.5 text-xs font-bold text-sky-900 dark:text-sky-200 flex flex-wrap items-center justify-between gap-2"
-            >
-              <span>
-                Trial Mode: <strong>{invoiceQuotaStatus.remaining ?? 0}</strong> / {invoiceQuotaStatus.limit ?? DEFAULT_TRIAL_INVOICE_LIMIT} invoices remaining
-                {typeof invoiceQuotaStatus.daysRemaining === 'number'
-                  ? ` • ${invoiceQuotaStatus.daysRemaining} day(s) remaining`
-                  : ''}
-              </span>
-              {waDigits && (
-                <a
-                  href={`https://wa.me/${waDigits}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] underline hover:opacity-80"
-                >
-                  Upgrade / Contact Admin
-                </a>
-              )}
-            </div>
-          );
-        })()
-      )}
-
-      {/* Master Admin Cross-Firm Inspection Banner */}
-      {isMasterAdmin && inspectedFirm && activeTab !== 'master_control' && (
-        <div className="bg-stone-900 text-amber-300 border-b border-amber-500/40 px-4 py-2 text-xs font-bold flex flex-wrap items-center justify-between gap-2">
-          <span>
-            Master Inspect Mode: आप अभी फर्म <strong>{inspectedFirm.name}</strong> ({inspectedFirm.code}) का लाइव डेटा देख व नियंत्रित कर रहे हैं।
-          </span>
-          <button
-            type="button"
-            onClick={() => setActiveTab('master_control')}
-            className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-lg text-[11px] cursor-pointer"
-          >
-            Back to Master Control
-          </button>
-        </div>
-      )}
 
       {/* Surfaced Firestore Sync / Permission Error Banner */}
       {syncError && (
@@ -2123,144 +1676,12 @@ export default function App() {
           onOpenQuickGenerate={() => setIsQuickGenerateOpen(true)}
           onOpenCategoryModal={() => setIsCategoryModalOpen(true)}
           customLogo={activeProfile?.logoUrl || shopDetails.logoUrl}
-          onLogout={handleLogout}
           userAccess={activeUserAccess}
           effectivePermissions={effectivePermissions}
-          isMasterAdmin={isMasterAdmin}
         />
 
         {/* Right Main Screen Viewport */}
         <main className="flex-1 min-w-0 overflow-y-auto px-2.5 sm:px-5 lg:px-7 py-3 sm:py-5 max-w-full">
-
-        {/* Clear Trial Expired / Trial Limit Reached Screen (keeps reads, backup/export & invoice cancel accessible) */}
-        {!isDemoUser &&
-          !isMasterAdmin &&
-          trialOwnerRecord?.status === 'trial' &&
-          invoiceQuotaStatus &&
-          (invoiceQuotaStatus.isExpired || invoiceQuotaStatus.limitReached) &&
-          !trialReadOnlyMode && (
-          <div
-            data-testid="trial-expired-screen"
-            className="max-w-2xl mx-auto my-6 bg-white dark:bg-slate-900 border-2 border-rose-300 dark:border-rose-800 rounded-3xl shadow-xl overflow-hidden"
-          >
-            <div className="bg-gradient-to-r from-rose-950 via-stone-900 to-rose-950 text-white p-6 text-center border-b border-rose-500/30">
-              <span className="inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-500/20 border border-rose-400/40 text-rose-200 mb-2">
-                {invoiceQuotaStatus.isExpired ? 'Trial Period Expired' : 'Trial Invoice Quota Reached'}
-              </span>
-              <h2 className="text-xl sm:text-2xl font-black tracking-tight">
-                {invoiceQuotaStatus.isExpired
-                  ? 'Trial Expired — Read-Only Access Active'
-                  : 'Trial Limit Reached — Read-Only Access Active'}
-              </h2>
-              <p className="text-xs text-stone-300 mt-1.5 max-w-lg mx-auto">
-                {invoiceQuotaStatus.isExpired
-                  ? 'आपकी ट्रायल अवधि समाप्त हो गई है। नई एंट्री (बिल, खरीद, स्टॉक, ग्राहक, गिरवी, खर्चे) बंद हैं, लेकिन आप अपना पूरा डेटा देख सकते हैं, बैकअप/एक्सपोर्ट कर सकते हैं और पुराने इनवॉइस रद्द (Cancel) कर सकते हैं।'
-                  : `आपकी ट्रायल बिल सीमा (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit}) पूरी हो गई है। नई एंट्री बंद हैं, लेकिन डेटा देखना, बैकअप/एक्सपोर्ट और इनवॉइस रद्द करना चालू है।`}
-              </p>
-            </div>
-
-            <div className="p-5 sm:p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="bg-stone-50 dark:bg-slate-800/70 border border-stone-200 dark:border-slate-700 rounded-2xl p-3.5">
-                  <div className="text-stone-500 dark:text-slate-400 font-semibold">Invoices Used</div>
-                  <div className="text-lg font-black font-mono text-stone-900 dark:text-white mt-0.5">
-                    {invoiceQuotaStatus.used} / {invoiceQuotaStatus.limit ?? 0}
-                  </div>
-                </div>
-                <div className="bg-stone-50 dark:bg-slate-800/70 border border-stone-200 dark:border-slate-700 rounded-2xl p-3.5">
-                  <div className="text-stone-500 dark:text-slate-400 font-semibold">Trial Status</div>
-                  <div className="text-lg font-black text-rose-600 dark:text-rose-400 mt-0.5">
-                    {invoiceQuotaStatus.isExpired ? 'Expired (0d left)' : 'Quota Full'}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2.5">
-                {(() => {
-                  const cleanPhone = (supportConfig.supportPhone || '').replace(/[^\d+]/g, '');
-                  const waDigits = cleanPhone.replace(/^\+/, '');
-                  return (
-                    <>
-                      {waDigits && (
-                        <a
-                          href={`https://wa.me/${waDigits}?text=${encodeURIComponent(`Hello Admin, my Swarnkar ERP trial has ended (${invoiceQuotaStatus.used}/${invoiceQuotaStatus.limit}). Account: ${auth.currentUser?.email || currentUserId}`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 min-w-[160px] py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs text-center transition"
-                        >
-                          WhatsApp Admin to Renew
-                        </a>
-                      )}
-                      {cleanPhone && (
-                        <a
-                          href={`tel:${cleanPhone}`}
-                          className="py-2.5 px-4 bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-900 dark:text-white font-bold rounded-xl text-xs transition"
-                        >
-                          Call {supportConfig.supportPhone}
-                        </a>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-stone-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsBackupModalOpen(true)}
-                  className="py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-xl text-xs cursor-pointer transition"
-                >
-                  Backup / Export Data
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTrialReadOnlyMode(true);
-                    setActiveTab('invoices');
-                  }}
-                  className="py-2.5 px-3 bg-stone-900 hover:bg-stone-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold rounded-xl text-xs cursor-pointer transition"
-                >
-                  Open Invoices (Cancel)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTrialReadOnlyMode(true)}
-                  className="py-2.5 px-3 bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-800 dark:text-slate-200 font-bold rounded-xl text-xs cursor-pointer transition"
-                >
-                  Browse Read-Only Data
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {(isDemoUser ||
-          isMasterAdmin ||
-          trialOwnerRecord?.status !== 'trial' ||
-          !invoiceQuotaStatus ||
-          (!invoiceQuotaStatus.isExpired && !invoiceQuotaStatus.limitReached) ||
-          trialReadOnlyMode) && (
-        <>
-
-        {/* TAB: Master Super Admin Control Panel */}
-        {activeTab === 'master_control' && isMasterAdmin && (
-          <MasterControlPanel
-            currentAdminUid={currentUserId}
-            currentAdminEmail={auth.currentUser?.email || userAccess?.email}
-            masterSettings={masterSettings}
-            supportConfig={supportConfig}
-            activeFirmId={activeProfileId}
-            onUpdateMasterSettings={setMasterSettings}
-            onUpdateSupportConfig={setSupportConfig}
-            onInspectFirm={(firm) => {
-              setInspectedFirm(firm);
-              setProfiles((prev) => (prev.some((p) => p.id === firm.id) ? prev : [firm, ...prev]));
-              setActiveProfileId(firm.id);
-              setIsFirmActive(true);
-              setActiveTab('dashboard');
-            }}
-          />
-        )}
         
         {/* TAB 0: Swarnkar Executive Dashboard [F1] */}
         {activeTab === 'dashboard' && (
@@ -2292,10 +1713,9 @@ export default function App() {
             onAddCustomer={handleAddCustomer}
             onCreateInvoice={handleCreateInvoice}
             onUpdateInventoryQty={handleUpdateInventoryQty}
-            canCreateInvoice={isDemoUser || hasActionPermission(activeUserAccess, 'canCreateInvoice', effectivePermissions, isMasterAdmin)}
-            invoiceQuotaStatus={invoiceQuotaStatus}
-            userRole={isMasterAdmin ? 'master_admin' : activeUserAccess?.role}
-            userStatus={activeUserAccess?.status}
+            canCreateInvoice={true}
+            userRole="owner"
+            userStatus="active"
             currentUserId={currentUserId}
           />
         )}
@@ -2339,9 +1759,6 @@ export default function App() {
             onOpenQuickGenerate={() => setIsQuickGenerateOpen(true)}
             onBulkAddItems={(newItems) => {
               const taggedItems = newItems.map(it => ({ ...it, firmId: activeProfileId }));
-              if (isDemoUser) {
-                setInventory(prev => [...taggedItems, ...prev]);
-              }
               taggedItems.forEach(it => persistFirmDoc('inventory', it));
             }}
           />
@@ -2359,7 +1776,6 @@ export default function App() {
             onSellInPOS={(gemItem) => {
               const tagged = { ...gemItem, firmId: activeProfileId };
               if (!inventory.some(i => i.id === tagged.id)) {
-                if (isDemoUser) setInventory(prev => [tagged, ...prev]);
                 persistFirmDoc('inventory', tagged);
               }
               setActiveTab('pos');
@@ -2367,7 +1783,6 @@ export default function App() {
             onPrintTag={(gemItem) => {
               const tagged = { ...gemItem, firmId: activeProfileId };
               if (!inventory.some(i => i.id === tagged.id)) {
-                if (isDemoUser) setInventory(prev => [tagged, ...prev]);
                 persistFirmDoc('inventory', tagged);
               }
               setActiveTab('barcode');
@@ -2452,13 +1867,8 @@ export default function App() {
             onViewPrintInvoice={(inv) => setPrintingInvoices([inv])}
             onBatchPrintInvoices={(invs) => setPrintingInvoices(invs)}
             onDeleteInvoice={handleDeleteInvoice}
-            canCancelInvoice={isDemoUser || hasActionPermission(activeUserAccess, 'canCancelInvoice', effectivePermissions, isMasterAdmin)}
+            canCancelInvoice={true}
             onCancelInvoice={async (inv, reason) => {
-              if (!isDemoUser && !hasActionPermission(activeUserAccess, 'canCancelInvoice', effectivePermissions, isMasterAdmin)) {
-                const msg = 'Master Admin द्वारा आपको इनवॉइस रद्द (Cancel) करने की अनुमति नहीं दी गई है।';
-                alert(msg);
-                throw new Error(msg);
-              }
               const cancelledInv: GSTInvoice = {
                 ...inv,
                 status: 'Cancelled',
@@ -2470,17 +1880,19 @@ export default function App() {
               const updateLocalCancelled = () => {
                 setInvoices(prev => prev.map(i => (i.id === inv.id ? cancelledInv : i)));
                 saveLocalDeviceInvoice(activeProfileId, cancelledInv);
-                setInventory(prev =>
-                  prev.map(it => {
+                setInventory(prev => {
+                  const next = prev.map(it => {
                     const restoreQty = inv.items
                       .filter(c => c.itemId === it.id)
                       .reduce((s, c) => s + (c.quantity || 1), 0);
                     return restoreQty > 0 ? { ...it, quantity: it.quantity + restoreQty } : it;
-                  })
-                );
+                  });
+                  replaceLocalFirmCollection(activeProfileId, 'inventory', next);
+                  return next;
+                });
               };
 
-              if (isDemoUser || inv.id.startsWith('local-inv-') || inv.id.startsWith('demo-inv-') || !navigator.onLine || !isFirmRootReady) {
+              if (!hasCloudSupport || !currentUserId || inv.id.startsWith('local-inv-') || inv.id.startsWith('demo-inv-') || !navigator.onLine || !isFirmRootReady) {
                 updateLocalCancelled();
                 return;
               }
@@ -2488,8 +1900,7 @@ export default function App() {
               beginSyncWrite('Cancelling invoice...');
               try {
                 await cancelInvoiceAtomic(activeProfileId, inv, reason, shopDetails.name || 'Owner', {
-                  uid: currentUserId,
-                  isMasterAdmin
+                  uid: currentUserId
                 });
                 updateLocalCancelled();
                 endSyncWrite(`Invoice ${inv.invoiceNumber} cancelled`, true);
@@ -2558,9 +1969,6 @@ export default function App() {
           <StaffPayrollManager />
         )}
 
-        </>
-        )}
-
         </main>
       </div>
 
@@ -2594,7 +2002,7 @@ export default function App() {
         onAddFirm={handleAddProfile}
         onUpdateFirm={handleUpdateProfile}
         onDeleteFirm={handleDeleteFirm}
-        canManageStaff={!isDemoUser && hasActionPermission(activeUserAccess, 'staffManagement', effectivePermissions, isMasterAdmin)}
+        canManageStaff={Boolean(hasCloudSupport && currentUserId && (activeProfile?.ownerUid === currentUserId || !activeProfile?.ownerUid))}
         currentUid={currentUserId}
         ownerPermissions={effectivePermissions || FULL_PERMISSIONS}
         staffInvites={staffInvites}
@@ -2659,14 +2067,16 @@ export default function App() {
           setShopDetails(updated);
           persistFirmDoc('shop_details', { id: 'main', ...updated });
           if (activeProfileId) {
-            setProfiles(prev =>
-              prev.map(p =>
+            setProfiles(prev => {
+              const next = prev.map(p =>
                 p.id === activeProfileId
                   ? { ...p, logoUrl: updated.logoUrl || undefined }
                   : p
-              )
-            );
-            if (!isDemoUser && currentUserId) {
+              );
+              saveLocalFirmProfiles(next);
+              return next;
+            });
+            if (hasCloudSupport && currentUserId) {
               updateFirmMetaByMaster(activeProfileId, {
                 logoUrl: updated.logoUrl || ''
               }).catch(() => {});
@@ -2719,22 +2129,6 @@ export default function App() {
           profiles
         }}
         onRestoreData={(restored) => {
-          if (isDemoUser) {
-            if (restored.inventory) setInventory(restored.inventory);
-            if (restored.customers) setCustomers(restored.customers);
-            if (restored.invoices) setInvoices(restored.invoices);
-            if (restored.vendors) setVendors(restored.vendors);
-            if (restored.purchases) setPurchases(restored.purchases);
-            if (restored.expenses) setExpenses(restored.expenses);
-            if (restored.transfers) setTransfers(restored.transfers);
-            if (restored.karigars) setKarigars(restored.karigars);
-            if (restored.jobCards) setJobCards(restored.jobCards);
-            if (restored.girviLoans) setGirviLoans(restored.girviLoans);
-            if (restored.gemstones) setGemstones(restored.gemstones);
-            if (restored.shopDetails) setShopDetails(restored.shopDetails);
-            return;
-          }
-          // Upload restored collections to Firestore
           if (restored.shopDetails) persistFirmDoc('shop_details', { id: 'main', ...restored.shopDetails });
           (restored.inventory || []).forEach((it: JewelleryItem) => persistFirmDoc('inventory', { ...it, firmId: activeProfileId }));
           (restored.customers || []).forEach((c: Customer) => persistFirmDoc('customers', { ...c, firmId: activeProfileId }));

@@ -53,11 +53,7 @@ import {
   FULL_PERMISSIONS,
   RESTRICTED_PERMISSIONS,
   capStaffPermissionsToOwner,
-  canUserAccessApp,
-  canUserCreateInvoice,
   normalizePermissions,
-  resolveEffectivePermissions,
-  validateTrialFirestoreReadiness,
   toEpochMs
 } from './accessControl';
 
@@ -302,7 +298,7 @@ export async function ensureFirmRootDoc(
       const data = firmSnap.data();
       const isOwner = data?.ownerUid === uid;
       const isStaff = Boolean(data?.staff && typeof data.staff === 'object' && uid in data.staff);
-      if (!isOwner && !isStaff && !opts?.isMasterAdmin) {
+      if (!isOwner && !isStaff) {
         throw new Error('इस फर्म तक पहुँचने की अनुमति नहीं है (Permission denied).');
       }
     }
@@ -672,7 +668,7 @@ function formatTransactionErrorMessage(err: any): string {
   const raw = String(err?.message || err || '');
   const lower = raw.toLowerCase();
   if (code === 'permission-denied' || lower.includes('missing or insufficient permissions')) {
-    return 'Firestore अनुमति अस्वीकृत (Missing or insufficient permissions): कृपया जाँचें कि आपका खाता Master Control में Trial/Active स्वीकृत है, Billing अनुमति चालू है, Trial समाप्ति तिथि सेट है और नवीनतम firestore.rules प्रकाशित हैं।';
+    return 'Firestore अनुमति अस्वीकृत (Missing or insufficient permissions): कृपया सुनिश्चित करें कि आप साइन-इन हैं और नवीनतम firestore.rules प्रकाशित हैं।';
   }
   if (code === 'unavailable' || lower.includes('network') || lower.includes('offline')) {
     return 'इंटरनेट कनेक्शन या Firestore सर्वर उपलब्ध नहीं है। कृपया नेटवर्क जाँचकर पुनः प्रयास करें।';
@@ -724,7 +720,7 @@ export async function createInvoiceAtomic(
       series,
       invoiceId: calculatedInvoiceId,
       uid,
-      userRole: opts?.isMasterAdmin ? 'master_admin' : undefined,
+      userRole: 'owner',
       paymentMode: invoiceDraft.payment?.method,
       itemCount: invoiceDraft.items?.length || 0,
       retriesAttempted: 0,
@@ -772,12 +768,7 @@ export async function createInvoiceAtomic(
           throw new Error('फर्म स्वामी (Owner UID) सत्यापित नहीं हो सका।');
         }
 
-        const ownerRef = doc(targetDb, 'users', ownerUid);
         const usageRef = doc(targetDb, 'users', ownerUid, 'usage', 'invoices');
-        const ownerSnap = await transaction.get(ownerRef);
-        const actorRef = uid && uid !== ownerUid ? doc(targetDb, 'users', uid) : null;
-        const actorSnap = actorRef ? await transaction.get(actorRef) : null;
-
         const usageSnap = await transaction.get(usageRef);
         const counterSnap = await transaction.get(counterRef);
 
@@ -801,47 +792,6 @@ export async function createInvoiceAtomic(
         const currentUsageCount = usageSnap.exists() ? Number(usageSnap.data()?.count || 0) : 0;
         const nextUsageCount = currentUsageCount + 1;
         calculatedInvoiceId = `${series}_${nextUsageCount}`;
-
-        if (!opts?.isMasterAdmin) {
-          if (!ownerSnap.exists()) {
-            throw new Error('फर्म स्वामी (Owner) का एक्सेस रिकॉर्ड नहीं मिला। कृपया Master Admin से संपर्क करें।');
-          }
-          const ownerAccess = { uid: ownerSnap.id, ...ownerSnap.data() } as AppUserAccessRecord;
-          const ownerPerms = normalizePermissions(ownerAccess.permissions, ownerAccess.status === 'active' ? FULL_PERMISSIONS : RESTRICTED_PERMISSIONS);
-          const quotaCheck = canUserCreateInvoice(ownerAccess, currentUsageCount, Date.now(), false, ownerPerms);
-          if (!quotaCheck.allowed) {
-            throw new Error(quotaCheck.reason || 'इनवॉइस बनाने की अनुमति नहीं है।');
-          }
-          if (ownerAccess.status === 'trial') {
-            const trialReadiness = validateTrialFirestoreReadiness(ownerAccess);
-            if (!trialReadiness.valid) {
-              throw new Error(trialReadiness.reason || 'ट्रायल सेटिंग्स अपूर्ण हैं।');
-            }
-          }
-          if (actorSnap) {
-            if (!actorSnap.exists()) {
-              throw new Error('आपका यूज़र एक्सेस रिकॉर्ड नहीं मिला। कृपया Master Admin से संपर्क करें।');
-            }
-            const actorAccess = { uid: actorSnap.id, ...actorSnap.data() } as AppUserAccessRecord;
-            const actorCheck = canUserAccessApp(actorAccess, false);
-            if (!actorCheck.allowed) {
-              throw new Error(actorCheck.message || 'आपका खाता सक्रिय नहीं है।');
-            }
-            const firmProfileLike = firmData
-              ? ({ id: firmId, ...firmData } as unknown as JewellerProfile)
-              : undefined;
-            const actorPerms = resolveEffectivePermissions({
-              isPlatformAdmin: false,
-              userAccess: actorAccess,
-              firmProfile: firmProfileLike,
-              uid,
-              ownerAccess
-            });
-            if (!actorPerms.billing && !actorPerms.estimates) {
-              throw new Error('आपके खाते या स्टाफ रोल के लिए Billing / Estimates अनुमति बंद है।');
-            }
-          }
-        }
 
         for (const [itemId, req] of requiredQtyByItemId.entries()) {
           const snap = itemSnapMap.get(itemId);
@@ -950,7 +900,7 @@ export async function createInvoiceAtomic(
         series,
         invoiceId: calculatedInvoiceId,
         uid,
-        userRole: opts?.isMasterAdmin ? 'master_admin' : undefined,
+        userRole: 'owner',
         paymentMode: invoiceDraft.payment?.method,
         itemCount: invoiceDraft.items?.length || 0,
         retriesAttempted: attempt,
@@ -1658,21 +1608,13 @@ export function downloadCSVFile(rows: any[], filename: string) {
 // ============================================================================
 
 /**
- * Checks whether the signed-in user exists in server-provisioned `platform_admins/{uid}`.
- * Nothing on the client can write to `platform_admins`.
+ * Platform Master Admin security has been removed; always returns false.
  */
 export async function checkIsPlatformAdmin(
-  uid?: string | null,
-  opts?: FirestoreOpts
+  _uid?: string | null,
+  _opts?: FirestoreOpts
 ): Promise<boolean> {
-  if (!uid) return false;
-  const targetDb = opts?.db || db;
-  try {
-    const snap = await getDoc(doc(targetDb, 'platform_admins', uid));
-    return snap.exists();
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 export async function getPublicSupportConfig(
@@ -1772,9 +1714,8 @@ export async function saveMasterControlSettings(
 }
 
 /**
- * Ensures `users/{uid}` exists for any signed-in user.
- * First-time creation strictly sets `status: 'pending'` and `role: 'owner'`
- * with NO privileged fields (enforced by firestore.rules).
+ * Ensures `users/{uid}` exists for any signed-in user with immediate `status: 'active'`
+ * and full permissions (no Master Admin approval or trial lock).
  */
 export async function ensureUserAccessRecord(
   user: {
@@ -1806,7 +1747,8 @@ export async function ensureUserAccessRecord(
       phone: opts?.phone || user.phoneNumber || '',
       firmName: opts?.firmName || '',
       role: 'owner',
-      status: 'pending',
+      status: 'active',
+      permissions: { ...FULL_PERMISSIONS },
       createdAt: nowIso,
       updatedAt: nowIso,
       lastActiveAt: nowIso
@@ -1816,10 +1758,11 @@ export async function ensureUserAccessRecord(
   }
 
   const existingData = existingSnap.data() as AppUserAccessRecord;
-  // Safe self-update keys allowed by firestore.rules: displayName, firmName, phone, lastActiveAt, updatedAt
   const safeProfilePatch: Record<string, any> = {
     lastActiveAt: nowIso,
-    updatedAt: nowIso
+    updatedAt: nowIso,
+    status: 'active',
+    permissions: { ...FULL_PERMISSIONS }
   };
   if (opts?.ownerName && !existingData.displayName) {
     safeProfilePatch.displayName = opts.ownerName;
@@ -1840,6 +1783,8 @@ export async function ensureUserAccessRecord(
   return {
     ...existingData,
     ...safeProfilePatch,
+    status: 'active',
+    permissions: { ...FULL_PERMISSIONS },
     uid: user.uid
   };
 }
